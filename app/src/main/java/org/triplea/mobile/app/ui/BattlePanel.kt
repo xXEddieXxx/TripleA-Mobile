@@ -320,7 +320,7 @@ fun BattleWindow(
 
 // ------------------------------------------------------------------ questions in the footer
 
-/** Retreat (or submerge) with the possible targets; the X on the right keeps fighting, the default. */
+/** Retreat (or submerge) with the possible targets; the check on the right keeps fighting, the default. */
 @Composable
 private fun RetreatFooter(request: RetreatRequest) {
     var menu by remember { mutableStateOf(false) }
@@ -353,8 +353,9 @@ private fun RetreatFooter(request: RetreatRequest) {
             }
         }
         Spacer(Modifier.width(4.dp))
+        // the check keeps fighting: the default answer to the retreat question
         FilledIconButton(onClick = { request.complete(Optional.empty()) }) {
-            Icon(Icons.Filled.Close, contentDescription = "keep fighting")
+            Icon(Icons.Filled.Check, contentDescription = "keep fighting")
         }
     }
 }

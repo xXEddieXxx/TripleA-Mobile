@@ -20,6 +20,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
+import org.triplea.mobile.app.NavArgs
+import org.triplea.mobile.app.SaveTransfer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -102,6 +110,9 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var renaming by remember { mutableStateOf<SaveEntry?>(null) }
     var deleting by remember { mutableStateOf<SaveEntry?>(null) }
+    val context = LocalContext.current
+    var importing by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         scope.launch {
@@ -111,10 +122,32 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
     }
     LaunchedEffect(Unit) { refresh() }
 
+    fun importFrom(uri: Uri) {
+        scope.launch {
+            importing = true
+            val result = SaveTransfer.import(context, uri)
+            importing = false
+            result.onSuccess { refresh() }
+                .onFailure { notice = it.message ?: "The file could not be imported." }
+        }
+    }
+    // a file handed over by another app (share sheet, file manager)
+    val pendingImport by NavArgs.pendingImport.collectAsState()
+    LaunchedEffect(pendingImport) {
+        val uri = pendingImport ?: return@LaunchedEffect
+        NavArgs.pendingImport.value = null
+        importFrom(uri)
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importFrom(uri)
+    }
+
     val filtered = remember(saves, query) {
         if (query.isBlank()) saves else saves.filter { it.name.contains(query, ignoreCase = true) }
     }
     val dateFormat = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm") }
+
+    notice?.let { MessageDialog("Import", it) { notice = null } }
 
     Scaffold(
         topBar = {
@@ -122,6 +155,11 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
                 title = { Text("Load game") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back") }
+                },
+                actions = {
+                    TextButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !importing) {
+                        Text(if (importing) "Importing\u2026" else "Import")
+                    }
                 },
             )
         },
@@ -151,6 +189,7 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
                             onLoad = { onLoad(save.path) },
                             onRename = { renaming = save },
                             onDelete = { deleting = save },
+                            onShare = { runCatching { SaveTransfer.share(context, save.path) }.onFailure { notice = "Sharing failed: ${it.message}" } },
                         )
                     }
                 }
@@ -207,7 +246,7 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
 }
 
 @Composable
-private fun SaveRow(save: SaveEntry, date: String, onLoad: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
+private fun SaveRow(save: SaveEntry, date: String, onLoad: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onShare: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val autosave = save.name.startsWith("autosave", ignoreCase = true)
     Card(
@@ -237,7 +276,7 @@ private fun SaveRow(save: SaveEntry, date: String, onLoad: () -> Unit, onRename:
                     )
                 }
                 Text(
-                    date + "  ·  " + String.format(java.util.Locale.ROOT, "%.1f MB", save.bytes / 1_048_576.0) + if (autosave) "  ·  autosave" else "",
+                    date + if (autosave) "  ·  autosave" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -250,6 +289,11 @@ private fun SaveRow(save: SaveEntry, date: String, onLoad: () -> Unit, onRename:
                         text = { Text("Load") },
                         leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
                         onClick = { menu = false; onLoad() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share") },
+                        leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                        onClick = { menu = false; onShare() },
                     )
                     DropdownMenuItem(
                         text = { Text("Rename") },

@@ -27,6 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
@@ -44,7 +46,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -52,8 +57,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import games.strategy.engine.data.GamePlayer
 import games.strategy.engine.data.ProductionRule
 import games.strategy.engine.data.Resource
@@ -231,6 +234,8 @@ fun PurchaseDialog(
     }
     val affordable = resources.all { (spent[it] ?: 0) <= (available[it] ?: 0) }
     var warnings by remember(request) { mutableStateOf<List<String>?>(null) }
+    var showHint by rememberSaveable { mutableStateOf(false) }
+    var tab by rememberSaveable(request) { mutableStateOf(0) }
     val expanded = remember(request) { mutableStateMapOf<ProductionRule, Boolean>() }
 
     fun unitTypeOf(rule: ProductionRule): UnitType? {
@@ -291,8 +296,11 @@ fun PurchaseDialog(
     }
 
     val totalUnits = rules.sumOf { (counts[it] ?: 0) * unitsIn(it) }
-    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false)) {
-        Surface(Modifier.fillMaxSize()) {
+    // a page over the game rather than a dialog window: it covers the whole screen in every
+    // orientation, and the back gesture only puts it away to look at the map
+    BackHandler { onShowMap?.invoke() }
+    run {
+        Surface(Modifier.fillMaxSize().zIndex(10f)) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 // header: title and the budget
                 Row(
@@ -304,36 +312,72 @@ fun PurchaseDialog(
                             Icon(Icons.Filled.Map, contentDescription = "show map")
                         }
                     }
-                    Column(Modifier.weight(1f)) {
-                        Text(if (request.bid) "Bid: ${player.name}" else "Purchase: ${player.name}", style = MaterialTheme.typography.titleLarge)
-                        if (capacity != null && !request.bid) {
-                            Text("Factories can place $capacity unit(s) this turn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    Text(
+                        if (request.bid) "Bid: ${player.name}" else player.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // what is left of what: "12 / 20 PUs"
                     Column(horizontalAlignment = Alignment.End) {
                         resources.forEach { resource ->
                             val left = (available[resource] ?: 0) - (spent[resource] ?: 0)
-                            Text(
-                                "$left ${resource.name}",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = if (left < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                            )
-                            Text("of ${available[resource] ?: 0} left", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    "$left",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = if (left < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    " / ${available[resource] ?: 0} ${resource.name}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            }
                         }
                     }
+                    TextButton(onClick = { showHint = !showHint }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                        Text(
+                            "?",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (showHint) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                HorizontalDivider()
-
-                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
-                    sections.forEach { (sectionName, sectionRules) ->
-                        item(key = "section-$sectionName") {
-                            Text(
-                                sectionName,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp, start = 4.dp),
+                if (showHint) {
+                    InfoNote(
+                        buildString {
+                            if (capacity != null && !request.bid) append("Your factories can place $capacity unit(s) this turn; what you buy beyond that is lost. ")
+                            append("Att and Def: a die at or below the number is a hit. Move: territories per turn. ")
+                            append("Tap ? on a unit for its abilities.")
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+                // one tab per group: land, air, sea, other; a count of what is chosen in each
+                if (sections.size > 1) {
+                    if (tab >= sections.size) tab = 0
+                    PrimaryTabRow(selectedTabIndex = tab) {
+                        sections.forEachIndexed { index, (name, sectionRules) ->
+                            val chosen = sectionRules.sumOf { (counts[it] ?: 0) * unitsIn(it) }
+                            Tab(
+                                selected = tab == index,
+                                onClick = { tab = index },
+                                text = { Text(if (chosen > 0) "$name ($chosen)" else name, style = MaterialTheme.typography.labelLarge, maxLines = 1) },
                             )
                         }
+                    }
+                } else {
+                    HorizontalDivider()
+                }
+
+                val shown = sections.getOrNull(tab.coerceIn(0, (sections.size - 1).coerceAtLeast(0)))?.second.orEmpty()
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+                    run {
+                        val sectionRules = shown
                         items(sectionRules, key = { it.name }) { rule ->
                             val unitType = unitTypeOf(rule)
                             val current = counts[rule] ?: 0
@@ -361,21 +405,16 @@ fun PurchaseDialog(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("$totalUnits unit(s) selected", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            if (spent.values.all { it == 0 }) "Nothing chosen yet"
-                            else "Spending " + resources.filter { (spent[it] ?: 0) > 0 }.joinToString(", ") { "${spent[it]} ${it.name}" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (affordable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    if (onShowMap != null) {
-                        TextButton(onClick = onShowMap) { Text("Map") }
-                    }
+                    Text(
+                        if (totalUnits == 0) "Nothing chosen"
+                        else "$totalUnits units " + resources.filter { (spent[it] ?: 0) > 0 }.joinToString(", ") { "${spent[it]} ${it.name}" },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (affordable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
                     TextButton(onClick = { counts.clear(); checkAndFinish() }) { Text("Buy nothing") }
-                    Spacer(Modifier.width(8.dp))
-                    Button(enabled = affordable, onClick = { checkAndFinish() }) { Text("Buy") }
+                    Spacer(Modifier.width(4.dp))
+                    ConfirmButton(enabled = affordable) { checkAndFinish() }
                 }
             }
         }
@@ -408,7 +447,7 @@ private fun PurchaseRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f).clickable(onClick = onToggle),
+                    modifier = Modifier.weight(1f),
                 ) {
                     if (unitType != null) UnitIcon(images, unitType, player, size = 44) else Spacer(Modifier.size(44.dp))
                     Spacer(Modifier.width(12.dp))
@@ -432,32 +471,33 @@ private fun PurchaseRow(
                         }
                     }
                 }
+                val info = remember(unitType, player) {
+                    if (ua == null) emptyList()
+                    else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
+                }
+                if (info.isNotEmpty()) {
+                    TextButton(onClick = onToggle, contentPadding = PaddingValues(horizontal = 6.dp), modifier = Modifier.width(32.dp)) {
+                        Text(
+                            "?",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Stepper(count, max, onCount)
             }
-            val info = remember(unitType, player) {
-                if (ua == null) emptyList()
-                else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
-            }
-            if (!expanded) {
-                val flags = info.filter { it.value == null }.take(3).map { it.label }
-                Text(
-                    (if (flags.isEmpty()) "No special abilities" else flags.joinToString("  ·  ")) + (if (info.size > flags.size) "   ▸ more" else ""),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 6.dp).clickable(onClick = onToggle),
-                )
-            } else {
+            if (expanded) {
+                val info = remember(unitType, player) {
+                    if (ua == null) emptyList()
+                    else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clickable(onClick = onToggle),
                 ) {
-                    Column(Modifier.padding(10.dp)) {
-                        Text("Abilities", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 4.dp))
-                        UnitInfoView(info)
-                    }
+                    UnitInfoView(info, modifier = Modifier.padding(10.dp))
                 }
             }
         }

@@ -2,7 +2,11 @@ package org.triplea.mobile.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -35,18 +39,33 @@ import org.triplea.mobile.app.ui.SetupScreen
 object NavArgs {
     @Volatile
     var saveFile: Path? = null
+
+    /** A save game handed to the app by another app (a chat, a mail); the load screen imports it. */
+    val pendingImport = MutableStateFlow<Uri?>(null)
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        takeImport(intent)
         setContent {
             TripleATheme {
                 Surface {
                     AppNavigation()
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeImport(intent)
+    }
+
+    private fun takeImport(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            intent.data?.let { NavArgs.pendingImport.value = it }
         }
     }
 }
@@ -80,6 +99,10 @@ private fun TripleATheme(content: @Composable () -> Unit) {
 @Composable
 private fun AppNavigation() {
     val navController = rememberNavController()
+    val pendingImport by NavArgs.pendingImport.collectAsState()
+    LaunchedEffect(pendingImport) {
+        if (pendingImport != null) navController.navigate("load") { launchSingleTop = true }
+    }
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             HomeScreen(

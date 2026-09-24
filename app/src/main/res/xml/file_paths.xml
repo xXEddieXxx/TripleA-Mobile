@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider may hand to other apps: only the save games. -->
+<paths>
+    <files-path name="saves" path="triplea/savedGames/" />
+</paths>

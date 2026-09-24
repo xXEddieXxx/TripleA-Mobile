@@ -13,7 +13,9 @@ Scope of this first version, on purpose:
 - two maps are bundled (`minimap`, `world_war_ii_classic`); the map browser downloads any map
   from the desktop client's map list (`triplea_maps.yaml`), and maps can also be copied into the
   app's `downloadedMaps` folder in the same layout as on the desktop
-- save/load of local games (`.tsvg` files, not compatible with desktop saves)
+- save/load of local games (`.tsvg` files, not compatible with desktop saves); a save can be
+  shared from the load screen and imported on another phone (or opened from a chat or mail app),
+  which allows play by file: take your turn, share the save, the next player continues
 
 ## License
 
