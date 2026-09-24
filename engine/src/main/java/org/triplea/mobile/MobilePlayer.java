@@ -378,22 +378,25 @@ public class MobilePlayer extends AbstractBasePlayer {
 
   @Override
   public boolean selectAttackSubs(final Territory unitTerritory) {
-    return ui.confirm("Attack submarines", "Attack submarines in " + unitTerritory + "?");
+    return ui.confirmInBattle(
+        unitTerritory, "Attack submarines", "Attack submarines in " + unitTerritory + "?");
   }
 
   @Override
   public boolean selectAttackTransports(final Territory unitTerritory) {
-    return ui.confirm("Attack transports", "Attack transports in " + unitTerritory + "?");
+    return ui.confirmInBattle(
+        unitTerritory, "Attack transports", "Attack transports in " + unitTerritory + "?");
   }
 
   @Override
   public boolean selectAttackUnits(final Territory unitTerritory) {
-    return ui.confirm("Attack units", "Attack units in " + unitTerritory + "?");
+    return ui.confirmInBattle(unitTerritory, "Attack units", "Attack units in " + unitTerritory + "?");
   }
 
   @Override
   public boolean selectShoreBombard(final Territory unitTerritory) {
-    return ui.confirm("Shore bombardment", "Conduct shore bombardment in " + unitTerritory + "?");
+    return ui.confirmInBattle(
+        unitTerritory, "Shore bombardment", "Conduct shore bombardment in " + unitTerritory + "?");
   }
 
   @Override
@@ -408,8 +411,8 @@ public class MobilePlayer extends AbstractBasePlayer {
 
   @Override
   public boolean shouldBomberBomb(final Territory territory) {
-    return ui.confirm(
-        "Strategic bombing raid", "Conduct a strategic bombing raid in " + territory + "?");
+    return ui.confirmInBattle(
+        territory, "Strategic bombing raid", "Conduct a strategic bombing raid in " + territory + "?");
   }
 
   @Override
@@ -418,7 +421,8 @@ public class MobilePlayer extends AbstractBasePlayer {
       final Collection<Unit> potentialTargets,
       final Collection<Unit> bombers) {
     final Collection<Unit> chosen =
-        ui.selectUnits(potentialTargets, "Bombing target", "Select the unit to bomb", 1);
+        ui.selectUnitsInBattle(
+            territory, potentialTargets, "Bombing target", "Select the unit to bomb", 1);
     return chosen.stream().findFirst().orElse(potentialTargets.iterator().next());
   }
 

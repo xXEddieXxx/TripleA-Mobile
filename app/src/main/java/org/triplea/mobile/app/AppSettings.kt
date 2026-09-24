@@ -26,6 +26,8 @@ data class Settings(
     val pauseAfterCasualties: Boolean = true,
     val autoDefaultCasualties: Boolean = false,
     val showAiBattles: Boolean = true,
+    /** A short "how battles work" card in the battle window, until the player dismisses it. */
+    val showBattleHelp: Boolean = true,
     val autosaveEachRound: Boolean = true,
     /** Pause after every battle step and dice roll so the battle window can be followed. */
     val battleStepPauseMillis: Int = 600,
@@ -81,6 +83,7 @@ object AppSettings {
             pauseAfterCasualties = prefs.getBoolean("pauseAfterCasualties", defaults.pauseAfterCasualties),
             autoDefaultCasualties = prefs.getBoolean("autoDefaultCasualties", defaults.autoDefaultCasualties),
             showAiBattles = prefs.getBoolean("showAiBattles", defaults.showAiBattles),
+            showBattleHelp = prefs.getBoolean("showBattleHelp", defaults.showBattleHelp),
             autosaveEachRound = prefs.getBoolean("autosaveEachRound", defaults.autosaveEachRound),
             battleStepPauseMillis = prefs.getInt("battleStepPauseMillis", defaults.battleStepPauseMillis),
             aiMovePauseMillis = prefs.getInt("aiMovePauseMillis", defaults.aiMovePauseMillis),
@@ -128,6 +131,7 @@ object AppSettings {
             .putBoolean("pauseAfterCasualties", next.pauseAfterCasualties)
             .putBoolean("autoDefaultCasualties", next.autoDefaultCasualties)
             .putBoolean("showAiBattles", next.showAiBattles)
+            .putBoolean("showBattleHelp", next.showBattleHelp)
             .putBoolean("autosaveEachRound", next.autosaveEachRound)
             .putInt("battleStepPauseMillis", next.battleStepPauseMillis)
             .putInt("aiMovePauseMillis", next.aiMovePauseMillis)

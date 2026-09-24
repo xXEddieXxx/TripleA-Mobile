@@ -47,8 +47,13 @@ class BattleRequest(val player: GamePlayer, val battles: BattleListing) :
 
 class EndTurnRequest(val player: GamePlayer) : UiRequest<Boolean>()
 
-class ConfirmRequest(val title: String, val question: String, val okOnly: Boolean = false) :
-    UiRequest<Boolean>()
+class ConfirmRequest(
+    val title: String,
+    val question: String,
+    val okOnly: Boolean = false,
+    /** The battle territory this question belongs to; such questions are asked in the battle window. */
+    val territory: String? = null,
+) : UiRequest<Boolean>()
 
 class SelectTerritoryRequest(
     val candidates: List<Territory>,
@@ -62,9 +67,12 @@ class SelectUnitsRequest(
     val title: String,
     val message: String,
     val max: Int,
+    /** The battle territory this choice belongs to (a bombing target); asked in the battle window. */
+    val territory: String? = null,
 ) : UiRequest<Collection<Unit>>()
 
 class CasualtyRequest(
+    val battleId: UUID,
     val selectFrom: List<Unit>,
     val count: Int,
     val message: String,
@@ -92,6 +100,7 @@ class UserActionRequest(
 class CasualtyNoticeRequest(val battleId: UUID, val message: String) : UiRequest<Boolean>()
 
 class RetreatRequest(
+    val battleId: UUID,
     val battleTerritory: Territory,
     val possibleTerritories: List<Territory>,
     val message: String,

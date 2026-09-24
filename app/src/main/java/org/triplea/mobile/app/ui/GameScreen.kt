@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -47,6 +48,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -341,6 +343,15 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         mapState.centerOn(center.centerX.toFloat(), center.centerY.toFloat())
     }
     val casualtyNotice = pending as? CasualtyNoticeRequest
+    /** A loss choice for the battle on screen is made inside the battle window, not in a dialog. */
+    val casualtyRequest = (pending as? CasualtyRequest)?.takeIf { it.battleId == currentBattle?.id }
+    /** Retreat, bombardment, raid and target questions about the battle on screen: asked in its footer. */
+    val battleQuestion: UiRequest<*>? = when (val r = pending) {
+        is RetreatRequest -> r.takeIf { currentBattle != null && it.battleId == currentBattle.id }
+        is ConfirmRequest -> r.takeIf { currentBattle != null && it.territory != null && it.territory == currentBattle.territory }
+        is SelectUnitsRequest -> r.takeIf { currentBattle != null && it.territory != null && it.territory == currentBattle.territory }
+        else -> null
+    }
     val battleStrengths by produceState<BattleStrengths?>(
         initialValue = null,
         currentBattle?.id, currentBattle?.attackingUnits, currentBattle?.defendingUnits,
@@ -351,7 +362,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         }
     }
     // a waiting casualty report always brings the window back, otherwise the game would hang hidden
-    val battleVisible = currentBattle != null && (currentBattle.id != hiddenBattleId || casualtyNotice != null)
+    val battleVisible = currentBattle != null && (currentBattle.id != hiddenBattleId || casualtyNotice != null || casualtyRequest != null || battleQuestion != null)
 
     // one message at a time: a new one replaces the old instead of queueing up for minutes
     val toastJob = remember { mutableStateOf<Job?>(null) }
@@ -421,8 +432,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 }
                 val preselected = if (moveFrom == territory) moveUnits.toHashSet() else units.toHashSet()
                 unitPicker = UnitPickerSpec(
-                    title = "Move from $name",
-                    message = "Choose the units to move",
+                    title = name,
+                    message = "",
                     units = units,
                     max = units.size,
                     initialSelection = units.filter { it in preselected }
@@ -457,7 +468,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                             // the engine's limit (factory production) applies to regular units only
                             val max = if (placeable.maxUnits < 0) regular else minOf(placeable.maxUnits, regular)
                             unitPicker = UnitPickerSpec(
-                                title = "Place in $name",
+                                title = name,
                                 message = when {
                                     placeable.maxUnits < 0 -> "No production limit here: an original factory of its first owner may place any number of units (engine rule)."
                                     constructions > 0 -> "Production allows $max unit(s) here; the $constructions construction(s) do not count."
@@ -801,16 +812,15 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 }
             }
             if (landscape && !desktop) {
-                Row(Modifier.align(Alignment.TopEnd).padding(top = edgeTop, end = edgeEnd)) { menu() }
-            }
-            if (!desktop && landscape) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = edgeTop + 52.dp, end = edgeEnd)
-                        .fillMaxWidth(0.6f),
-                    contentAlignment = Alignment.TopEnd,
-                ) { territoryChip() }
+                // nation (left), turn strip (middle), tapped territory and menu (right): one row
+                Row(
+                    Modifier.align(Alignment.TopEnd).padding(top = edgeTop, end = edgeEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.widthIn(max = 240.dp)) { territoryChip() }
+                    Spacer(Modifier.width(4.dp))
+                    menu()
+                }
             }
             AnimatedVisibility(
                 visible = bannerVisible && banner != null,
@@ -825,17 +835,29 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             // the battle window
             if (currentBattle != null && battleVisible) {
                 // the window may use the space between the turn strip and the action buttons at
-                // the bottom, never more: on small screens its middle part scrolls instead
+                // the bottom, never more: on small screens its middle part scrolls instead. The
+                // action row only holds buttons in the move, place, purchase and end turn phases.
+                val actionsBelow = !desktop && (pending is MoveRequest || pending is PlaceRequest || pending is PurchaseRequest || pending is EndTurnRequest)
                 BoxWithConstraints(
                     Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxSize()
-                        .padding(top = edgeTop + 48.dp, start = edgeStart, end = edgeEnd, bottom = edgeBottom + if (desktop) 8.dp else 60.dp),
+                        .padding(
+                            top = edgeTop + if (landscape) 30.dp else 48.dp,
+                            start = edgeStart,
+                            end = edgeEnd,
+                            bottom = edgeBottom + if (actionsBelow) 60.dp else 8.dp,
+                        ),
                 ) {
                     BattleWindow(
                         battle = currentBattle,
                         images = images,
+                        compact = landscape && !desktop,
                         notice = casualtyNotice,
+                        casualtyRequest = casualtyRequest,
+                        question = battleQuestion,
+                        showHelp = settings.showBattleHelp,
+                        onDismissHelp = { AppSettings.update { it.copy(showBattleHelp = false) } },
                         strengths = battleStrengths,
                         colorOf = { name -> runCatching { Color(session.mapData.getPlayerColor(name).rgb) }.getOrNull() },
                         onDismiss = { hiddenBattleId = currentBattle.id },
@@ -877,6 +899,15 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         onConfirm = { confirmMove(plan) },
                         onCancel = { movePlan = null },
                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+                phaseEndConfirm?.let { confirm ->
+                    // the X keeps the phase open, the check ends it
+                    PhaseEndCard(
+                        confirm = confirm,
+                        onCancel = { phaseEndConfirm = null },
+                        onConfirm = { phaseEndConfirm = null; confirm.proceed() },
+                        modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                 }
                 if (!desktop) Row(
@@ -1053,17 +1084,17 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             }
         }
         is BattleRequest -> BattleListDialog(request)
-        is ConfirmRequest -> ConfirmDialog(request)
-        is CasualtyRequest -> CasualtyDialog(request, images)
+        is ConfirmRequest -> if (battleQuestion == null) ConfirmDialog(request)
+        is CasualtyRequest -> if (casualtyRequest == null) CasualtyDialog(request, images)
         is SelectTerritoryRequest -> TerritoryPickerDialog(request)
-        is RetreatRequest -> RetreatDialog(request)
+        is RetreatRequest -> if (battleQuestion == null) RetreatDialog(request)
         is PoliticsRequest -> PoliticsDialog(request, session)
         is UserActionRequest -> UserActionDialog(request, session)
         is CasualtyNoticeRequest -> {
             // shown inside the battle window; without a battle window, continue right away
             if (currentBattle == null) LaunchedEffect(request) { request.complete(true) }
         }
-        is SelectUnitsRequest -> UnitPickerDialog(
+        is SelectUnitsRequest -> if (battleQuestion == null) UnitPickerDialog(
             UnitPickerSpec(
                 title = request.title,
                 message = request.message,
@@ -1093,17 +1124,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             onClose = { showMoves = false },
         )
     }
-    phaseEndConfirm?.let { confirm ->
-        AlertDialog(
-            onDismissRequest = { phaseEndConfirm = null },
-            title = { Text(confirm.title) },
-            text = { Text(confirm.message) },
-            confirmButton = {
-                Button(onClick = { phaseEndConfirm = null; confirm.proceed() }) { Text(confirm.button) }
-            },
-            dismissButton = { TextButton(onClick = { phaseEndConfirm = null }) { Text("Back") } },
-        )
-    }
+
     if (showSaveDialog) {
         SaveGameDialog(
             defaultName = "${session.gameData.gameName} R${status.round}".replace(Regex("[^A-Za-z0-9 _-]"), ""),
@@ -1136,7 +1157,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         ConfirmDialog(ask)
     }
     if (showQuitDialog) {
-        val quit = ConfirmRequest("Quit game", "Leave the current game? Unsaved progress is lost.")
+        val quit = ConfirmRequest("Quit game?", "Unsaved progress is lost.")
         LaunchedEffect(quit) {
             val yes = withContext(Dispatchers.IO) { runCatching { quit.result.get() }.getOrDefault(false) }
             showQuitDialog = false
@@ -1444,8 +1465,7 @@ private fun PhaseActions(
                     onDone(
                         PhaseEndConfirm(
                             title = "End $phase?",
-                            message = (if (moves == 0) "You have not moved any units. " else "$moves move(s) made. ") +
-                                "Once the phase ends the moves cannot be undone and you cannot come back to it.",
+                            message = if (moves == 0) "No units moved." else "",
                             button = "End phase",
                         ) { pendingRequest.complete(Optional.empty()) },
                     )
@@ -1464,8 +1484,7 @@ private fun PhaseActions(
                     onDone(
                         PhaseEndConfirm(
                             title = "End placement?",
-                            message = (if (remaining > 0) "$remaining unit(s) are not placed yet and will be lost. " else "") +
-                                "Placements cannot be undone once the phase ends.",
+                            message = if (remaining > 0) "$remaining unit(s) not placed, they will be lost." else "",
                             button = "End phase",
                         ) { pendingRequest.complete(Optional.empty()) },
                     )
@@ -1485,7 +1504,7 @@ private fun PhaseActions(
                     onDone(
                         PhaseEndConfirm(
                             title = "End turn?",
-                            message = "End the turn of ${pendingRequest.player.name}?",
+                            message = "",
                             button = "End turn",
                         ) { pendingRequest.complete(true) },
                     )
@@ -1495,6 +1514,39 @@ private fun PhaseActions(
             ) { ButtonLabel(Icons.Filled.Flag, "End turn") }
         }
         else -> {}
+    }
+}
+
+/**
+ * The question before a phase ends, shown as a small card right above the Done button instead of
+ * a pop-up: the phase that ends and, if anything, what is left unresolved.
+ */
+@Composable
+private fun PhaseEndCard(
+    confirm: PhaseEndConfirm,
+    onCancel: () -> kotlin.Unit,
+    onConfirm: () -> kotlin.Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.widthIn(max = 420.dp),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+    ) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(confirm.title, style = MaterialTheme.typography.titleSmall)
+                if (confirm.message.isNotBlank()) {
+                    Text(confirm.message, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            IconButton(onClick = onCancel) { Icon(Icons.Filled.Close, contentDescription = "keep going") }
+            ConfirmButton(onClick = onConfirm)
+        }
     }
 }
 
@@ -1513,41 +1565,40 @@ private fun MoveConfirmCard(
         modifier = modifier.widthIn(max = 420.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text("Move to ${plan.to.name}?", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "${route.numberOfSteps()} step(s): " + route.allTerritories.joinToString(" → ") { it.name },
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    groups.entries.take(5).forEach { (key, units) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            UnitIcon(images, key.first, key.second, size = 24)
-                            Text("×${units.size}", style = MaterialTheme.typography.labelMedium)
+        Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
+            // one line: the units, "from -> to" (with the number of steps when it is not one), X and check
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    val steps = route.numberOfSteps()
+                    Text(
+                        "${route.start.name} → ${plan.to.name}" + if (steps > 1) "  ($steps)" else "",
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 2.dp),
+                    ) {
+                        groups.entries.take(5).forEach { (key, units) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                UnitIcon(images, key.first, key.second, size = 24)
+                                Text("×${units.size}", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
+                        if (groups.size > 5) Text("…", style = MaterialTheme.typography.labelMedium)
                     }
-                    if (groups.size > 5) Text("…", style = MaterialTheme.typography.labelMedium)
                 }
-                OutlinedButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Cancel") }
-                Button(
-                    onClick = onConfirm,
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    modifier = Modifier.padding(start = 6.dp),
-                ) { Text("Move") }
+                IconButton(onClick = onCancel) { Icon(Icons.Filled.Close, contentDescription = "cancel") }
+                ConfirmButton(onClick = onConfirm)
             }
             plan.warning?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
             }
             if (plan.lostAir.isNotEmpty()) {
                 Text(
-                    "${plan.lostAir.size} plane(s) cannot return from there and will be lost",
+                    "${plan.lostAir.size} plane(s) will be lost",
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(top = 4.dp),

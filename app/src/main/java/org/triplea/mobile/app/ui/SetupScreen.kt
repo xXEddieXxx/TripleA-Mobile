@@ -16,17 +16,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import org.triplea.mobile.app.AppServices
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,6 +35,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import games.strategy.engine.data.GameData
@@ -57,6 +55,7 @@ import org.triplea.mobile.app.game.GameController
  * Game selection and player assignment. With [saveFile] set, the save game is loaded instead of
  * offering the installed games.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -140,59 +139,51 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
             }
         } else {
             val data = gameData!!
-            Text(
-                "Hard (AI) plays best but can think for minutes per turn on large maps. Fast (AI) answers within seconds; Easy (AI) is for learning.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
-            // quick selection: everyone, or every nation of an alliance, at once
             val alliances = remember(data) {
                 runCatching {
                     data.allianceTracker.alliances.sorted().map { name -> name to data.allianceTracker.getPlayersInAlliance(name).map { it.name } }
                 }.getOrDefault(emptyList())
             }
-            OutlinedButton(onClick = { showOptions = true }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Text("Game options & bids")
-            }
-            Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    QuickPickRow(label = "Everyone") { kind -> data.playerList.players.forEach { kinds[it.name] = kind } }
-                    alliances.forEach { (name, members) ->
-                        QuickPickRow(label = name) { kind -> members.forEach { kinds[it] = kind } }
-                    }
-                }
+            // one line of chips: everyone or an alliance at once
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            ) {
+                QuickPick("All") { kind -> data.playerList.players.forEach { kinds[it.name] = kind } }
+                alliances.forEach { (name, members) -> QuickPick(name) { kind -> members.forEach { kinds[it] = kind } } }
             }
             LazyColumn(Modifier.weight(1f)) {
                 items(data.playerList.players) { player ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            NationFlag(player.name)
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                player.name,
-                                style = MaterialTheme.typography.titleSmall,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            PlayerKindPicker(
-                                kind = kinds[player.name] ?: PlayerKind.AI_HARD,
-                                onChange = { kinds[player.name] = it },
-                            )
-                        }
+                        NationFlag(player.name)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            player.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        PlayerKindPicker(
+                            kind = kinds[player.name] ?: PlayerKind.AI_HARD,
+                            onChange = { kinds[player.name] = it },
+                        )
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = { if (saveFile == null) gameData = null else onBack() }) { Text("Back") }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { if (saveFile == null) gameData = null else onBack() }) { Text("Back") }
+                TextButton(onClick = { showOptions = true }) { Text("Options & bids") }
                 Button(
                     onClick = {
                         loading = true
@@ -205,7 +196,7 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                                 .onFailure { error = it.message ?: it.toString() }
                         }
                     },
-                ) { Text("Start game") }
+                ) { Text("Start") }
             }
         }
         if (gameData == null && !loading) {
@@ -214,28 +205,24 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
     }
 }
 
-/** One row of the quick selection: a label and a "set all to ..." dropdown. */
+/** A chip of the quick selection: tap for "set everyone / this alliance to ...". */
 @Composable
-private fun QuickPickRow(label: String, onPick: (PlayerKind) -> Unit) {
+private fun QuickPick(label: String, onPick: (PlayerKind) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Spacer(Modifier.width(8.dp))
-        Box {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.width(PICKER_WIDTH)) { Text("All …", maxLines = 1) }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                PlayerKind.values().forEach { option ->
-                    DropdownMenuItem(text = { Text(option.label) }, onClick = { expanded = false; onPick(option) })
-                }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+            Text(" \u25be", style = MaterialTheme.typography.labelLarge)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            PlayerKind.values().forEach { option ->
+                DropdownMenuItem(text = { Text(option.label) }, onClick = { expanded = false; onPick(option) })
             }
         }
     }
 }
 
-private val PICKER_WIDTH = 132.dp
+private val PICKER_WIDTH = 104.dp
 
 /** The nation's flag from the engine assets or the map, or a blank placeholder. */
 @Composable
@@ -269,8 +256,6 @@ private fun PlayerKindPicker(kind: PlayerKind, onChange: (PlayerKind) -> Unit) {
                 contentColor = if (kind == PlayerKind.HUMAN) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             ),
         ) {
-            Icon(if (kind == PlayerKind.HUMAN) Icons.Filled.Person else Icons.Filled.SmartToy, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(4.dp))
             Text(kind.label.removeSuffix(" (AI)"), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

@@ -57,6 +57,9 @@ data class GameStatus(
 )
 
 /** What the UI shows for the battle currently being fought. */
+/** What each side lost in one round of a battle. */
+data class RoundLosses(val round: Int, val attackerLost: List<Unit> = emptyList(), val defenderLost: List<Unit> = emptyList())
+
 data class BattleState(
     val id: UUID,
     val title: String,
@@ -82,9 +85,23 @@ data class BattleState(
     val round: Int = 1,
     val lastCasualties: List<Unit> = emptyList(),
     val lastCasualtyPlayer: String = "",
+    /** Every unit lost so far, by round, so the window can show a tally under each side. */
+    val lossesByRound: List<RoundLosses> = emptyList(),
     val ended: Boolean = false,
     val endMessage: String = "",
-)
+) {
+    /** Records [units] as lost by [player] in the current round; units already recorded are skipped. */
+    fun withLosses(player: String, units: Collection<Unit>): BattleState {
+        val known = lossesByRound.flatMap { it.attackerLost + it.defenderLost }.toHashSet()
+        val fresh = units.filter { it !in known }
+        if (fresh.isEmpty()) return this
+        val attackerSide = player == attacker
+        val current = lossesByRound.lastOrNull()?.takeIf { it.round == round } ?: RoundLosses(round)
+        val updated = if (attackerSide) current.copy(attackerLost = current.attackerLost + fresh) else current.copy(defenderLost = current.defenderLost + fresh)
+        val rest = if (lossesByRound.lastOrNull()?.round == round) lossesByRound.dropLast(1) else lossesByRound
+        return copy(lossesByRound = rest + updated)
+    }
+}
 
 /** Non-blocking notifications for the user (errors, messages from the engine). */
 data class UiMessage(val title: String, val text: String, val isError: Boolean = false)
@@ -310,6 +327,20 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     override fun confirm(title: String, question: String): Boolean =
         ask(ConfirmRequest(title, question))
 
+    override fun confirmInBattle(territory: Territory, title: String, question: String): Boolean =
+        ask(ConfirmRequest(title, question, territory = territory.name))
+
+    override fun selectUnitsInBattle(
+        territory: Territory,
+        candidates: Collection<Unit>,
+        title: String,
+        message: String,
+        max: Int,
+    ): Collection<Unit> {
+        if (candidates.isEmpty()) return emptyList()
+        return ask(SelectUnitsRequest(candidates.toList(), title, message, max, territory = territory.name))
+    }
+
     override fun selectCasualties(
         selectFrom: Collection<Unit>,
         dependents: Map<Unit, Collection<Unit>>,
@@ -326,6 +357,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         }
         return ask(
             CasualtyRequest(
+                battleId,
                 selectFrom.toList(),
                 count,
                 message,
@@ -365,7 +397,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         message: String,
     ): Optional<Territory> {
         if (possibleTerritories.isEmpty()) return Optional.empty()
-        return ask(RetreatRequest(battleTerritory, possibleTerritories.toList(), message, submerge))
+        return ask(RetreatRequest(battleId, battleTerritory, possibleTerritories.toList(), message, submerge))
     }
 
     override fun getPoliticalActionChoice(
@@ -578,7 +610,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
                     }
                 }
             }
-            it.copy(
+            it.withLosses(player.name, killed).copy(
                 attackingUnits = it.attackingUnits - killed.toSet(),
                 defendingUnits = it.defendingUnits - killed.toSet(),
                 log = it.log + text,
@@ -595,7 +627,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         dependents: Map<Unit, Collection<Unit>>,
     ) {
         updateBattle(battleId) {
-            it.copy(
+            it.withLosses(player.name, dead).copy(
                 attackingUnits = it.attackingUnits - dead.toSet(),
                 defendingUnits = it.defendingUnits - dead.toSet(),
                 log = if (dead.isEmpty()) it.log else it.log + "${player.name} lost ${summarize(dead)}",
@@ -614,7 +646,13 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     }
 
     override fun retreat(shortMessage: String, message: String, step: String, player: GamePlayer) {
-        _messages.tryEmit(UiMessage(shortMessage, message))
+        // the desktop client shows this in its battle panel; here it goes into the battle log,
+        // the front line already shows the units leaving. No pop-up.
+        val current = _battle.value
+        val text = stripHtml(shortMessage).ifBlank { stripHtml(message) }
+        if (current != null && !current.ended) {
+            updateBattle(current.id) { it.copy(log = it.log + text) }
+        }
     }
 
     fun dismissBattle() {

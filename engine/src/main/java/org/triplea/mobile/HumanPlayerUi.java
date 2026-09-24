@@ -89,6 +89,25 @@ public interface HumanPlayerUi {
   /** Generic yes/no question. */
   boolean confirm(String title, String question);
 
+  /**
+   * A yes/no question about the battle in {@code territory} (attack submarines, bombard, raid),
+   * so the UI can ask it inside the battle window instead of a dialog.
+   */
+  default boolean confirmInBattle(
+      final Territory territory, final String title, final String question) {
+    return confirm(title, question);
+  }
+
+  /** A unit choice about the battle in {@code territory}, e.g. the target of a bombing raid. */
+  default Collection<Unit> selectUnitsInBattle(
+      final Territory territory,
+      final Collection<Unit> candidates,
+      final String title,
+      final String message,
+      final int max) {
+    return selectUnits(candidates, title, message, max);
+  }
+
   CasualtyDetails selectCasualties(
       Collection<Unit> selectFrom,
       Map<Unit, Collection<Unit>> dependents,

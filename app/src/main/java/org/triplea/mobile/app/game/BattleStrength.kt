@@ -1,6 +1,7 @@
 package org.triplea.mobile.app.game
 
 import games.strategy.engine.data.Unit
+import games.strategy.engine.data.UnitType
 import games.strategy.triplea.Properties
 import games.strategy.triplea.delegate.TerritoryEffectHelper
 import games.strategy.triplea.delegate.power.calculator.CombatValueBuilder
@@ -14,6 +15,10 @@ class SideStrength(
     /** Sum of strength over all dice; divided by the dice sides this is the expected number of hits. */
     val totalPower: Int,
     val diceSides: Int,
+    /** Strength above the unit's own value, e.g. +1 for infantry next to artillery; 0 otherwise. */
+    val boost: Map<Unit, Int> = emptyMap(),
+    /** For a boosted unit, the unit type on its side that supports it (artillery), if one does. */
+    val supporter: Map<Unit, UnitType> = emptyMap(),
 ) {
     val expectedHits: Double get() = if (diceSides > 0) totalPower.toDouble() / diceSides else 0.0
 }
@@ -46,11 +51,32 @@ object BattleStrength {
                         .territoryEffects(effects)
                         .build()
                     val result = PowerStrengthAndRolls.build(units, combatValue)
+                    val offense = side == games.strategy.triplea.delegate.battle.BattleState.Side.OFFENSE
+                    val boosts = units.associateWith { unit ->
+                        val own = runCatching {
+                            if (offense) unit.unitAttachment.getAttack(unit.owner) else unit.unitAttachment.getDefense(unit.owner)
+                        }.getOrDefault(0)
+                        (result.getStrength(unit) - own).coerceAtLeast(0)
+                    }
+                    val typesPresent = units.map { it.type }.toSet()
+                    val supporters = HashMap<Unit, UnitType>()
+                    boosts.filterValues { it > 0 }.keys.forEach { unit ->
+                        val rule = supports.firstOrNull { rule ->
+                            runCatching {
+                                (if (offense) rule.offence else rule.defence) &&
+                                    rule.unitType?.contains(unit.type) == true &&
+                                    (rule.attachedTo as? UnitType)?.let { it in typesPresent } == true
+                            }.getOrDefault(false)
+                        }
+                        (rule?.attachedTo as? UnitType)?.let { supporters[unit] = it }
+                    }
                     return SideStrength(
                         strength = units.associateWith { result.getStrength(it) },
                         rolls = units.associateWith { result.getRolls(it) },
                         totalPower = result.calculateTotalPower(),
                         diceSides = data.diceSides,
+                        boost = boosts,
+                        supporter = supporters,
                     )
                 }
                 BattleStrengths(

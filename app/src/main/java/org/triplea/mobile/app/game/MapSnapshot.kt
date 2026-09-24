@@ -84,6 +84,8 @@ class HistoryEvent(
     val units: List<UnitRef> = emptyList(),
     /** The territory of a battle, if the event is one. */
     val territory: String? = null,
+    /** The territories of a move (start to end) or the one of a placement, for a short headline. */
+    val route: List<String> = emptyList(),
 ) {
     /** Dice rolled in this event (battles), attacker and defender alike. */
     val diceCount: Int get() = details.sumOf { it.dice.size }
@@ -337,6 +339,11 @@ class MapSnapshot(
                             kind = kind,
                             units = unitRefs(data),
                             territory = (data as? Territory)?.name,
+                            route = when (data) {
+                                is MoveDescription -> runCatching { data.route.allTerritories.map { it.name } }.getOrDefault(emptyList())
+                                is PlacementDescription -> runCatching { listOf(data.territory.name) }.getOrDefault(emptyList())
+                                else -> emptyList()
+                            },
                         )
                     }
                     if (events.isEmpty()) continue

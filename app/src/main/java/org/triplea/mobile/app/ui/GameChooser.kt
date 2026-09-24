@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -37,6 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
@@ -145,48 +150,87 @@ fun GameChooser(games: List<MobileEngine.InstalledGame>, onPick: (MobileEngine.I
 private fun MapCard(map: MapChoice, open: Boolean, onToggle: () -> Unit, onPick: (MobileEngine.InstalledGame) -> Unit) {
     val preview = rememberPreview(map.previewFile, if (open) 900 else 300)
     var description by remember(map.descriptionFile) { mutableStateOf<String?>(null) }
+    var moreText by rememberSaveable(map.mapName) { mutableStateOf(false) }
+    var selected by rememberSaveable(map.mapName) { mutableStateOf(0) }
+    var pickGame by remember { mutableStateOf(false) }
     LaunchedEffect(open, map.descriptionFile) {
         if (open && description == null && map.descriptionFile != null) {
             description = withContext(Dispatchers.IO) {
                 runCatching { GameController.stripHtml(String(Files.readAllBytes(map.descriptionFile), Charsets.UTF_8)) }
-                    .getOrNull()?.trim()?.take(1200)
+                    .getOrNull()?.trim()?.take(2000)
             }
         }
     }
+    val game = map.games.getOrNull(selected.coerceIn(0, (map.games.size - 1).coerceAtLeast(0)))
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         onClick = onToggle,
-        colors = CardDefaults.cardColors(containerColor = if (open) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (open) 0.55f else 0.35f)),
     ) {
         Column(Modifier.padding(12.dp)) {
+            // ---- title row: small preview, name, number of games
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!open) {
-                    PreviewImage(preview, Modifier.size(width = 96.dp, height = 64.dp))
+                    PreviewImage(preview, Modifier.size(width = 84.dp, height = 56.dp))
                     Spacer(Modifier.width(12.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Text(map.mapName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${map.games.size} game(s)" + if (open) "" else "  ·  tap for details",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (map.games.size > 1) {
+                        Text("${map.games.size} versions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-                Text(if (open) "▾" else "▸", style = MaterialTheme.typography.titleMedium)
+                Text(if (open) "\u25be" else "\u25b8", style = MaterialTheme.typography.titleMedium)
             }
             if (open) {
+                // ---- picture
                 if (preview != null) {
-                    PreviewImage(preview, Modifier.fillMaxWidth().padding(top = 10.dp).aspectRatio(preview.width.toFloat() / preview.height.toFloat().coerceAtLeast(1f)))
+                    PreviewImage(
+                        preview,
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .heightIn(max = 220.dp)
+                            .aspectRatio(preview.width.toFloat() / preview.height.toFloat().coerceAtLeast(1f)),
+                    )
                 }
+                // ---- which version, and start
+                if (map.games.size > 1 && game != null) {
+                    OutlinedButton(
+                        onClick = { pickGame = true },
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(game.gameName, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text("\u25be")
+                    }
+                    if (pickGame) {
+                        AppDialog(title = map.mapName, onDismiss = { pickGame = false }, buttons = {}) {
+                            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                map.games.forEachIndexed { index, g ->
+                                    OptionRow(title = g.gameName, emphasized = index == selected, onClick = { selected = index; pickGame = false })
+                                }
+                            }
+                        }
+                    }
+                }
+                if (game != null) {
+                    Button(onClick = { onPick(game) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Text(if (map.games.size > 1) "Start" else "Start ${game.gameName}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                // ---- description, folded to a few lines
                 description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp), maxLines = 14, overflow = TextOverflow.Ellipsis)
-                }
-                Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    map.games.forEach { game ->
-                        Button(onClick = { onPick(game) }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(game.gameName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 10.dp),
+                        maxLines = if (moreText) Int.MAX_VALUE else 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (it.length > 240) {
+                        TextButton(onClick = { moreText = !moreText }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Text(if (moreText) "less" else "more")
                         }
                     }
                 }

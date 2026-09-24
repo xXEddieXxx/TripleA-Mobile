@@ -76,6 +76,11 @@ private fun SettingsContent(modifier: Modifier = Modifier) {
             settings.confirmPhaseEnd,
         ) { v -> AppSettings.update { it.copy(confirmPhaseEnd = v) } }
         SwitchRow(
+            "Explain battles",
+            "A short card in the battle window tells how dice, hits and losses work. Got it hides it; switch it on again here.",
+            settings.showBattleHelp,
+        ) { v -> AppSettings.update { it.copy(showBattleHelp = v) } }
+        SwitchRow(
             "Show phase banner",
             "Announce every new phase and player for a moment on the map.",
             settings.showPhaseBanner,

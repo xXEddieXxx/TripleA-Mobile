@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,17 +30,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -130,19 +132,6 @@ fun UnitIcon(images: ImageCache?, type: UnitType, owner: GamePlayer, size: Int =
 }
 
 @Composable
-private fun Stepper(value: Int, max: Int, onChange: (Int) -> kotlin.Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = { onChange(value - 1) }, enabled = value > 0) {
-            Icon(Icons.Filled.Remove, contentDescription = "less")
-        }
-        Text(value.toString(), style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(28.dp))
-        IconButton(onClick = { onChange(value + 1) }, enabled = value < max) {
-            Icon(Icons.Filled.Add, contentDescription = "more")
-        }
-    }
-}
-
-@Composable
 fun UnitPickerDialog(spec: UnitPickerSpec, images: ImageCache?) {
     val groups = remember(spec) { spec.units.groupBy { groupKey(it) } }
     val counts = remember(spec) {
@@ -154,6 +143,8 @@ fun UnitPickerDialog(spec: UnitPickerSpec, images: ImageCache?) {
     val limited = remember(spec) { groups.mapValues { (_, units) -> spec.countsTowardMax(units.first()) } }
     val total = counts.entries.sumOf { (key, n) -> if (limited[key] == true) n else 0 }
     val totalAll = counts.values.sum()
+    // "All" when nothing limits the choice (moving), "Max" when a production limit applies (placing)
+    val unlimited = spec.max >= groups.entries.sumOf { (key, units) -> if (limited[key] == true) units.size else 0 }
 
     fun selectMax() {
         var room = spec.max
@@ -168,77 +159,52 @@ fun UnitPickerDialog(spec: UnitPickerSpec, images: ImageCache?) {
         }
     }
 
-    AlertDialog(
-        onDismissRequest = spec.onCancel,
-        title = { Text(spec.title) },
-        text = {
-            Column {
-                if (spec.message.isNotBlank()) Text(spec.message, modifier = Modifier.padding(bottom = 8.dp))
-                LazyColumn(Modifier.heightIn(max = dialogListHeight(360.dp))) {
-                    items(groups.entries.toList()) { (key, units) ->
-                        val sample = units.first()
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                UnitIcon(images, sample.type, sample.owner)
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text(key.type + if (key.damaged) " (damaged)" else "")
-                                    Text(
-                                        "${units.size} available" + if (limited[key] == false) " · not limited" else "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                            }
-                            val current = counts[key] ?: 0
-                            val allowed = if (limited[key] == true) minOf(units.size, current + (spec.max - total)) else units.size
-                            Stepper(current, allowed) { counts[key] = it.coerceIn(0, units.size) }
-                        }
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Selected: $total / ${spec.max}")
-                    Row {
-                        TextButton(onClick = { groups.keys.forEach { counts[it] = 0 } }, enabled = totalAll > 0) { Text("None") }
-                        // "All" when nothing limits the choice (moving), "Max" when a production limit applies (placing)
-                        val unlimited = spec.max >= groups.entries.sumOf { (key, units) -> if (limited[key] == true) units.size else 0 }
-                        TextButton(onClick = { selectMax() }) { Text(if (unlimited) "All" else "Max") }
-                    }
-                }
+    AppDialog(
+        title = spec.title,
+        subtitle = spec.message.takeIf { it.isNotBlank() },
+        onDismiss = spec.onCancel,
+        status = if (unlimited) "$total selected" else "$total of ${spec.max} selected",
+        statusColor = if (total > 0) MaterialTheme.colorScheme.primary else null,
+        buttons = {
+            ConfirmButton(enabled = totalAll > 0) {
+                val selected = ArrayList<Unit>()
+                groups.forEach { (key, units) -> selected += units.take(counts[key] ?: 0) }
+                spec.onConfirm(selected)
             }
         },
-        confirmButton = {
-            Button(
-                enabled = totalAll > 0,
-                onClick = {
-                    val selected = ArrayList<Unit>()
-                    groups.forEach { (key, units) -> selected += units.take(counts[key] ?: 0) }
-                    spec.onConfirm(selected)
-                },
-            ) { Text("OK") }
-        },
-        dismissButton = { TextButton(onClick = spec.onCancel) { Text("Cancel") } },
-    )
+    ) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { groups.keys.forEach { counts[it] = 0 } }, enabled = totalAll > 0) { Text("None") }
+            TextButton(onClick = { selectMax() }) { Text(if (unlimited) "All" else "Max") }
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(groups.entries.toList()) { (key, units) ->
+                val sample = units.first()
+                val current = counts[key] ?: 0
+                val allowed = if (limited[key] == true) minOf(units.size, current + (spec.max - total)) else units.size
+                CountRow(
+                    title = key.type + if (key.damaged) " (damaged)" else "",
+                    subtitle = "${units.size} available" + if (limited[key] == false) " · does not count" else "",
+                    value = current,
+                    max = allowed,
+                    onChange = { counts[key] = it.coerceIn(0, units.size) },
+                    leading = { UnitIcon(images, sample.type, sample.owner, size = 30) },
+                )
+            }
+        }
+    }
 }
 
 @Composable
 fun ConfirmDialog(request: ConfirmRequest) {
-    AlertDialog(
-        onDismissRequest = { if (request.okOnly) request.complete(true) },
-        title = { Text(request.title) },
-        text = { Text(request.question) },
-        confirmButton = { Button(onClick = { request.complete(true) }) { Text(if (request.okOnly) "OK" else "Yes") } },
-        dismissButton = if (request.okOnly) null else {
-            { TextButton(onClick = { request.complete(false) }) { Text("No") } }
-        },
-    )
+    AppDialog(
+        title = request.title,
+        // the X answers no, the check yes
+        onDismiss = { request.complete(request.okOnly) },
+        buttons = { ConfirmButton { request.complete(true) } },
+    ) {
+        Text(request.question, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.verticalScroll(rememberScrollState()))
+    }
 }
 
 /**
@@ -300,28 +266,28 @@ fun PurchaseDialog(
             if (construction) 0 else (counts[rule] ?: 0) * unitsIn(rule)
         }
         val problems = ArrayList<String>()
-        if (counts.values.sum() == 0) problems += "You are not buying anything."
+        if (counts.values.sum() == 0) problems += "Nothing bought."
         val remaining = resources.associateWith { (available[it] ?: 0) - (spent[it] ?: 0) }
         val couldBuyMore = rules.any { rule ->
             rule.costs.keySet().isNotEmpty() && resources.all { (remaining[it] ?: 0) >= rule.costs.getInt(it) }
         }
         if (couldBuyMore && remaining.values.any { it > 0 }) {
-            problems += "Unspent: " + remaining.filterValues { it > 0 }.entries.joinToString(", ") { "${it.value} ${it.key.name}" } + "."
+            problems += "Unspent: " + remaining.filterValues { it > 0 }.entries.joinToString(", ") { "${it.value} ${it.key.name}" }
         }
         if (!request.bid && capacity != null && unitsBought > capacity) {
-            problems += "You are buying $unitsBought units but your factories can only place $capacity this turn."
+            problems += "$unitsBought units bought, factories place $capacity."
         }
         if (problems.isEmpty()) finish() else warnings = problems
     }
 
     warnings?.let { problems ->
-        AlertDialog(
-            onDismissRequest = { warnings = null },
-            title = { Text("Finish purchase?") },
-            text = { Column { problems.forEach { Text(it, modifier = Modifier.padding(vertical = 2.dp)) } } },
-            confirmButton = { Button(onClick = { warnings = null; finish() }) { Text("Continue") } },
-            dismissButton = { TextButton(onClick = { warnings = null }) { Text("Back") } },
-        )
+        AppDialog(
+            title = "Finish purchase?",
+            onDismiss = { warnings = null },
+            buttons = { ConfirmButton { warnings = null; finish() } },
+        ) {
+            problems.forEach { Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(vertical = 2.dp)) }
+        }
     }
 
     val totalUnits = rules.sumOf { (counts[it] ?: 0) * unitsIn(it) }
@@ -699,8 +665,9 @@ fun MovesList(
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), onClick = { onShowRoute(move) }) {
             Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    val route = move.routeTerritories
                     Text(
-                        "${move.index + 1}. " + move.routeTerritories.joinToString(" → "),
+                        if (route.size >= 2) "${route.first()} → ${route.last()}" + (if (route.size > 2) "  (${route.size - 1})" else "") else route.joinToString(),
                         style = MaterialTheme.typography.labelLarge,
                         maxLines = 2,
                     )
@@ -741,22 +708,15 @@ fun MovesDialog(
     onUndoAll: () -> kotlin.Unit,
     onClose: () -> kotlin.Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text(title) },
-        text = {
-            Column {
-                Text("Tap a move to see its route on the map.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 6.dp))
-                LazyColumn(Modifier.heightIn(max = dialogListHeight(420.dp))) {
-                    item { MovesList(moves, images, onShowRoute, onUndo) }
-                }
-            }
-        },
-        confirmButton = { Button(onClick = onClose) { Text("Close") } },
-        dismissButton = {
+    AppDialog(
+        title = title,
+        onDismiss = onClose,
+        buttons = {
             if (moves.any { it.canUndo }) TextButton(onClick = onUndoAll) { Text("Undo all") }
         },
-    )
+    ) {
+        LazyColumn { item { MovesList(moves, images, onShowRoute, onUndo) } }
+    }
 }
 
 /** Facts about a political or user action: cost, chance, relationship changes, who must accept. */
@@ -784,33 +744,25 @@ private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
     onChoose: (T) -> kotlin.Unit,
     onDone: () -> kotlin.Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text(title) },
-        text = {
-            Column {
-                Text("Tap an action to attempt it. Done ends the phase.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 6.dp))
-                LazyColumn(Modifier.heightIn(max = dialogListHeight(440.dp))) {
-                    items(actions) { action ->
-                        val label = runCatching { buttonText(action) }.getOrNull()?.takeIf { it.isNotBlank() }
-                            ?: (action.name ?: "").removePrefix("politicalActionAttachment_").removePrefix("userActionAttachment_").replace('_', ' ')
-                        val text = runCatching { description(action) }.getOrNull()?.let { GameController.stripHtml(it) } ?: ""
-                        val facts = actionFacts(action)
-                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), onClick = { onChoose(action) }) {
-                            Column(Modifier.padding(10.dp)) {
-                                Text(label, style = MaterialTheme.typography.titleSmall)
-                                if (text.isNotBlank()) Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
-                                if (facts.isNotBlank()) {
-                                    Text(facts, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-                                }
-                            }
-                        }
-                    }
-                }
+    AppDialog(
+        title = title,
+        onDismiss = null,
+        buttons = { Button(onClick = onDone) { Text("Done") } },
+    ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(actions) { action ->
+                val label = runCatching { buttonText(action) }.getOrNull()?.takeIf { it.isNotBlank() }
+                    ?: (action.name ?: "").removePrefix("politicalActionAttachment_").removePrefix("userActionAttachment_").replace('_', ' ')
+                val text = runCatching { description(action) }.getOrNull()?.let { GameController.stripHtml(it) } ?: ""
+                val facts = actionFacts(action)
+                OptionRow(
+                    title = label,
+                    subtitle = listOf(text, facts).filter { it.isNotBlank() }.joinToString("\n").takeIf { it.isNotBlank() },
+                    onClick = { onChoose(action) },
+                )
             }
-        },
-        confirmButton = { Button(onClick = onDone) { Text("Done") } },
-    )
+        }
+    }
 }
 
 /** The politics phase: the desktop client's politics panel with the map's own texts. */
@@ -848,178 +800,188 @@ fun BattleListDialog(request: BattleRequest) {
             territories.sortedBy { it.name }.map { type to it }
         }
     }
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Choose the next battle") },
-        text = {
-            LazyColumn(Modifier.heightIn(max = dialogListHeight(400.dp))) {
-                items(entries) { (type, territory) ->
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        onClick = {
-                            request.complete(
-                                Optional.of(
-                                    FightBattleDetails.builder()
-                                        .where(territory)
-                                        .bombingRaid(type.isBombingRun)
-                                        .battleType(type)
-                                        .build()
-                                )
+    AppDialog(
+        title = "Choose the next battle",
+        onDismiss = null,
+        buttons = {},
+    ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(entries) { (type, territory) ->
+                OptionRow(
+                    title = territory.name,
+                    subtitle = type.toDisplayText(),
+                    onClick = {
+                        request.complete(
+                            Optional.of(
+                                FightBattleDetails.builder()
+                                    .where(territory)
+                                    .bombingRaid(type.isBombingRun)
+                                    .battleType(type)
+                                    .build()
                             )
-                        },
-                    ) {
-                        Text("${type.toDisplayText()}: ${territory.name}")
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-    )
-}
-
-@Composable
-fun CasualtyDialog(request: CasualtyRequest, images: ImageCache?) {
-    val groups = remember(request) { request.selectFrom.groupBy { groupKey(it) } }
-    val damagedDefaults = remember(request) { request.defaults.damaged.toList() }
-    val killsNeeded = (request.count - damagedDefaults.size).coerceAtLeast(0)
-    val counts = remember(request) {
-        mutableStateMapOf<UnitGroupKey, Int>().also { map ->
-            groups.keys.forEach { map[it] = 0 }
-            request.defaults.killed.forEach { unit ->
-                val key = groupKey(unit)
-                map[key] = (map[key] ?: 0) + 1
+                        )
+                    },
+                )
             }
         }
     }
-    val total = counts.values.sum()
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Select casualties: ${request.hit.name}") },
-        text = {
-            Column {
-                Text(request.message, style = MaterialTheme.typography.bodySmall)
-                request.dice?.let { dice ->
-                    val values = (0 until dice.size()).map { dice.getDie(it).value + 1 }
-                    Text("Dice: ${values.joinToString(" ")}  (${dice.hits} hits)", modifier = Modifier.padding(vertical = 4.dp))
+}
+
+/** The player's running choice of losses for a [CasualtyRequest]: counts per unit group. */
+class CasualtyChoice(val request: CasualtyRequest) {
+    val groups: Map<UnitGroupKey, List<Unit>> = request.selectFrom.groupBy { groupKey(it) }
+    val damagedDefaults: List<Unit> = request.defaults.damaged.toList()
+    /** Units to remove: the hits minus those that only damage a unit (e.g. a battleship's first hit). */
+    val killsNeeded: Int = (request.count - damagedDefaults.size).coerceAtLeast(0)
+    val counts: SnapshotStateMap<UnitGroupKey, Int> = mutableStateMapOf<UnitGroupKey, Int>().also { map ->
+        groups.keys.forEach { map[it] = 0 }
+        request.defaults.killed.forEach { unit ->
+            val key = groupKey(unit)
+            map[key] = (map[key] ?: 0) + 1
+        }
+    }
+    val total: Int get() = counts.values.sum()
+    val complete: Boolean get() = total == killsNeeded
+
+    fun confirm() {
+        val killed = ArrayList<Unit>()
+        groups.forEach { (key, units) -> killed += units.take(counts[key] ?: 0) }
+        request.complete(CasualtyDetails(killed, damagedDefaults, false))
+    }
+
+    fun useSuggested() = request.complete(CasualtyDetails(request.defaults, true))
+
+    private fun keysOf(type: String, owner: String) = groups.keys.filter { it.type == type && it.owner == owner }
+
+    /** How many units of this type and owner are marked as lost. */
+    fun chosen(type: String, owner: String): Int = keysOf(type, owner).sumOf { counts[it] ?: 0 }
+
+    /**
+     * A tap on a unit tile of the front line: marks one more unit of that type. When every hit is
+     * already assigned, one is taken away from another type instead; when this type cannot take
+     * more, its marks are cleared.
+     */
+    fun tap(type: String, owner: String) {
+        val keys = keysOf(type, owner)
+        val key = keys.firstOrNull { (counts[it] ?: 0) < groups.getValue(it).size }
+        if (key == null) {
+            keys.forEach { counts[it] = 0 }
+            return
+        }
+        if (total >= killsNeeded) {
+            val other = groups.keys.firstOrNull { it !in keys && (counts[it] ?: 0) > 0 }
+            if (other == null) {
+                keys.forEach { counts[it] = 0 }
+                return
+            }
+            counts[other] = (counts[other] ?: 0) - 1
+        }
+        counts[key] = (counts[key] ?: 0) + 1
+    }
+}
+
+/** Fallback when the battle window is not on screen: the same choice as a dialog. */
+@Composable
+fun CasualtyDialog(request: CasualtyRequest, images: ImageCache?) {
+    val choice = remember(request) { CasualtyChoice(request) }
+    AppDialog(
+        title = "Choose your losses",
+        onDismiss = null,
+        status = "${choice.total} of ${choice.killsNeeded} chosen",
+        statusColor = if (choice.complete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        buttons = {
+            TextButton(onClick = { choice.useSuggested() }) { Text("Suggested") }
+            Button(enabled = choice.complete, onClick = { choice.confirm() }) { Text("Confirm") }
+        },
+    ) {
+        request.dice?.let { dice ->
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                (0 until dice.size()).take(14).forEach { i ->
+                    val die = dice.getDie(i)
+                    Die(die.value + 1, die.type == games.strategy.triplea.delegate.Die.DieType.HIT, size = 18)
                 }
-                if (damagedDefaults.isNotEmpty()) {
-                    Text("${damagedDefaults.size} unit(s) take damage automatically", style = MaterialTheme.typography.bodySmall)
-                }
-                LazyColumn(Modifier.heightIn(max = dialogListHeight(340.dp))) {
-                    items(groups.entries.toList()) { (key, units) ->
-                        val sample = units.first()
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                UnitIcon(images, sample.type, sample.owner)
-                                Spacer(Modifier.width(8.dp))
-                                Text("${key.type} (${units.size})")
-                            }
-                            val current = counts[key] ?: 0
-                            val allowed = minOf(units.size, current + (killsNeeded - total))
-                            Stepper(current, allowed) { counts[key] = it.coerceIn(0, units.size) }
-                        }
-                    }
-                }
-                Text(
-                    "Killed: $total / $killsNeeded",
-                    color = if (total == killsNeeded) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp),
+            }
+        }
+        if (choice.damagedDefaults.isNotEmpty()) {
+            Text("${choice.damagedDefaults.size} hit(s) only damage a unit and are taken automatically.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(choice.groups.entries.toList()) { (key, units) ->
+                val sample = units.first()
+                val current = choice.counts[key] ?: 0
+                val allowed = minOf(units.size, current + (choice.killsNeeded - choice.total))
+                CountRow(
+                    title = key.type + if (key.damaged) " (damaged)" else "",
+                    subtitle = "${units.size} in battle",
+                    value = current,
+                    max = allowed,
+                    onChange = { choice.counts[key] = it.coerceIn(0, units.size) },
+                    leading = { UnitIcon(images, sample.type, sample.owner, size = 30) },
                 )
             }
-        },
-        confirmButton = {
-            Button(
-                enabled = total == killsNeeded,
-                onClick = {
-                    val killed = ArrayList<Unit>()
-                    groups.forEach { (key, units) -> killed += units.take(counts[key] ?: 0) }
-                    request.complete(CasualtyDetails(killed, damagedDefaults, false))
-                },
-            ) { Text("OK") }
-        },
-        dismissButton = {
-            TextButton(onClick = { request.complete(CasualtyDetails(request.defaults, true)) }) { Text("Use default") }
-        },
-    )
+        }
+    }
 }
 
 @Composable
 fun TerritoryPickerDialog(request: SelectTerritoryRequest) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text(request.title) },
-        text = {
-            Column {
-                Text(request.message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
-                LazyColumn(Modifier.heightIn(max = dialogListHeight(400.dp))) {
-                    items(request.candidates) { territory: Territory ->
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            onClick = { request.complete(Optional.of(territory)) },
-                        ) { Text(territory.name) }
-                    }
-                }
-            }
+    AppDialog(
+        title = request.title,
+        subtitle = request.message.takeIf { it.isNotBlank() },
+        onDismiss = null,
+        buttons = {
+            if (request.noneAllowed) TextButton(onClick = { request.complete(Optional.empty()) }) { Text("None") }
         },
-        confirmButton = {},
-        dismissButton = if (request.noneAllowed) {
-            { TextButton(onClick = { request.complete(Optional.empty()) }) { Text("None") } }
-        } else null,
-    )
+    ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(request.candidates) { territory: Territory ->
+                OptionRow(title = territory.name, onClick = { request.complete(Optional.of(territory)) })
+            }
+        }
+    }
 }
 
 @Composable
 fun RetreatDialog(request: RetreatRequest) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text(if (request.submerge) "Submerge or retreat?" else "Retreat?") },
-        text = {
-            Column {
-                Text(request.message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
-                LazyColumn(Modifier.heightIn(max = dialogListHeight(300.dp))) {
-                    items(request.possibleTerritories) { territory ->
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            onClick = { request.complete(Optional.of(territory)) },
-                        ) {
-                            Text(if (territory == request.battleTerritory && request.submerge) "Submerge" else "Retreat to ${territory.name}")
-                        }
-                    }
-                }
+    AppDialog(
+        title = if (request.submerge) "Submerge or retreat?" else "Retreat?",
+        subtitle = request.message.takeIf { it.isNotBlank() },
+        onDismiss = null,
+        buttons = { Button(onClick = { request.complete(Optional.empty()) }) { Text("Keep fighting") } },
+    ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(request.possibleTerritories) { territory ->
+                val submerge = territory == request.battleTerritory && request.submerge
+                OptionRow(
+                    title = if (submerge) "Submerge" else "Retreat to ${territory.name}",
+                    onClick = { request.complete(Optional.of(territory)) },
+                )
             }
-        },
-        confirmButton = { Button(onClick = { request.complete(Optional.empty()) }) { Text("Keep fighting") } },
-    )
+        }
+    }
 }
 
 @Composable
 fun SaveGameDialog(defaultName: String, onSave: (String) -> kotlin.Unit, onCancel: () -> kotlin.Unit) {
     var name by remember { mutableStateOf(defaultName) }
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("Save game") },
-        text = {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
-        },
-        confirmButton = {
-            Button(enabled = name.isNotBlank(), onClick = { onSave(name.trim()) }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
-    )
+    AppDialog(
+        title = "Save game",
+        onDismiss = onCancel,
+        buttons = { ConfirmButton(enabled = name.isNotBlank()) { onSave(name.trim()) } },
+    ) {
+        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    }
 }
 
 @Composable
 fun MessageDialog(title: String, text: String, onDismiss: () -> kotlin.Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(text) },
-        confirmButton = { Button(onClick = onDismiss) { Text("OK") } },
-    )
+    AppDialog(
+        title = title,
+        onDismiss = onDismiss,
+        buttons = {},
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.verticalScroll(rememberScrollState()))
+    }
 }
 
 fun IBattle.BattleType.label(): String = toDisplayText()

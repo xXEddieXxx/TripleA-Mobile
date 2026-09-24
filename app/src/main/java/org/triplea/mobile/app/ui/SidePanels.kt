@@ -20,17 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Leaderboard
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,13 +31,13 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -131,12 +122,12 @@ internal fun DiplomacyList(relationships: List<RelationshipLine>) {
 }
 
 /** The tabs of the side panel; each shows one thing at a time. */
-private enum class PanelTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    TURN("Turn", Icons.Filled.Flag),
-    ZONE("Zone", Icons.Filled.Place),
-    STATS("Stats", Icons.Filled.Leaderboard),
-    HISTORY("History", Icons.Filled.History),
-    DIPLOMACY("Diplomacy", Icons.Filled.Handshake),
+private enum class PanelTab(val label: String) {
+    TURN("Turn"),
+    ZONE("Zone"),
+    STATS("Stats"),
+    HISTORY("History"),
+    DIPLOMACY("Diplomacy"),
 }
 
 /**
@@ -187,8 +178,7 @@ internal fun SidePanel(
                 Tab(
                     selected = tabIndex == index,
                     onClick = { tabIndex = index },
-                    icon = { Icon(t.icon, contentDescription = t.label, modifier = Modifier.size(20.dp)) },
-                    text = { Text(t.label, style = MaterialTheme.typography.labelSmall, maxLines = 1) },
+                    text = { Text(t.label, style = MaterialTheme.typography.labelMedium, maxLines = 1) },
                 )
             }
         }
@@ -359,18 +349,11 @@ internal fun HistoryList(history: List<HistoryBlock>, images: ImageCache?) {
     }
 }
 
-/** One event: kind icon, text, the units as icons; opens into its detail lines with dice and units. */
+/** One event: its text, the units as icons; opens into its detail lines with dice and units. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HistoryEventRow(event: HistoryEvent, expanded: Boolean, images: ImageCache?, onToggle: () -> kotlin.Unit) {
     val expandable = event.details.isNotEmpty()
-    val icon = when (event.kind) {
-        HistoryKind.BATTLE -> Icons.Filled.Whatshot
-        HistoryKind.MOVE -> Icons.AutoMirrored.Filled.ArrowForward
-        HistoryKind.PURCHASE -> Icons.Filled.ShoppingCart
-        HistoryKind.PLACE -> Icons.Filled.AddLocationAlt
-        HistoryKind.OTHER -> Icons.Filled.Info
-    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -378,19 +361,28 @@ private fun HistoryEventRow(event: HistoryEvent, expanded: Boolean, images: Imag
             .padding(start = 24.dp, top = 3.dp, bottom = 3.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = if (event.kind == HistoryKind.BATTLE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp).size(14.dp),
-            )
-            Spacer(Modifier.width(6.dp))
             Column(Modifier.weight(1f)) {
-                Text(event.text, style = MaterialTheme.typography.bodySmall)
+                // a move is "from -> to" (with the number of steps when it went further), a
+                // placement its territory, a purchase only its units; battles stand out by color
+                val headline = when {
+                    event.kind == HistoryKind.MOVE && event.route.size >= 2 ->
+                        "${event.route.first()} → ${event.route.last()}" + if (event.route.size > 2) "  (${event.route.size - 1})" else ""
+                    event.kind == HistoryKind.PLACE && event.route.isNotEmpty() -> event.route.first()
+                    event.kind == HistoryKind.PURCHASE && event.units.isNotEmpty() -> ""
+                    event.kind == HistoryKind.BATTLE -> event.text.removePrefix("Battle in ").removePrefix("Air Battle in ")
+                    else -> event.text
+                }
+                if (headline.isNotBlank()) {
+                    Text(
+                        headline,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (event.kind == HistoryKind.BATTLE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
                 if (event.units.isNotEmpty()) UnitRefRow(event.units, images)
                 if (event.kind == HistoryKind.BATTLE && event.diceCount > 0 && !expanded) {
                     Text(
-                        "${event.diceCount} dice · ${event.hitCount} hit(s) · ${event.details.size} line(s)",
+                        "${event.diceCount} dice, ${event.hitCount} hits",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
