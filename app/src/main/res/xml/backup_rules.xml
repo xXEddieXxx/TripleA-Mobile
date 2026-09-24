@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup rules for Android 10 and 11 (data_extraction_rules.xml covers Android 12 and newer):
+     keep saves and settings, nothing else. -->
+<full-backup-content>
+    <include domain="file" path="triplea/savedGames/" />
+    <include domain="sharedpref" path="settings.xml" />
+</full-backup-content>

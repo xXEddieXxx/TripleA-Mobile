@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The desktop client's icon, centered in the adaptive icon safe zone (66 of 108 dp). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="70dp"
+        android:height="70dp"
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/triplea_icon"
+            android:gravity="fill" />
+    </item>
+</layer-list>

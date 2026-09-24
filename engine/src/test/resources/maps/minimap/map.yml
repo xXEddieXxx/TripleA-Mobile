@@ -1,0 +1,3 @@
+map_name: minimap
+games:
+- {game_name: Minimap, file_name: minimap.xml}

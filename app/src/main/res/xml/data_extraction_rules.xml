@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup and device transfer: keep saves and settings; the cache is never backed up. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="triplea/savedGames/" />
+        <include domain="sharedpref" path="settings.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="triplea/" />
+        <include domain="sharedpref" path="settings.xml" />
+    </device-transfer>
+</data-extraction-rules>

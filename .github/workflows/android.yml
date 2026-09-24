@@ -1,0 +1,100 @@
+name: Android dev build
+
+# Builds the debug APK on every push to main (and on demand) and publishes it:
+#  - as a workflow artifact (kept 30 days, see the run's summary page)
+#  - as the rolling "dev" pre-release, so there is always a stable download link:
+#    https://github.com/<owner>/<repo>/releases/tag/dev
+#
+# Signing: without secrets the APK is signed with a debug key that GitHub creates for the run,
+# which changes between runs; Android then refuses to update an installed build ("app not
+# installed"). To keep one key, store a debug keystore as base64 in the secret DEV_KEYSTORE_B64
+# (password "android", alias "androiddebugkey"):
+#   keytool -genkeypair -v -keystore dev.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 \
+#     -validity 10000 -storepass android -keypass android -dname "CN=TripleA Mobile dev"
+#   base64 -w0 dev.keystore   # -> paste into the secret
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # ubuntu-latest ships the Android SDK (ANDROID_HOME is set); accepting the licenses lets the
+      # Android Gradle plugin download the platform and build tools it needs by itself
+      - name: Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Stable debug key (optional secret)
+        env:
+          DEV_KEYSTORE_B64: ${{ secrets.DEV_KEYSTORE_B64 }}
+        run: |
+          # secrets cannot be tested in an "if:", so the check happens in the shell
+          if [ -n "$DEV_KEYSTORE_B64" ]; then
+            mkdir -p ~/.android
+            echo "$DEV_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "using the stored debug keystore"
+          else
+            echo "no DEV_KEYSTORE_B64 secret: a fresh debug key is generated for this run"
+          fi
+
+      - name: Engine tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :engine:test --no-daemon
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Name the file
+        id: name
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y%m%d)
+          FILE="triplea-mobile-dev-${DATE}-${SHORT}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$FILE"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.file }}
+          path: ${{ steps.name.outputs.file }}
+          retention-days: 30
+
+      - name: Move the dev tag to this commit
+        run: |
+          git tag -f dev
+          git push -f origin dev
+
+      - name: Publish rolling dev release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: Dev build
+          prerelease: true
+          body: |
+            Automatic build of `main` at ${{ steps.name.outputs.short }} (${{ github.event.head_commit.message }}).
+            Debug build: install over a previous dev build only if both were signed with the same key.
+          files: ${{ steps.name.outputs.file }}
