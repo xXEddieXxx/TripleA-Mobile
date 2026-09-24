@@ -46,6 +46,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Stable debug key (optional secret)
+        id: key
         env:
           DEV_KEYSTORE_B64: ${{ secrets.DEV_KEYSTORE_B64 }}
         run: |
@@ -54,8 +55,10 @@ jobs:
             mkdir -p ~/.android
             echo "$DEV_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
             echo "using the stored debug keystore"
+            echo "fixed=true" >> "$GITHUB_OUTPUT"
           else
             echo "no DEV_KEYSTORE_B64 secret: a fresh debug key is generated for this run"
+            echo "fixed=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Engine tests
@@ -77,6 +80,11 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk triplea-mobile-dev.apk
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
           echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          # the signing key's fingerprint goes into the release notes, so a failed install
+          # ("App not installed") can be traced to a key that differs from the installed build
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          FP=$("$APKSIGNER" verify --print-certs "$FILE" | grep -m1 "SHA-256" | sed 's/.*: //')
+          echo "fingerprint=$FP" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -98,7 +106,9 @@ jobs:
           prerelease: true
           body: |
             Automatic build of `main` at ${{ steps.name.outputs.short }} (${{ github.event.head_commit.message }}).
-            Debug build: install over a previous dev build only if both were signed with the same key.
+
+            Signing key (SHA-256): `${{ steps.name.outputs.fingerprint }}`
+            ${{ steps.key.outputs.fixed == 'true' && 'Signed with the stored dev key: installs over every earlier dev build.' || 'Signed with a one-off key: uninstall any earlier build first (on a Pixel also inside the Private Space), or set the DEV_KEYSTORE_B64 secret so all builds share one key.' }}
           files: |
             ${{ steps.name.outputs.file }}
             triplea-mobile-dev.apk
