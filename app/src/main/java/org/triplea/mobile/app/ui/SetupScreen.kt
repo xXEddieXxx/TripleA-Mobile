@@ -153,8 +153,31 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                 QuickPick("All") { kind -> data.playerList.players.forEach { kinds[it.name] = kind } }
                 alliances.forEach { (name, members) -> QuickPick(name) { kind -> members.forEach { kinds[it] = kind } } }
             }
+            // the nations grouped by their alliance, so it is clear who fights with whom
+            val groups = remember(data, alliances) {
+                val placed = HashSet<String>()
+                val result = ArrayList<Pair<String, List<games.strategy.engine.data.GamePlayer>>>()
+                alliances.forEach { (name, members) ->
+                    val players = data.playerList.players.filter { it.name in members && placed.add(it.name) }
+                    if (players.isNotEmpty()) result += name to players
+                }
+                val rest = data.playerList.players.filter { it.name !in placed }
+                if (rest.isNotEmpty()) result += (if (result.isEmpty()) "" else "No alliance") to rest
+                result
+            }
             LazyColumn(Modifier.weight(1f)) {
-                items(data.playerList.players) { player ->
+                groups.forEach { (alliance, players) ->
+                    if (alliance.isNotBlank()) {
+                        item(key = "alliance-$alliance") {
+                            Text(
+                                alliance,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                            )
+                        }
+                    }
+                items(players, key = { it.name }) { player ->
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -175,6 +198,7 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                         )
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
                 }
             }
             Row(
