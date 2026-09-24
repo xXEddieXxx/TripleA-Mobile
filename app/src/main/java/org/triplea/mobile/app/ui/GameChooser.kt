@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -37,7 +37,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedButton
@@ -183,26 +182,19 @@ private fun MapCard(map: MapChoice, open: Boolean, onToggle: () -> Unit, onPick:
                 Text(if (open) "\u25be" else "\u25b8", style = MaterialTheme.typography.titleMedium)
             }
             if (open) {
-                // ---- picture
-                if (preview != null) {
-                    PreviewImage(
-                        preview,
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp)
-                            .heightIn(max = 220.dp)
-                            .aspectRatio(preview.width.toFloat() / preview.height.toFloat().coerceAtLeast(1f)),
-                    )
-                }
-                // ---- which version, and start
-                if (map.games.size > 1 && game != null) {
+                // ---- picture: always the same box, cropped, a placeholder when the map has none
+                PreviewImage(preview, Modifier.fillMaxWidth().padding(top = 10.dp).height(150.dp))
+                // ---- which version (a plain field when there is only one), then start
+                if (game != null) {
                     OutlinedButton(
-                        onClick = { pickGame = true },
+                        onClick = { if (map.games.size > 1) pickGame = true },
+                        enabled = map.games.size > 1,
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(disabledContentColor = MaterialTheme.colorScheme.onSurface),
                     ) {
                         Text(game.gameName, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text("\u25be")
+                        if (map.games.size > 1) Text("▾")
                     }
                     if (pickGame) {
                         AppDialog(title = map.mapName, onDismiss = { pickGame = false }, buttons = {}) {
@@ -213,25 +205,22 @@ private fun MapCard(map: MapChoice, open: Boolean, onToggle: () -> Unit, onPick:
                             }
                         }
                     }
+                    Button(onClick = { onPick(game) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Start") }
                 }
-                if (game != null) {
-                    Button(onClick = { onPick(game) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        Text(if (map.games.size > 1) "Start" else "Start ${game.gameName}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                // ---- description, folded to a few lines
-                description?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 10.dp),
-                        maxLines = if (moreText) Int.MAX_VALUE else 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (it.length > 240) {
-                        TextButton(onClick = { moreText = !moreText }, contentPadding = PaddingValues(horizontal = 4.dp)) {
-                            Text(if (moreText) "less" else "more")
-                        }
+                // ---- description: always three lines, more on request
+                val text = description?.takeIf { it.isNotBlank() } ?: "No description."
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (description.isNullOrBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 10.dp),
+                    minLines = if (moreText) 1 else 3,
+                    maxLines = if (moreText) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (text.length > 180) {
+                    TextButton(onClick = { moreText = !moreText }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        Text(if (moreText) "less" else "more")
                     }
                 }
             }

@@ -1,5 +1,8 @@
 # TripleA Mobile
 
+**[Download the newest dev APK](https://github.com/xXEddieXxx/TripleA-Mobile/releases/download/dev/triplea-mobile-dev.apk)**
+(Android 10 or newer; built automatically from `main`, see [Dev builds](#dev-builds))
+
 An Android port of the [TripleA](https://github.com/triplea-game/triplea) turn based strategy
 engine with a touch UI written in Jetpack Compose.
 
@@ -117,8 +120,10 @@ build produces `app-release-unsigned.apk`.
 ## Dev builds
 
 Every push to `main` runs `.github/workflows/android.yml`: engine tests, debug APK, and a rolling
-pre-release named **dev** with the APK attached, so the latest build is always at
-`https://github.com/<owner>/<repo>/releases/tag/dev`. Android only updates an installed app when
+pre-release named **dev** with the APK attached twice: once with the date and commit in its name
+(`triplea-mobile-dev-<date>-<commit>.apk`) and once as `triplea-mobile-dev.apk`, so the direct
+link at the top of this file always points at the newest build. The release page is
+`https://github.com/xXEddieXxx/TripleA-Mobile/releases/tag/dev`. Android only updates an installed app when
 the new APK is signed with the same key; the workflow header explains how to store a fixed debug
 keystore as the secret `DEV_KEYSTORE_B64`.
 

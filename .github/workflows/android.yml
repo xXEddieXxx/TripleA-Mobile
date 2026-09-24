@@ -73,6 +73,8 @@ jobs:
           DATE=$(date -u +%Y%m%d)
           FILE="triplea-mobile-dev-${DATE}-${SHORT}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$FILE"
+          # a second copy with a fixed name, so the README can link the newest build directly
+          cp app/build/outputs/apk/debug/app-debug.apk triplea-mobile-dev.apk
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
           echo "short=$SHORT" >> "$GITHUB_OUTPUT"
 
@@ -97,4 +99,6 @@ jobs:
           body: |
             Automatic build of `main` at ${{ steps.name.outputs.short }} (${{ github.event.head_commit.message }}).
             Debug build: install over a previous dev build only if both were signed with the same key.
-          files: ${{ steps.name.outputs.file }}
+          files: |
+            ${{ steps.name.outputs.file }}
+            triplea-mobile-dev.apk
