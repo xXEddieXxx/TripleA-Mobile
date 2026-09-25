@@ -39,7 +39,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +75,21 @@ fun MapBrowserScreen(onBack: () -> Unit) {
     var category by remember { mutableStateOf<String?>(null) }
     var installedOnly by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<MapEntry?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var importing by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            importing = true
+            val result = MapDownloadManager.importZip(context, uri)
+            importing = false
+            result.onSuccess { notice = "Map imported" to "The map is installed and appears in the game selection." }
+                .onFailure { notice = "Import failed" to (it.message ?: "The file could not be imported.") }
+        }
+    }
+    notice?.let { (title, text) -> MessageDialog(title, text) { notice = null } }
 
     LaunchedEffect(Unit) {
         MapDownloadManager.refreshInstalled()
@@ -84,6 +104,9 @@ fun MapBrowserScreen(onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back") }
                 },
                 actions = {
+                    TextButton(onClick = { picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }, enabled = !importing) {
+                        Text(if (importing) "Importing\u2026" else "Import")
+                    }
                     IconButton(onClick = { MapDownloadManager.refreshListing(force = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "refresh")
                     }

@@ -218,6 +218,71 @@ object MapDownloadManager {
 
     fun installedFor(entry: MapEntry): InstalledMap? = _installed.value[entry.normalizedName]
 
+    /** Imports are refused above this size; the largest maps in the listing are a few hundred MB. */
+    private const val MAX_IMPORT_BYTES = 2L * 1024 * 1024 * 1024
+
+    /**
+     * Installs a map from a zip file on the device (a map copied from the desktop folder, or from
+     * another source than the listing). Same unpacking and checks as a download; the folder is
+     * named after the file. Returns the folder name of the installed map.
+     */
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    suspend fun importZip(context: android.content.Context, uri: android.net.Uri): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rawName = org.triplea.mobile.app.SaveTransfer.displayName(context, uri)
+            val folderName = rawName.substringAfterLast('/').substringAfterLast('\\')
+                .removeSuffix(".zip").removeSuffix(".ZIP")
+                .lowercase(Locale.ROOT).trim()
+                .replace(Regex("\\s+"), "_")
+                .replace(Regex("[^a-z0-9_.-]"), "")
+                .trim('.', '_', '-')
+                .take(80)
+                .ifBlank { "imported_map" }
+            Files.createDirectories(cacheDir)
+            val zip = cacheDir.resolve("$folderName.import.zip")
+            try {
+                context.contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "The file could not be opened." }
+                    Files.newOutputStream(zip).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > MAX_IMPORT_BYTES) throw IOException("The file is too large for a map.")
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                }
+                val mapsFolder = MobileEngine.getMapsFolder()
+                val target = mapsFolder.resolve(folderName)
+                val staging = cacheDir.resolve("staging").resolve(folderName)
+                runCatching { staging.deleteRecursively() }
+                Files.createDirectories(staging)
+                try {
+                    ZipFile(zip.toFile()).use { file -> MapInstaller.unzip(file, staging, stripTopLevelFolder = true) }
+                    if (!Files.exists(staging.resolve("map.yml")) && !Files.exists(staging.resolve("map"))) {
+                        throw IOException("This zip is not a TripleA map (no map.yml inside).")
+                    }
+                    Files.createDirectories(mapsFolder)
+                    if (Files.exists(target)) target.deleteRecursively()
+                    try {
+                        Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE)
+                    } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
+                        Files.move(staging, target)
+                    }
+                } finally {
+                    runCatching { staging.deleteRecursively() }
+                }
+            } finally {
+                runCatching { Files.deleteIfExists(zip) }
+            }
+            scanInstalled()
+            folderName
+        }
+    }
+
     // ---------------------------------------------------------------- download / delete
 
     fun download(entry: MapEntry) {

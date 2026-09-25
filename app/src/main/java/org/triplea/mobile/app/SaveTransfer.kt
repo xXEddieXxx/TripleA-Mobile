@@ -82,7 +82,8 @@ object SaveTransfer {
         }
     }
 
-    private fun displayName(context: Context, uri: Uri): String {
+    /** The file name a document picker result carries, or the last part of the uri. */
+    internal fun displayName(context: Context, uri: Uri): String {
         runCatching {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
