@@ -73,6 +73,22 @@ internal fun TerritoryDetails(territory: TerritorySnapshot?, images: ImageCache)
                 if (territory.isWater) territory.name else "${territory.name} (${territory.ownerName})",
                 style = MaterialTheme.typography.labelLarge,
             )
+            // terrain and weather effects of the territory, as the desktop's territory panel shows them
+            territory.effects.forEach { effect ->
+                val icon = remember(effect.name, images) { images.getNow(effect.imagePaths.last(), effect.imagePaths) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    if (icon != null) {
+                        Image(icon.asImageBitmap(), contentDescription = effect.name, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Column {
+                        Text(effect.name, style = MaterialTheme.typography.labelLarge)
+                        if (effect.summary.isNotBlank()) {
+                            Text(effect.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
             if (territory.stacks.isEmpty()) {
                 Text("No units", style = MaterialTheme.typography.bodySmall)
             } else {

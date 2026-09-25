@@ -31,6 +31,8 @@ class MovePlan(
      * the turn, so the user is asked before the move goes through.
      */
     val lostAir: List<Unit> = emptyList(),
+    /** For a sea load: the transports in the target zone with room, so the user may pick among them. */
+    val transportChoices: List<Unit> = emptyList(),
 )
 
 /** A move or placement made in the current phase, as listed in the desktop "undo" panel. */
@@ -118,6 +120,8 @@ object MoveHelper {
         from: Territory,
         to: Territory,
         units: List<Unit>,
+        /** For a sea load: only these transports take the units (null: every transport with room). */
+        transports: List<Unit>? = null,
     ): Result<MovePlan> = runCatching {
         val gameData = session.gameData
         val movesMade = session.getCurrentRemoteDelegate(IMoveDelegate::class.java).movesMade
@@ -144,15 +148,18 @@ object MoveHelper {
             // mapping, like the desktop move panel. A loaded transport moving on, or units unloading,
             // must not be mapped onto other transports in the target zone.
             val landUnits = movingUnits.filter { Matches.unitIsLand().test(it) }
+            var transportChoices: List<Unit> = emptyList()
             val transportMapping: Map<Unit, Unit> = if (route.isSeaLoad && landUnits.isNotEmpty()) {
                 val minCost = landUnits.minOf { it.unitAttachment.transportCost }
-                val transports = to.units.filter {
+                val withRoom = to.units.filter {
                     Matches.unitIsSeaTransport().test(it) &&
                         Matches.alliedUnit(player).test(it) &&
                         TransportTracker.getAvailableCapacity(it) >= minCost
                 }
-                if (transports.isEmpty()) throw IllegalArgumentException("No transport with room in ${to.name}")
-                val mapping = TransportUtils.mapTransports(route, movingUnits, transports)
+                if (withRoom.isEmpty()) throw IllegalArgumentException("No transport with room in ${to.name}")
+                transportChoices = withRoom
+                val chosen = transports?.filter { it in withRoom }?.takeIf { it.isNotEmpty() } ?: withRoom
+                val mapping = TransportUtils.mapTransports(route, movingUnits, chosen)
                 if (mapping.isEmpty()) throw IllegalArgumentException("The transports in ${to.name} cannot carry these units")
                 mapping
             } else {
@@ -173,6 +180,7 @@ object MoveHelper {
                 allUnitsCanMove = result.status == MovableUnitsFilter.FilterOperationResult.Status.ALL_UNITS_CAN_MOVE,
                 warning = result.warningOrErrorMessage?.orElse(null),
                 lostAir = lostAir,
+                transportChoices = transportChoices,
             )
         }
     }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -109,8 +110,9 @@ fun BattleWindow(
     var showHint by rememberSaveable { mutableStateOf(false) }
     val attackerColor = colorOf(battle.attacker) ?: MaterialTheme.colorScheme.primary
     val defenderColor = colorOf(battle.defender) ?: MaterialTheme.colorScheme.tertiary
-    val attackGroups = remember(battle.attackingUnits, strengths) { groupByStrength(battle.attackingUnits, strengths?.attackers) }
-    val defendGroups = remember(battle.defendingUnits, strengths) { groupByStrength(battle.defendingUnits, strengths?.defenders) }
+    val dyingSet = remember(battle.dying) { battle.dying.toHashSet() }
+    val attackGroups = remember(battle.attackingUnits, strengths, dyingSet) { groupByStrength(battle.attackingUnits, strengths?.attackers, dyingSet) }
+    val defendGroups = remember(battle.defendingUnits, strengths, dyingSet) { groupByStrength(battle.defendingUnits, strengths?.defenders, dyingSet) }
     val strengthsPresent = remember(attackGroups, defendGroups, battle.lastDiceByStrength) {
         (attackGroups.keys + defendGroups.keys + battle.lastDiceByStrength.keys).filter { it >= 0 }.sorted()
     }
@@ -136,6 +138,7 @@ fun BattleWindow(
             val key = group.type.name to group.owner.name
             TileState(
                 chosen = if (badgeStrength[key] == strength) choice.chosen(key.first, key.second) else 0,
+                damaged = if (badgeStrength[key] == strength) choice.damagedOf(key.first, key.second) else 0,
                 onTap = { choice.tap(key.first, key.second) },
             )
         }
@@ -284,13 +287,16 @@ fun BattleWindow(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Losses ${choice.total}/${choice.killsNeeded}",
+                            "Hits ${choice.total}/${choice.hitsNeeded}",
                             style = MaterialTheme.typography.titleSmall,
                             color = if (choice.complete) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            if (choice.damagedDefaults.isNotEmpty()) "${choice.damagedDefaults.size} damaged" else "",
+                            listOfNotNull(
+                                choice.killed.values.sum().takeIf { it > 0 }?.let { "$it lost" },
+                                choice.damaged.values.sum().takeIf { it > 0 }?.let { "$it damaged" },
+                            ).joinToString("  ·  "),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -418,7 +424,7 @@ private class BattleStatus(val text: String, val tone: Tone)
 private fun battleStatus(b: BattleState, request: CasualtyRequest?, notice: CasualtyNoticeRequest?): BattleStatus = when {
     b.ended -> BattleStatus(b.endMessage.ifBlank { "The battle is over." }, Tone.DONE)
     request != null -> BattleStatus(
-        "${request.hit.name}: ${request.count} hit(s). Tap the units to lose; the weakest are preselected. Confirm with the check.",
+        "${request.hit.name}: ${request.count} hit(s). Tap a unit to give it a hit: a flame is damage it survives, a red number a loss. The weakest are preselected; the check confirms.",
         Tone.ACT,
     )
     notice != null -> BattleStatus(
@@ -692,7 +698,7 @@ private fun SideTiles(groups: List<UnitGroup>, images: ImageCache?, tileFor: (Un
 }
 
 /** How a tile takes part in choosing losses: how many of its units are marked, and what a tap does. */
-class TileState(val chosen: Int, val onTap: () -> kotlin.Unit)
+class TileState(val chosen: Int, val damaged: Int = 0, val onTap: () -> kotlin.Unit)
 
 /**
  * An icon with the count in the corner; several dice per unit are shown as "2×". While losses
@@ -701,14 +707,17 @@ class TileState(val chosen: Int, val onTap: () -> kotlin.Unit)
  */
 @Composable
 private fun UnitTile(group: UnitGroup, images: ImageCache?, tile: TileState? = null, size: Int = 34) {
-    val marked = tile != null && tile.chosen > 0
+    // marked while the player chooses, and afterwards until the engine removes the unit
+    val lost = if (tile != null) tile.chosen else group.dying
+    val marked = lost > 0
+    val hurt = tile != null && tile.damaged > 0
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .padding(horizontal = 1.dp)
             .then(
                 if (tile != null) Modifier
-                    .background(MaterialTheme.colorScheme.error.copy(alpha = if (marked) 0.22f else 0.08f), RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.error.copy(alpha = if (marked || hurt) 0.22f else 0.08f), RoundedCornerShape(6.dp))
                     .clickable(onClick = tile.onTap)
                 else Modifier,
             ),
@@ -727,21 +736,40 @@ private fun UnitTile(group: UnitGroup, images: ImageCache?, tile: TileState? = n
             }
             if (marked) {
                 Surface(color = MaterialTheme.colorScheme.error, shape = MaterialTheme.shapes.extraSmall, modifier = Modifier.align(Alignment.TopStart)) {
-                    Text("−${tile.chosen}", color = MaterialTheme.colorScheme.onError, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 3.dp))
+                    Text("−$lost", color = MaterialTheme.colorScheme.onError, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 3.dp))
+                }
+            }
+            if (hurt) {
+                // a hit absorbed as damage: the unit burns but stays
+                Surface(color = Color(0xFFE65100), shape = MaterialTheme.shapes.extraSmall, modifier = Modifier.align(Alignment.BottomStart)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 2.dp)) {
+                        Icon(Icons.Filled.LocalFireDepartment, contentDescription = "damaged", tint = Color.White, modifier = Modifier.size(11.dp))
+                        if (tile.damaged > 1) Text("${tile.damaged}", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
 }
 
-private data class UnitGroup(val type: UnitType, val owner: GamePlayer, val strength: Int, val rolls: Int, val count: Int, val boost: Int = 0, val supporter: UnitType? = null)
+private data class UnitGroup(
+    val type: UnitType,
+    val owner: GamePlayer,
+    val strength: Int,
+    val rolls: Int,
+    val count: Int,
+    val boost: Int = 0,
+    val supporter: UnitType? = null,
+    /** Units of this group already chosen as casualties; they leave when the engine removes them. */
+    val dying: Int = 0,
+)
 
 private data class GroupKey(val type: UnitType, val owner: GamePlayer, val strength: Int, val rolls: Int, val boost: Int, val supporter: UnitType?)
 
 /** Groups units by strength, then by type; units boosted by support or terrain form their own group. */
-private fun groupByStrength(units: List<Unit>, side: SideStrength?): Map<Int, List<UnitGroup>> =
+private fun groupByStrength(units: List<Unit>, side: SideStrength?, dying: Set<Unit> = emptySet()): Map<Int, List<UnitGroup>> =
     units.groupBy { unit -> GroupKey(unit.type, unit.owner, side?.strength?.get(unit) ?: -1, side?.rolls?.get(unit) ?: 1, side?.boost?.get(unit) ?: 0, side?.supporter?.get(unit)) }
-        .map { (key, list) -> UnitGroup(key.type, key.owner, key.strength, key.rolls, list.size, key.boost, key.supporter) }
+        .map { (key, list) -> UnitGroup(key.type, key.owner, key.strength, key.rolls, list.size, key.boost, key.supporter, list.count { it in dying }) }
         .sortedWith(compareBy<UnitGroup> { it.strength }.thenBy { it.type.name })
         .groupBy { it.strength }
 

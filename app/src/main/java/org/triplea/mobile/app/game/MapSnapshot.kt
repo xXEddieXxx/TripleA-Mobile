@@ -15,6 +15,9 @@ import games.strategy.engine.history.Step
 import games.strategy.triplea.attachments.PoliticalActionAttachment
 import games.strategy.triplea.attachments.UserActionAttachment
 import games.strategy.triplea.attachments.TerritoryAttachment
+import games.strategy.triplea.attachments.TerritoryEffectAttachment
+import games.strategy.engine.data.TerritoryEffect
+import games.strategy.triplea.delegate.TerritoryEffectHelper
 import games.strategy.triplea.ui.mapdata.MapData
 import games.strategy.triplea.util.TuvCostsCalculator
 import games.strategy.triplea.util.TuvUtils
@@ -37,6 +40,12 @@ class UnitStack(
     val units: List<Unit>,
 )
 
+/**
+ * A territory effect (weather, terrain): its map point for the marker, its icon, and a short
+ * summary of what it does to units ("defence +1: infantry · no blitz: tank").
+ */
+class EffectMarker(val name: String, val x: Int, val y: Int, val imagePaths: List<String>, val summary: String)
+
 class TerritorySnapshot(
     val name: String,
     val paths: List<Path>,
@@ -57,6 +66,7 @@ class TerritorySnapshot(
     val puX: Int?,
     val puY: Int?,
     val drawName: Boolean,
+    val effects: List<EffectMarker> = emptyList(),
 )
 
 /** A unit type of one owner in a history entry: a sample unit for the icon and how many. */
@@ -125,8 +135,33 @@ class MapSnapshot(
     val hasPolitics: Boolean,
     /** Whether any nation has user actions (map specific special actions). */
     val hasUserActions: Boolean,
+    /** Whether the map wants its territory effects drawn as markers on the map (map.properties). */
+    val showEffectMarkers: Boolean = false,
 ) {
     val byName: Map<String, TerritorySnapshot> = territories.associateBy { it.name }
+
+    /**
+     * A land territory smaller than [maxSize] (a tiny island) within [reach] of a map point, for
+     * taps that land in the water right next to it. The closest one wins; null when none qualifies.
+     */
+    fun tinyLandNear(mapX: Float, mapY: Float, maxSize: Float, reach: Float): TerritorySnapshot? {
+        var best: TerritorySnapshot? = null
+        var bestDistance = Float.MAX_VALUE
+        for (territory in territories) {
+            if (territory.isWater) continue
+            val b = territory.bounds
+            if (b.width() > maxSize || b.height() > maxSize) continue
+            if (mapX < b.left - reach || mapX > b.right + reach || mapY < b.top - reach || mapY > b.bottom + reach) continue
+            val dx = mapX - b.centerX()
+            val dy = mapY - b.centerY()
+            val distance = dx * dx + dy * dy
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = territory
+            }
+        }
+        return best
+    }
 
     /**
      * Finds the unit stack drawn at a map coordinate. [unitWidth] is the drawn icon size and
@@ -174,6 +209,7 @@ class MapSnapshot(
             val stats = ArrayList<PlayerStats>()
             var hasVictoryCities = false
             val drawNames = mapData.drawTerritoryNames()
+            val useEffectMarkers = runCatching { mapData.useTerritoryEffectMarkers() }.getOrDefault(false)
             gameData.acquireReadLock().use {
                 battleSites = runCatching {
                     val tracker = gameData.battleDelegate.battleTracker
@@ -244,6 +280,24 @@ class MapSnapshot(
                             )
                         }
                     }
+                    // territory effects (weather, terrain): the map's markers at its effect points
+                    val effects: List<EffectMarker> = runCatching {
+                        val found = TerritoryEffectHelper.getEffects(territory).toList()
+                        if (found.isEmpty()) emptyList() else {
+                            val points = mapData.getTerritoryEffectPoints(territory)
+                            found.mapIndexed { index, effect ->
+                                val point = points.getOrNull(index) ?: points.last()
+                                val shift = if (index < points.size) 0 else (index - points.size + 1) * 24
+                                EffectMarker(
+                                    name = effect.name,
+                                    x = point.x + shift,
+                                    y = point.y,
+                                    imagePaths = listOf("territoryEffects/${effect.name}_large.png", "territoryEffects/${effect.name}.png"),
+                                    summary = effectSummary(gameData, effect),
+                                )
+                            }
+                        }
+                    }.getOrDefault(emptyList())
                     territories += TerritorySnapshot(
                         name = name,
                         paths = paths,
@@ -261,6 +315,7 @@ class MapSnapshot(
                         puX = puPoint?.x,
                         puY = puPoint?.y,
                         drawName = drawNames && mapData.shouldDrawTerritoryName(name),
+                        effects = effects,
                     )
                 }
                 stats += computeStats(gameData)
@@ -286,10 +341,33 @@ class MapSnapshot(
                     hasUserActions = players.any { UserActionAttachment.getUserActionAttachments(it).isNotEmpty() }
                 }
             }
-            return MapSnapshot(version, territories, battleSites, stats, hasVictoryCities, history, relationships, hasPolitics, hasUserActions)
+            return MapSnapshot(version, territories, battleSites, stats, hasVictoryCities, history, relationships, hasPolitics, hasUserActions, useEffectMarkers)
         }
 
         private const val MAX_HISTORY_BLOCKS = 300
+
+        /** What a territory effect does, in a few words: "attack +1: infantry · no blitz: tank". */
+        private fun effectSummary(gameData: GameData, effect: TerritoryEffect): String = runCatching {
+            val attachment = TerritoryEffectAttachment.get(effect)
+            val types = gameData.unitTypeList.allUnitTypes.sortedBy { it.name }
+            val parts = ArrayList<String>()
+            fun combat(defending: Boolean, label: String) {
+                types.groupBy { attachment.getCombatEffect(it, defending) }
+                    .filterKeys { it != 0 }
+                    .toSortedMap(compareByDescending { it })
+                    .forEach { (bonus, units) ->
+                        parts += "$label ${if (bonus > 0) "+" else ""}$bonus: " + units.joinToString(", ") { it.name }
+                    }
+            }
+            combat(false, "attack")
+            combat(true, "defence")
+            attachment.movementCostModifier.entries.groupBy { it.value }.forEach { (cost, entries) ->
+                parts += "move cost ${if (cost.signum() > 0) "+" else ""}$cost: " + entries.joinToString(", ") { it.key.name }
+            }
+            if (attachment.noBlitz.isNotEmpty()) parts += "no blitz: " + attachment.noBlitz.joinToString(", ") { it.name }
+            if (attachment.unitsNotAllowed.isNotEmpty()) parts += "not allowed: " + attachment.unitsNotAllowed.joinToString(", ") { it.name }
+            parts.joinToString("  ·  ")
+        }.getOrDefault("")
 
         /**
          * Flattens the engine's history tree (Round > Step > Event > detail) into step blocks.

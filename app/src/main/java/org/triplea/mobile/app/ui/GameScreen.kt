@@ -268,6 +268,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var showMenu by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showQuitDialog by remember { mutableStateOf(false) }
+    // the phone's back button: same question as "Quit to menu"; pages on top have their own handler
+    BackHandler(enabled = !showQuitDialog) { showQuitDialog = true }
     var kamikazeConfirm by remember { mutableStateOf<MovePlan?>(null) }
     var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -378,16 +380,33 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         movePlan = null
     }
 
-    fun planMove(request: MoveRequest, from: Territory, to: Territory, units: List<Unit>) {
+    fun planMove(request: MoveRequest, from: Territory, to: Territory, units: List<Unit>, transports: List<Unit>? = null) {
         scope.launch {
             val result = withContext(Dispatchers.Default) {
-                MoveHelper.plan(session, request.player, request.nonCombat, from, to, units)
+                MoveHelper.plan(session, request.player, request.nonCombat, from, to, units, transports)
             }
-            result.onSuccess { movePlan = it }
-                .onFailure {
-                    movePlan = null
-                    toast(it.message ?: "Cannot move there")
+            result.onSuccess { plan ->
+                if (transports == null && plan.transportChoices.size > 1) {
+                    // several transports with room: the player picks the ones to load, like on the desktop
+                    unitPicker = UnitPickerSpec(
+                        title = "Load onto",
+                        message = "",
+                        units = plan.transportChoices,
+                        max = plan.transportChoices.size,
+                        initialSelection = plan.transportChoices.groupBy { unitGroupKey(it) }.mapValues { it.value.size },
+                        onConfirm = { chosen ->
+                            unitPicker = null
+                            if (chosen.isEmpty()) movePlan = plan else planMove(request, from, to, units, chosen)
+                        },
+                        onCancel = { unitPicker = null; movePlan = plan },
+                    )
+                } else {
+                    movePlan = plan
                 }
+            }.onFailure {
+                movePlan = null
+                toast(it.message ?: "Cannot move there")
+            }
         }
     }
 
@@ -437,7 +456,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     units = units,
                     max = units.size,
                     initialSelection = units.filter { it in preselected }
-                        .groupBy { UnitGroupKey(it.type.name, it.owner.name, false) }
+                        .groupBy { unitGroupKey(it) }
                         .mapValues { it.value.size },
                     onConfirm = { chosen ->
                         unitPicker = null
@@ -740,6 +759,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(t.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    t.effects.forEach { effect ->
+                        val icon = remember(effect.name, images) { images.getNow(effect.imagePaths.last(), effect.imagePaths) }
+                        if (icon != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Image(icon.asImageBitmap(), contentDescription = effect.name, modifier = Modifier.size(18.dp))
+                        }
+                    }
                     if (!t.isWater) {
                         Spacer(Modifier.width(10.dp))
                         Surface(color = Color(0xFF2B2B2B), shape = MaterialTheme.shapes.small) {

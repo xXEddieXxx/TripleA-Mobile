@@ -306,13 +306,10 @@ public class ServerGame extends AbstractGame {
     }
     // block delegate execution to prevent outbound messages to the players while we shut down.
     try {
-      if (!delegateExecutionManager.blockDelegateExecution(16_000)) {
-        log.warn("Could not stop delegate execution.");
-        // Try one more time
-        if (!delegateExecutionManager.blockDelegateExecution(16_000)) {
-          log.error("Exiting...");
-          ExitStatus.FAILURE.exit();
-        }
+      // on the desktop this exits the process when a delegate does not stop in time; on a phone
+      // the game thread is interrupted by the session and the shutdown simply goes on
+      if (!delegateExecutionManager.blockDelegateExecution(3_000)) {
+        log.warn("Could not stop delegate execution in time, shutting down anyway.");
       }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();

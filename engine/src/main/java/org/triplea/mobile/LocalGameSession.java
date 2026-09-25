@@ -199,12 +199,14 @@ public final class LocalGameSession {
 
   /** Stops the game; blocks the calling thread only briefly. */
   public void stop() {
-    if (!serverGame.isGameOver()) {
-      serverGame.stopGame();
-    }
+    // interrupt first: an AI in the middle of its turn or a delegate waiting for the UI returns
+    // at once, and stopping the game afterwards does not have to wait for it
     final Thread thread = gameThread;
     if (thread != null) {
       thread.interrupt();
+    }
+    if (!serverGame.isGameOver()) {
+      serverGame.stopGame();
     }
   }
 }

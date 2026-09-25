@@ -25,6 +25,7 @@ import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
+import kotlin.concurrent.thread
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -87,6 +88,11 @@ data class BattleState(
     val lastCasualtyPlayer: String = "",
     /** Every unit lost so far, by round, so the window can show a tally under each side. */
     val lossesByRound: List<RoundLosses> = emptyList(),
+    /**
+     * Units chosen as casualties that are still on the front line: they fire back this round
+     * and only leave when the engine removes them, so their dice are seen before they vanish.
+     */
+    val dying: List<Unit> = emptyList(),
     val ended: Boolean = false,
     val endMessage: String = "",
 ) {
@@ -200,7 +206,8 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         session = null
         _pending.value?.cancel()
         _pending.value = null
-        current.stop()
+        // stopping waits for the game thread; that must never happen on the UI thread
+        thread(name = "game-stop", isDaemon = true) { runCatching { current.stop() } }
     }
 
     fun saveGame(file: Path) {
@@ -557,7 +564,17 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     }
 
     override fun battleEnded(battleId: UUID, message: String) {
-        updateBattle(battleId) { it.copy(ended = true, endMessage = message, log = it.log + message) }
+        updateBattle(battleId) {
+            val gone = it.dying.toSet()
+            it.copy(
+                ended = true,
+                endMessage = message,
+                log = it.log + message,
+                attackingUnits = it.attackingUnits - gone,
+                defendingUnits = it.defendingUnits - gone,
+                dying = emptyList(),
+            )
+        }
     }
 
     override fun diceRolled(dice: DiceRoll, stepName: String) {
@@ -610,9 +627,9 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
                     }
                 }
             }
+            // the casualties stay on the line, marked, until the engine takes them away
             it.withLosses(player.name, killed).copy(
-                attackingUnits = it.attackingUnits - killed.toSet(),
-                defendingUnits = it.defendingUnits - killed.toSet(),
+                dying = it.dying + killed,
                 log = it.log + text,
                 lastCasualties = killed.toList() + damaged.toList(),
                 lastCasualtyPlayer = player.name,
@@ -630,6 +647,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
             it.withLosses(player.name, dead).copy(
                 attackingUnits = it.attackingUnits - dead.toSet(),
                 defendingUnits = it.defendingUnits - dead.toSet(),
+                dying = it.dying - dead.toSet(),
                 log = if (dead.isEmpty()) it.log else it.log + "${player.name} lost ${summarize(dead)}",
             )
         }

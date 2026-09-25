@@ -244,10 +244,24 @@ fun MapView(
 
     fun resolve(screen: Offset): MapTap {
         val p = state.toMap(screen)
-        val territory = mapData.getTerritoryAt(p.x.toDouble(), p.y.toDouble())
+        val underFinger = mapData.getTerritoryAt(p.x.toDouble(), p.y.toDouble())
         // make small icons reachable: at least a 44dp touch target on screen
-        val slack = max(0f, (minTouchPx / state.scale - unitWidth) / 2f)
+        val touch = minTouchPx / state.scale
+        val slack = max(0f, (touch - unitWidth) / 2f)
         val stack = currentSnapshot?.stackAt(p.x, p.y, unitWidth, slack)
+        val territory = when {
+            // the icons of a stack belong to their territory, even where they spill over its
+            // border: tapping the units on a tiny island means the island, not the sea around it
+            stack != null -> stack.territoryName
+            else -> {
+                // water under the finger, but a land territory smaller than the touch target
+                // within reach: that island was meant (zoomed in, islands outgrow the rule)
+                val under = underFinger?.let { currentSnapshot?.byName?.get(it) }
+                if (under == null || under.isWater) {
+                    currentSnapshot?.tinyLandNear(p.x, p.y, maxSize = touch, reach = touch / 2f)?.name ?: underFinger
+                } else underFinger
+            }
+        }
         return MapTap(territory, stack)
     }
 
@@ -358,6 +372,18 @@ fun MapView(
                     }
                 }
                 if (state.wrapX) canvas.restore()
+            }
+
+            // 3a. territory effect markers (weather, terrain) at the map's effect points
+            if (snapshot != null && snapshot.showEffectMarkers) {
+                for (territory in snapshot.territories) {
+                    if (territory.effects.isEmpty()) continue
+                    if (!territory.bounds.intersects(visibleLeft - 64f, visibleTop - 64f, visibleRight + 64f, visibleBottom + 64f)) continue
+                    for (effect in territory.effects) {
+                        val bitmap = images.get(effect.imagePaths.first(), effect.imagePaths) ?: continue
+                        canvas.drawBitmap(bitmap, effect.x.toFloat(), effect.y.toFloat(), paints.bitmap)
+                    }
+                }
             }
 
             // 3b. territory names (when zoomed in) and, on request, the PU values
@@ -521,15 +547,6 @@ fun MapView(
                             val ty = stack.y + unitWidth * 0.95f
                             canvas.drawText(text, tx, ty, paints.counterOutline)
                             canvas.drawText(text, tx, ty, paints.counterText)
-                        }
-                        if (stack.damagedCount > 0) {
-                            canvas.drawRect(
-                                stack.x.toFloat(),
-                                stack.y.toFloat(),
-                                stack.x + unitWidth * 0.3f,
-                                stack.y + unitWidth * 0.3f,
-                                paints.damage,
-                            )
                         }
                     }
                 }
@@ -813,7 +830,6 @@ private class MapPaints {
         strokeWidth = 3f
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
-    val damage = Paint().apply { color = Color.RED }
     val nameText = Paint().apply {
         color = Color.BLACK
         isAntiAlias = true

@@ -101,13 +101,31 @@ class UnitPickerSpec(
     val countsTowardMax: (Unit) -> Boolean = { true },
 )
 
-data class UnitGroupKey(val type: String, val owner: String, val damaged: Boolean)
+data class UnitGroupKey(val type: String, val owner: String, val damaged: Boolean, val cargo: String = "") {
+    /** "Transport · 2 infantry", "Battleship (damaged)". */
+    fun title(): String = type + (if (damaged) " (damaged)" else "") + (if (cargo.isNotBlank()) "  ·  $cargo" else "")
+}
 
-private fun groupKey(unit: Unit) = UnitGroupKey(
-    unit.type.name,
-    unit.owner.name,
-    Matches.unitHasTakenSomeBombingUnitDamage().test(unit) || unit.hits > 0,
-)
+/**
+ * The group a unit is shown in: type, owner, damage, and for sea transports what they carry, so
+ * loaded and empty transports can be told apart when choosing units.
+ */
+internal fun unitGroupKey(unit: Unit): UnitGroupKey {
+    val cargo = runCatching {
+        if (Matches.unitIsSeaTransport().test(unit)) {
+            val carried = unit.transporting
+            if (carried.isEmpty()) "empty" else carried.groupBy { it.type.name }.entries.joinToString(", ") { "${it.value.size} ${it.key}" }
+        } else ""
+    }.getOrDefault("")
+    return UnitGroupKey(
+        unit.type.name,
+        unit.owner.name,
+        Matches.unitHasTakenSomeBombingUnitDamage().test(unit) || unit.hits > 0,
+        cargo,
+    )
+}
+
+private fun groupKey(unit: Unit) = unitGroupKey(unit)
 
 /**
  * The height a list inside a dialog may take: the preferred height, but never more than about
@@ -186,7 +204,7 @@ fun UnitPickerDialog(spec: UnitPickerSpec, images: ImageCache?) {
                 val current = counts[key] ?: 0
                 val allowed = if (limited[key] == true) minOf(units.size, current + (spec.max - total)) else units.size
                 CountRow(
-                    title = key.type + if (key.damaged) " (damaged)" else "",
+                    title = key.title(),
                     subtitle = "${units.size} available" + if (limited[key] == false) " · does not count" else "",
                     value = current,
                     max = allowed,
@@ -870,23 +888,41 @@ fun BattleListDialog(request: BattleRequest) {
 /** The player's running choice of losses for a [CasualtyRequest]: counts per unit group. */
 class CasualtyChoice(val request: CasualtyRequest) {
     val groups: Map<UnitGroupKey, List<Unit>> = request.selectFrom.groupBy { groupKey(it) }
-    val damagedDefaults: List<Unit> = request.defaults.damaged.toList()
-    /** Units to remove: the hits minus those that only damage a unit (e.g. a battleship's first hit). */
-    val killsNeeded: Int = (request.count - damagedDefaults.size).coerceAtLeast(0)
-    val counts: SnapshotStateMap<UnitGroupKey, Int> = mutableStateMapOf<UnitGroupKey, Int>().also { map ->
-        groups.keys.forEach { map[it] = 0 }
-        request.defaults.killed.forEach { unit ->
-            val key = groupKey(unit)
-            map[key] = (map[key] ?: 0) + 1
-        }
+    /** Every hit must be assigned: as damage to a unit that can take it, or as a loss. */
+    val hitsNeeded: Int = request.count
+    /** Hits marked as damage per group (a battleship's first hit) and as losses per group. */
+    val damaged: SnapshotStateMap<UnitGroupKey, Int> = mutableStateMapOf()
+    val killed: SnapshotStateMap<UnitGroupKey, Int> = mutableStateMapOf()
+
+    init {
+        groups.keys.forEach { damaged[it] = 0; killed[it] = 0 }
+        request.defaults.damaged.forEach { unit -> val key = groupKey(unit); damaged[key] = (damaged[key] ?: 0) + 1 }
+        request.defaults.killed.forEach { unit -> val key = groupKey(unit); killed[key] = (killed[key] ?: 0) + 1 }
     }
-    val total: Int get() = counts.values.sum()
-    val complete: Boolean get() = total == killsNeeded
+
+    /** How many hits the units of a group can still absorb as damage instead of dying. */
+    fun damageCapacity(key: UnitGroupKey): Int =
+        if (!request.allowMultipleHitsPerUnit) 0
+        else groups.getValue(key).sumOf { (it.unitAttachment.hitPoints - 1 - it.hits).coerceAtLeast(0) }
+
+    val total: Int get() = damaged.values.sum() + killed.values.sum()
+    val complete: Boolean get() = total == hitsNeeded
 
     fun confirm() {
-        val killed = ArrayList<Unit>()
-        groups.forEach { (key, units) -> killed += units.take(counts[key] ?: 0) }
-        request.complete(CasualtyDetails(killed, damagedDefaults, false))
+        val killedUnits = ArrayList<Unit>()
+        val damagedUnits = ArrayList<Unit>()
+        groups.forEach { (key, units) ->
+            // damage goes to the first units that can take it, losses are taken from the other end
+            var left = damaged[key] ?: 0
+            for (unit in units) {
+                if (left == 0) break
+                val take = minOf((unit.unitAttachment.hitPoints - 1 - unit.hits).coerceAtLeast(0), left)
+                repeat(take) { damagedUnits += unit }
+                left -= take
+            }
+            killedUnits += units.asReversed().take(killed[key] ?: 0)
+        }
+        request.complete(CasualtyDetails(killedUnits, damagedUnits, false))
     }
 
     fun useSuggested() = request.complete(CasualtyDetails(request.defaults, true))
@@ -894,29 +930,34 @@ class CasualtyChoice(val request: CasualtyRequest) {
     private fun keysOf(type: String, owner: String) = groups.keys.filter { it.type == type && it.owner == owner }
 
     /** How many units of this type and owner are marked as lost. */
-    fun chosen(type: String, owner: String): Int = keysOf(type, owner).sumOf { counts[it] ?: 0 }
+    fun chosen(type: String, owner: String): Int = keysOf(type, owner).sumOf { killed[it] ?: 0 }
+
+    /** How many hits units of this type and owner absorb as damage. */
+    fun damagedOf(type: String, owner: String): Int = keysOf(type, owner).sumOf { damaged[it] ?: 0 }
 
     /**
-     * A tap on a unit tile of the front line: marks one more unit of that type. When every hit is
-     * already assigned, one is taken away from another type instead; when this type cannot take
-     * more, its marks are cleared.
+     * A tap on a unit tile of the front line: one more hit on that type, as damage while a unit
+     * can take it, then as a loss. When every hit is already assigned, one is taken away from
+     * another type instead; when this type cannot take more, its marks are cleared.
      */
     fun tap(type: String, owner: String) {
         val keys = keysOf(type, owner)
-        val key = keys.firstOrNull { (counts[it] ?: 0) < groups.getValue(it).size }
+        val key = keys.firstOrNull { (damaged[it] ?: 0) < damageCapacity(it) }
+            ?: keys.firstOrNull { (killed[it] ?: 0) < groups.getValue(it).size }
         if (key == null) {
-            keys.forEach { counts[it] = 0 }
+            keys.forEach { damaged[it] = 0; killed[it] = 0 }
             return
         }
-        if (total >= killsNeeded) {
-            val other = groups.keys.firstOrNull { it !in keys && (counts[it] ?: 0) > 0 }
+        if (total >= hitsNeeded) {
+            val other = groups.keys.firstOrNull { it !in keys && (killed[it] ?: 0) > 0 }
+                ?: groups.keys.firstOrNull { it !in keys && (damaged[it] ?: 0) > 0 }
             if (other == null) {
-                keys.forEach { counts[it] = 0 }
+                keys.forEach { damaged[it] = 0; killed[it] = 0 }
                 return
             }
-            counts[other] = (counts[other] ?: 0) - 1
+            if ((killed[other] ?: 0) > 0) killed[other] = (killed[other] ?: 0) - 1 else damaged[other] = (damaged[other] ?: 0) - 1
         }
-        counts[key] = (counts[key] ?: 0) + 1
+        if ((damaged[key] ?: 0) < damageCapacity(key)) damaged[key] = (damaged[key] ?: 0) + 1 else killed[key] = (killed[key] ?: 0) + 1
     }
 }
 
@@ -927,35 +968,33 @@ fun CasualtyDialog(request: CasualtyRequest, images: ImageCache?) {
     AppDialog(
         title = "Choose your losses",
         onDismiss = null,
-        status = "${choice.total} of ${choice.killsNeeded} chosen",
+        status = "${choice.total} of ${choice.hitsNeeded}",
         statusColor = if (choice.complete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-        buttons = {
-            TextButton(onClick = { choice.useSuggested() }) { Text("Suggested") }
-            Button(enabled = choice.complete, onClick = { choice.confirm() }) { Text("Confirm") }
-        },
+        buttons = { ConfirmButton(enabled = choice.complete) { choice.confirm() } },
     ) {
-        request.dice?.let { dice ->
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                (0 until dice.size()).take(14).forEach { i ->
-                    val die = dice.getDie(i)
-                    Die(die.value + 1, die.type == games.strategy.triplea.delegate.Die.DieType.HIT, size = 18)
-                }
-            }
-        }
-        if (choice.damagedDefaults.isNotEmpty()) {
-            Text("${choice.damagedDefaults.size} hit(s) only damage a unit and are taken automatically.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 6.dp))
-        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(choice.groups.entries.toList()) { (key, units) ->
                 val sample = units.first()
-                val current = choice.counts[key] ?: 0
-                val allowed = minOf(units.size, current + (choice.killsNeeded - choice.total))
+                val room = choice.hitsNeeded - choice.total
+                val capacity = choice.damageCapacity(key)
+                if (capacity > 0) {
+                    val current = choice.damaged[key] ?: 0
+                    CountRow(
+                        title = key.title() + "  ·  damage",
+                        subtitle = "absorbs a hit, stays in the fight",
+                        value = current,
+                        max = minOf(capacity, current + room),
+                        onChange = { choice.damaged[key] = it.coerceIn(0, capacity) },
+                        leading = { UnitIcon(images, sample.type, sample.owner, size = 30) },
+                    )
+                }
+                val current = choice.killed[key] ?: 0
                 CountRow(
-                    title = key.type + if (key.damaged) " (damaged)" else "",
+                    title = key.title(),
                     subtitle = "${units.size} in battle",
                     value = current,
-                    max = allowed,
-                    onChange = { choice.counts[key] = it.coerceIn(0, units.size) },
+                    max = minOf(units.size, current + room),
+                    onChange = { choice.killed[key] = it.coerceIn(0, units.size) },
                     leading = { UnitIcon(images, sample.type, sample.owner, size = 30) },
                 )
             }
