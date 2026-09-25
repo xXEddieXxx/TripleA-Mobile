@@ -404,10 +404,14 @@ public class ServerGame extends AbstractGame {
     }
     if (gameData.getSequence().next()) {
       gameData.getHistory().getHistoryWriter().startNextRound(gameData.getSequence().getRound());
-      saveGame(
-          gameData.getSequence().getRound() % 2 == 0
-              ? launchAction.getAutoSaveFileUtils().getEvenRoundAutoSaveFile()
-              : launchAction.getAutoSaveFileUtils().getOddRoundAutoSaveFile());
+      // the round autosave serializes the whole game on the game thread; where autosaves are
+      // switched off (the mobile client saves on its own, off the game thread) it is skipped
+      if (delegateAutosavesEnabled) {
+        saveGame(
+            gameData.getSequence().getRound() % 2 == 0
+                ? launchAction.getAutoSaveFileUtils().getEvenRoundAutoSaveFile()
+                : launchAction.getAutoSaveFileUtils().getOddRoundAutoSaveFile());
+      }
     }
     // Turn off Edit Mode if we're transitioning to an AI player to prevent infinite round combats.
     if (EditDelegate.getEditMode(gameData.getProperties())) {

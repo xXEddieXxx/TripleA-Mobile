@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nonnull;
 import lombok.Setter;
 
-class BattleCalculator implements IBattleCalculator {
+public class BattleCalculator implements IBattleCalculator {
   @Nonnull private final GameData gameData;
   // Use a single TuvCostsCalculator so its computations are cached.
   private final TuvCostsCalculator tuvCalculator = new TuvCostsCalculator();
@@ -38,7 +38,7 @@ class BattleCalculator implements IBattleCalculator {
   private volatile boolean cancelled = false;
   private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
-  BattleCalculator(GameData data) {
+  public BattleCalculator(GameData data) {
     gameData =
         GameDataUtils.cloneGameData(data, GameDataManager.Options.forBattleCalculator())
             .orElseThrow();

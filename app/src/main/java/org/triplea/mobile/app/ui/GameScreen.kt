@@ -274,7 +274,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showHowTo by remember { mutableStateOf(false) }
-    var showAbout by remember { mutableStateOf(false) }
+    var showCalc by remember { mutableStateOf(false) }
+    /** The calculator waits for a tap on the map that chooses its territory. */
+    var calcPicking by remember { mutableStateOf(false) }
+    var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
+    var calcDefender by remember(session) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
     var showMoves by remember { mutableStateOf(false) }
     /** The purchase screen can be put away to look at the map while the phase stays open. */
@@ -518,6 +522,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         previewRoute = emptyList()
         val name = tap.territory ?: return
         val territory = MoveHelper.territory(session, name) ?: return
+        if (calcPicking) {
+            // the tap chooses the calculator's territory and brings the calculator back
+            selectedTerritory = name
+            calcPicking = false
+            showCalc = true
+            return
+        }
         when (val request = pending) {
             is MoveRequest -> {
                 val from = moveFrom
@@ -730,8 +741,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         }
                     },
                 )
+                DropdownMenuItem(text = { Text("Battle calculator") }, onClick = { showMenu = false; showCalc = true })
                 DropdownMenuItem(text = { Text("How to play") }, onClick = { showMenu = false; showHowTo = true })
-                DropdownMenuItem(text = { Text("About & licenses") }, onClick = { showMenu = false; showAbout = true })
                 DropdownMenuItem(text = { Text("Quit to menu") }, onClick = { showMenu = false; showQuitDialog = true })
             }
         }
@@ -814,6 +825,18 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             // top left: round / player / step (landscape only, portrait has the app bar) and the hint
             // top of the map: the turn progress strip alone at the top center, the nation below it on
             // the left, menu and the tapped territory on the right with room to breathe
+            if (calcPicking) {
+                // while the calculator waits for a territory: a hint with a way out
+                OverlayChip(Modifier.align(Alignment.TopCenter).padding(top = edgeTop + if (landscape) 30.dp else 48.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Tap a territory for the calculator", style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.width(6.dp))
+                        IconButton(onClick = { calcPicking = false; showCalc = true }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Filled.Close, contentDescription = "cancel", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
             if (turnSteps.isNotEmpty()) {
                 TurnStepStrip(
                     steps = turnSteps,
@@ -1083,7 +1106,18 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     // orientation, text size and layout changes made inside them
     if (showSettings) FullScreenPage(onBack = { showSettings = false }) { SettingsScreen(onBack = { showSettings = false }) }
     if (showHowTo) FullScreenPage(onBack = { showHowTo = false }) { HowToPlayScreen(onBack = { showHowTo = false }) }
-    if (showAbout) FullScreenPage(onBack = { showAbout = false }) { AboutScreen(onBack = { showAbout = false }) }
+    if (showCalc) FullScreenPage(onBack = { showCalc = false }) {
+        BattleCalcScreen(
+            session = session,
+            images = images,
+            territoryName = selectedTerritory,
+            attackerName = calcAttacker ?: status.playerName,
+            defenderName = calcDefender,
+            onBack = { showCalc = false },
+            onPickOnMap = { showCalc = false; calcPicking = true },
+            onNations = { a, d -> calcAttacker = a; calcDefender = d },
+        )
+    }
     gameNotes?.let { notes ->
         FullScreenPage(onBack = { gameNotes = null }) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
