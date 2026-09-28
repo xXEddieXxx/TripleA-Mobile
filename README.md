@@ -11,11 +11,14 @@ Scope of this first version, on purpose:
 - single device only: hot seat and human vs. AI (Easy, Fast, Hard/Pro AI)
 - no lobby, no network multiplayer, no play-by-email
 - two maps are bundled (`minimap`, `world_war_ii_classic`); the map browser downloads any map
-  from the desktop client's map list (`triplea_maps.yaml`), and maps can also be copied into the
-  app's `downloadedMaps` folder in the same layout as on the desktop
+  from the desktop client's map list (`triplea_maps.yaml`), and the map browser's Import button
+  installs any map zip from the device (the same layout as the desktop's `downloadedMaps`)
 - save/load of local games (`.tsvg` files, not compatible with desktop saves); a save can be
   shared from the load screen and imported on another phone (or opened from a chat or mail app),
   which allows play by file: take your turn, share the save, the next player continues
+- battle calculator (in-game menu): the tapped territory's units on both sides, several defending
+  nations, win chances, average units left and rounds, simulated with the engine's battle code
+- game notes, map import from a zip file, territory effects with their icons and rules
 
 ## License
 
@@ -153,6 +156,8 @@ keystore as the secret `DEV_KEYSTORE_B64`.
 ## Known gaps
 
 - Technology rolls and repairs use engine defaults (no UI yet); politics and user actions have dialogs.
-- Scramble, kamikaze and "pick territory and units" questions use the adapter defaults.
-- Sea transport loading is automatic (units are mapped to transports in the destination sea zone).
-- No map notes, no battle calculator UI.
+- Scramble, kamikaze suicide attacks and "pick territory and units" questions use the adapter
+  defaults (moving air out of range with the "Kamikaze Airplanes" rule is asked for).
+- Save games are not compatible with the desktop client (different serialized classes).
+- Maps that switch territory effect markers off in `map.properties` show their effects only in
+  the zone panel, as the desktop client does.

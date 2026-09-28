@@ -29,7 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
@@ -41,6 +40,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import games.strategy.engine.data.GamePlayer
@@ -67,13 +68,16 @@ import kotlinx.coroutines.withContext
 import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.app.render.ImageCache
 
+/** A unit type of one nation, the key of the count tables. */
+private data class Side(val owner: GamePlayer, val type: UnitType)
+
 /** What one simulated battle setup produced, reduced to what the screen shows. */
 private class CalcOutcome(
     val attackerWin: Double,
     val defenderWin: Double,
     val draw: Double,
-    val attackersLeft: List<Pair<UnitType, Int>>,
-    val defendersLeft: List<Pair<UnitType, Int>>,
+    val attackersLeft: List<Pair<Side, Int>>,
+    val defendersLeft: List<Pair<Side, Int>>,
     val rounds: Double,
     val tuvSwing: Double,
     val runs: Int,
@@ -81,9 +85,10 @@ private class CalcOutcome(
 )
 
 /**
- * The desktop's battle calculator: pick the territory, the two nations and their units, run a few
- * hundred simulated battles with the engine's own battle code, and read off who wins how often
- * and what is left. Opens with the tapped territory and the units standing in it.
+ * The desktop's battle calculator: the territory (picked on the map), one attacking nation, the
+ * defending nations with their units, a few hundred simulated battles with the engine's own battle
+ * code, and who wins how often with what left. Opens with the tapped territory and the units in it:
+ * the attacker's units on one side, every hostile nation's units on the other.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -92,29 +97,19 @@ fun BattleCalcScreen(
     images: ImageCache,
     territoryName: String?,
     attackerName: String,
-    /** The defender chosen before the map was used to pick another territory, if any. */
-    defenderName: String? = null,
     onBack: () -> kotlin.Unit,
     /** Closes the calculator so the next tap on the map chooses its territory. */
     onPickOnMap: () -> kotlin.Unit,
-    /** The nations chosen here, so they survive a trip to the map. */
-    onNations: (attacker: String, defender: String) -> kotlin.Unit = { _, _ -> },
+    /** The attacking nation chosen here, so it survives a trip to the map. */
+    onAttacker: (String) -> kotlin.Unit = {},
 ) {
     val data = session.gameData
     val scope = rememberCoroutineScope()
     val players = remember(data) { data.playerList.players.filter { !it.isNull } }
-    var territory by remember { mutableStateOf(territoryName?.let { data.map.getTerritoryOrNull(it) }) }
+    val territory = remember(territoryName) { territoryName?.let { data.map.getTerritoryOrNull(it) } }
     var attacker by remember { mutableStateOf(players.firstOrNull { it.name == attackerName } ?: players.first()) }
-    var defender by remember(territory, attacker) {
-        mutableStateOf(
-            players.firstOrNull { it.name == defenderName && it != attacker } ?: territory?.let { t ->
-                data.acquireReadLock().use {
-                    t.units.map { it.owner }.filter { !it.isNull && it != attacker && !data.relationshipTracker.isAllied(attacker, it) }.firstOrNull()
-                        ?: t.owner.takeIf { !it.isNull && it != attacker }
-                }
-            } ?: players.firstOrNull { it != attacker && !data.relationshipTracker.isAllied(attacker, it) } ?: players.first { it != attacker },
-        )
-    }
+    fun hostile(p: GamePlayer) = p != attacker && !p.isNull && !data.relationshipTracker.isAllied(attacker, p)
+
     // the unit types each side may bring: everything that can fight, in the purchase order
     val types = remember(data) {
         data.unitTypeList.allUnitTypes
@@ -122,21 +117,29 @@ fun BattleCalcScreen(
             .sortedWith(compareBy<UnitType> { val ua = it.unitAttachment; if (ua.isAir) 1 else if (ua.isSea) 2 else 0 }.thenBy { it.name })
     }
     val attacking = remember { mutableStateMapOf<UnitType, Int>() }
-    val defending = remember { mutableStateMapOf<UnitType, Int>() }
-    // opening the calculator on a territory: the units standing there fill the two sides
-    LaunchedEffect(territory, attacker, defender) {
-        val t = territory ?: return@LaunchedEffect
-        val (mine, theirs) = withContext(Dispatchers.Default) {
+    /** The defending nations in order; the first is the one the engine treats as the defender. */
+    val defenders = remember { mutableStateListOf<GamePlayer>() }
+    val defending = remember { mutableStateMapOf<Side, Int>() }
+
+    // the territory decides the setup: the attacker's units against everything hostile in it
+    LaunchedEffect(territory, attacker) {
+        val setup = withContext(Dispatchers.Default) {
             data.acquireReadLock().use {
-                val units = t.units.toList()
-                val mine = units.filter { it.owner == attacker && !Matches.unitIsInfrastructure().test(it) }
-                val theirs = units.filter { it.owner == defender && !Matches.unitIsInfrastructure().test(it) }
-                mine.groupingBy { it.type }.eachCount() to theirs.groupingBy { it.type }.eachCount()
+                val units = territory?.units?.toList().orEmpty().filter { !Matches.unitIsInfrastructure().test(it) }
+                val mine = units.filter { it.owner == attacker }.groupingBy { it.type }.eachCount()
+                val theirs = units.filter { hostile(it.owner) }
+                val owner = territory?.owner?.takeIf { hostile(it) }
+                // the owner of the territory first, then the other hostile nations standing there
+                val nations = (listOfNotNull(owner) + theirs.map { it.owner }.distinct()).distinct()
+                    .ifEmpty { listOfNotNull(players.firstOrNull { hostile(it) } ?: players.firstOrNull { it != attacker }) }
+                Triple(mine, nations, theirs.groupingBy { Side(it.owner, it.type) }.eachCount())
             }
         }
-        attacking.clear(); attacking.putAll(mine)
-        defending.clear(); defending.putAll(theirs)
+        attacking.clear(); attacking.putAll(setup.first)
+        defenders.clear(); defenders.addAll(setup.second)
+        defending.clear(); defending.putAll(setup.third)
     }
+    LaunchedEffect(attacker) { onAttacker(attacker.name) }
 
     val calculator = remember(data) { BattleCalculator(data) }
     DisposableEffect(calculator) { onDispose { runCatching { calculator.cancel() } } }
@@ -146,12 +149,13 @@ fun BattleCalcScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var runs by remember { mutableIntStateOf(200) }
     var side by remember { mutableIntStateOf(0) }
-    var pickPlayer by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(attacker, defender) { onNations(attacker.name, defender.name) }
+    var pickAttacker by remember { mutableStateOf(false) }
+    var pickDefenders by remember { mutableStateOf(false) }
 
     fun run() {
         val t = territory ?: return
-        if (attacking.values.sum() == 0 || defending.values.sum() == 0) {
+        val defender = defenders.firstOrNull()
+        if (attacking.values.sum() == 0 || defending.values.sum() == 0 || defender == null) {
             error = "Both sides need units."
             return
         }
@@ -163,10 +167,12 @@ fun BattleCalcScreen(
                     val attackUnits = ArrayList<Unit>()
                     attacking.forEach { (type, n) -> if (n > 0) attackUnits += type.create(n, attacker) }
                     val defendUnits = ArrayList<Unit>()
-                    defending.forEach { (type, n) -> if (n > 0) defendUnits += type.create(n, defender) }
+                    defending.forEach { (key, n) -> if (n > 0) defendUnits += key.type.create(n, key.owner) }
                     val effects = data.acquireReadLock().use { TerritoryEffectHelper.getEffects(t) }
                     val results: AggregateResults = calculator.calculate(attacker, defender, t, attackUnits, defendUnits, emptyList(), effects, false, runs)
-                    fun left(units: Collection<Unit>) = units.groupingBy { it.type }.eachCount().entries.sortedBy { it.key.name }.map { it.key to it.value }
+                    fun left(units: Collection<Unit>) = units.groupingBy { Side(it.owner, it.type) }.eachCount().entries
+                        .sortedWith(compareBy<Map.Entry<Side, Int>> { it.key.owner.name }.thenBy { it.key.type.name })
+                        .map { it.key to it.value }
                     CalcOutcome(
                         attackerWin = results.attackerWinPercent,
                         defenderWin = results.defenderWinPercent,
@@ -185,6 +191,8 @@ fun BattleCalcScreen(
         }
     }
 
+    val defenderLabel = if (defenders.isEmpty()) "Defender" else defenders.joinToString(", ") { it.name }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -194,19 +202,18 @@ fun BattleCalcScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            // ---- where, and who against whom
-            // the territory comes from the map: this closes the calculator until the next tap
+            // ---- where (from the map), and who against whom
             OutlinedButton(onClick = onPickOnMap, modifier = Modifier.fillMaxWidth()) {
                 Text(territory?.name ?: "Tap a territory on the map", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text("map", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { pickPlayer = 0 }, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { pickAttacker = true }, modifier = Modifier.weight(1f)) {
                     Text(attacker.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text("  ›››  ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                OutlinedButton(onClick = { pickPlayer = 1 }, modifier = Modifier.weight(1f)) {
-                    Text(defender.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                OutlinedButton(onClick = { pickDefenders = true }, modifier = Modifier.weight(1f)) {
+                    Text(defenderLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
 
@@ -215,7 +222,7 @@ fun BattleCalcScreen(
             if (running) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
             } else if (result != null) {
-                ResultCard(result, attacker, defender, images)
+                ResultCard(result, attacker, defenderLabel, images)
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -237,48 +244,93 @@ fun BattleCalcScreen(
             // ---- the units of each side
             PrimaryTabRow(selectedTabIndex = side, modifier = Modifier.padding(top = 8.dp)) {
                 Tab(selected = side == 0, onClick = { side = 0 }, text = { Text("${attacker.name} (${attacking.values.sum()})", maxLines = 1) })
-                Tab(selected = side == 1, onClick = { side = 1 }, text = { Text("${defender.name} (${defending.values.sum()})", maxLines = 1) })
+                Tab(selected = side == 1, onClick = { side = 1 }, text = { Text("Defence (${defending.values.sum()})", maxLines = 1) })
             }
-            val counts = if (side == 0) attacking else defending
-            val owner = if (side == 0) attacker else defender
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { counts.clear() }, enabled = counts.values.sum() > 0) { Text("None") }
+            if (side == 0) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { attacking.clear() }, enabled = attacking.values.sum() > 0) { Text("None") }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 16.dp)) {
+                    types.forEach { type ->
+                        UnitCountRow(type, attacker, attack = true, value = attacking[type] ?: 0, images = images) { attacking[type] = it }
+                    }
+                }
+            } else {
+                // one block per defending nation; several nations defend together, like in the game
+                defenders.forEach { nation ->
+                    val own = defending.filterKeys { it.owner == nation }.values.sum()
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        NationFlagSmall(nation.name, images)
+                        Spacer(Modifier.width(8.dp))
+                        Text(nation.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { types.forEach { defending.remove(Side(nation, it)) } }, enabled = own > 0) { Text("None") }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        types.forEach { type ->
+                            UnitCountRow(type, nation, attack = false, value = defending[Side(nation, type)] ?: 0, images = images) {
+                                if (it == 0) defending.remove(Side(nation, type)) else defending[Side(nation, type)] = it
+                            }
+                        }
+                    }
+                }
+                TextButton(onClick = { pickDefenders = true }, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)) { Text("+ nation") }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 16.dp)) {
-                types.forEach { type ->
-                    val ua = type.unitAttachment
-                    val value = if (side == 0) ua.getAttack(owner) else ua.getDefense(owner)
-                    CountRow(
-                        title = type.name,
-                        subtitle = (if (side == 0) "attack " else "defence ") + value + if (ua.hitPoints > 1) "  ·  ${ua.hitPoints} hp" else "",
-                        value = counts[type] ?: 0,
-                        max = 99,
-                        onChange = { counts[type] = it.coerceIn(0, 99) },
-                        leading = { UnitIcon(images, type, owner, size = 30) },
+        }
+    }
+
+    if (pickAttacker) {
+        AppDialog(title = "Attacker", onDismiss = { pickAttacker = false }, buttons = {}) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(players, key = { it.name }) { p ->
+                    OptionRow(
+                        title = p.name,
+                        emphasized = p == attacker,
+                        leading = { NationFlagSmall(p.name, images) },
+                        onClick = { attacker = p; outcome = null; pickAttacker = false },
                     )
                 }
             }
         }
     }
-
-    pickPlayer?.let { which ->
-        AppDialog(title = if (which == 0) "Attacker" else "Defender", onDismiss = { pickPlayer = null }, buttons = {}) {
+    if (pickDefenders) {
+        // tap a nation to add it to the defence or take it out; the first one listed is the main defender
+        AppDialog(title = "Defending nations", onDismiss = { pickDefenders = false }, buttons = {}) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(players, key = { it.name }) { p ->
+                items(players.filter { it != attacker }, key = { it.name }) { p ->
+                    val included = p in defenders
                     OptionRow(
                         title = p.name,
-                        emphasized = p == (if (which == 0) attacker else defender),
+                        subtitle = if (included) "defends" else null,
+                        emphasized = included,
                         leading = { NationFlagSmall(p.name, images) },
                         onClick = {
-                            if (which == 0) attacker = p else defender = p
+                            if (included) {
+                                defenders.remove(p)
+                                types.forEach { defending.remove(Side(p, it)) }
+                            } else {
+                                defenders.add(p)
+                            }
                             outcome = null
-                            pickPlayer = null
                         },
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun UnitCountRow(type: UnitType, owner: GamePlayer, attack: Boolean, value: Int, images: ImageCache, onChange: (Int) -> kotlin.Unit) {
+    val ua = type.unitAttachment
+    val strength = if (attack) ua.getAttack(owner) else ua.getDefense(owner)
+    CountRow(
+        title = type.name,
+        subtitle = (if (attack) "attack " else "defence ") + strength + if (ua.hitPoints > 1) "  ·  ${ua.hitPoints} hp" else "",
+        value = value,
+        max = 99,
+        onChange = { onChange(it.coerceIn(0, 99)) },
+        leading = { UnitIcon(images, type, owner, size = 30) },
+    )
 }
 
 @Composable
@@ -292,9 +344,8 @@ private fun NationFlagSmall(name: String, images: ImageCache) {
 }
 
 /** Win chances as a bar, what is left on average, rounds and the value swing. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ResultCard(result: CalcOutcome, attacker: GamePlayer, defender: GamePlayer, images: ImageCache) {
+private fun ResultCard(result: CalcOutcome, attacker: GamePlayer, defenderLabel: String, images: ImageCache) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
@@ -312,13 +363,13 @@ private fun ResultCard(result: CalcOutcome, attacker: GamePlayer, defender: Game
             Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 Text("${(a * 100).toInt()}%  ${attacker.name}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
                 if (x > 0.005f) Text("${(x * 100).toInt()}% draw", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${defender.name}  ${(d * 100).toInt()}%", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                Text("$defenderLabel  ${(d * 100).toInt()}%", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // what is left on average, per side
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Top) {
-                LeftOver(result.attackersLeft, attacker, images, Modifier.weight(1f), end = false)
+                LeftOver(result.attackersLeft, images, Modifier.weight(1f), end = false)
                 Spacer(Modifier.width(8.dp))
-                LeftOver(result.defendersLeft, defender, images, Modifier.weight(1f), end = true)
+                LeftOver(result.defendersLeft, images, Modifier.weight(1f), end = true)
             }
             Text(
                 String.format(java.util.Locale.ROOT, "%.1f rounds  ·  value swing %+.0f  ·  %d runs, %.1f s", result.rounds, result.tuvSwing, result.runs, result.millis / 1000.0),
@@ -332,7 +383,7 @@ private fun ResultCard(result: CalcOutcome, attacker: GamePlayer, defender: Game
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LeftOver(units: List<Pair<UnitType, Int>>, owner: GamePlayer, images: ImageCache, modifier: Modifier, end: Boolean) {
+private fun LeftOver(units: List<Pair<Side, Int>>, images: ImageCache, modifier: Modifier, end: Boolean) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp, if (end) Alignment.End else Alignment.Start),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -341,12 +392,11 @@ private fun LeftOver(units: List<Pair<UnitType, Int>>, owner: GamePlayer, images
         if (units.isEmpty()) {
             Text("nothing left", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        units.forEach { (type, n) ->
+        units.forEach { (key, n) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                UnitIcon(images, type, owner, size = 22)
+                UnitIcon(images, key.type, key.owner, size = 22)
                 Text("×$n", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
 }
-

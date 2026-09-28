@@ -278,7 +278,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     /** The calculator waits for a tap on the map that chooses its territory. */
     var calcPicking by remember { mutableStateOf(false) }
     var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
-    var calcDefender by remember(session) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
     var showMoves by remember { mutableStateOf(false) }
     /** The purchase screen can be put away to look at the map while the phase stays open. */
@@ -1112,10 +1111,9 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             images = images,
             territoryName = selectedTerritory,
             attackerName = calcAttacker ?: status.playerName,
-            defenderName = calcDefender,
             onBack = { showCalc = false },
             onPickOnMap = { showCalc = false; calcPicking = true },
-            onNations = { a, d -> calcAttacker = a; calcDefender = d },
+            onAttacker = { calcAttacker = it },
         )
     }
     gameNotes?.let { notes ->
