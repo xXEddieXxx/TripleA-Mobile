@@ -560,10 +560,14 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         updateBattle(battleId) {
             // back at the first step of the list: a new battle round begins
             val newRound = it.steps.isNotEmpty() && step == it.steps.first() && it.currentStep.isNotBlank() && it.currentStep != step
+            val gone = if (newRound) it.dying.toSet() else emptySet()
             it.copy(
                 currentStep = step,
                 round = if (newRound) it.round + 1 else it.round,
                 firedThisRound = if (newRound) emptySet() else it.firedThisRound,
+                attackingUnits = it.attackingUnits - gone,
+                defendingUnits = it.defendingUnits - gone,
+                dying = it.dying - gone,
             )
         }
         battlePause()
@@ -599,14 +603,6 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
             stepName.startsWith(current.defender) -> current.defender
             else -> ""
         }
-        // this roll replaces the other side's dice on screen; the casualties of that side leave
-        // the line together with their dice (they had fired before, and nothing more comes from them)
-        val otherUnits = when (side) {
-            current.attacker -> current.defendingUnits
-            current.defender -> current.attackingUnits
-            else -> emptyList()
-        }.toHashSet()
-        val done = current.dying.filter { it in otherUnits }.toSet()
         _battle.value = current.copy(
             lastDice = values,
             lastDiceHitFlags = hitFlags,
@@ -615,9 +611,6 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
             lastDiceSide = side,
             lastDiceByStrength = byStrength,
             firedThisRound = if (side.isNotBlank()) current.firedThisRound + side else current.firedThisRound,
-            attackingUnits = current.attackingUnits - done,
-            defendingUnits = current.defendingUnits - done,
-            dying = current.dying - done,
             log = current.log + "$stepName: rolled ${values.joinToString(" ")} ($hits hits)",
         )
         battlePause()
@@ -645,15 +638,10 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
                     }
                 }
             }
-            // a side that has already fired this round: its dice are already off the screen, so
-            // its casualties go at once; otherwise they stay marked until they have rolled and
-            // their dice are replaced by the other side's roll
-            val side = if (player.name == it.attacker || killed.any { u -> u in it.attackingUnits }) it.attacker else it.defender
-            val fired = side in it.firedThisRound
+            // the casualties of both sides stay on the line, marked, for the rest of the round; the
+            // engine removes them all at the round's end (deadUnitNotification), the marks go with them
             it.withLosses(player.name, killed).copy(
-                attackingUnits = if (fired) it.attackingUnits - killed.toSet() else it.attackingUnits,
-                defendingUnits = if (fired) it.defendingUnits - killed.toSet() else it.defendingUnits,
-                dying = if (fired) it.dying else it.dying + killed,
+                dying = it.dying + killed,
                 log = it.log + text,
                 lastCasualties = killed.toList() + damaged.toList(),
                 lastCasualtyPlayer = player.name,
