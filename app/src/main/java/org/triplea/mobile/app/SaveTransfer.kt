@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.core.content.FileProvider
 import java.nio.file.Files
 import java.nio.file.Path
@@ -18,6 +19,7 @@ import org.triplea.mobile.app.game.GameController
  * travels between phones: play a turn, share the save, the other player imports it and goes on.
  */
 object SaveTransfer {
+    private const val TAG = "Import"
     /** Imports are refused above this size; a save is a few hundred kilobytes, big maps a few megabytes. */
     private const val MAX_IMPORT_BYTES = 200L * 1024 * 1024
 
@@ -41,15 +43,29 @@ object SaveTransfer {
         runCatching {
             val folder = MobileEngine.getSaveGamesFolder()
             Files.createDirectories(folder)
-            val target = uniqueTarget(folder, safeName(displayName(context, uri)))
+            val name = displayName(context, uri)
+            val target = uniqueTarget(folder, safeName(name))
             context.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "The file could not be opened." }
                 copyBounded(input, target)
             }
+            val size = Files.size(target)
+            Log.i(TAG, "import '$name' ($size bytes) from $uri")
+            // a save is gzip compressed serialized game data; anything else is a foreign file
+            val gzip = Files.newInputStream(target).use { val b = ByteArray(2); it.read(b) == 2 && b[0] == 0x1f.toByte() && b[1] == 0x8b.toByte() }
+            if (!gzip) {
+                Files.deleteIfExists(target)
+                Log.w(TAG, "import of '$name' refused: not compressed game data")
+                throw IllegalArgumentException("This is not a TripleA Mobile save game ($name, $size bytes).")
+            }
             val data = MobileEngine.loadSaveGame(target).orElse(null)
             if (data == null) {
                 Files.deleteIfExists(target)
-                throw IllegalArgumentException("This is not a TripleA Mobile save game.")
+                Log.w(TAG, "import of '$name' failed: the engine could not read it")
+                throw IllegalArgumentException(
+                    "The save game '$name' could not be read. It may come from a different version of the app; " +
+                        "both players need the same version to exchange saves."
+                )
             }
             val step = data.sequence.step
             val info = listOf(

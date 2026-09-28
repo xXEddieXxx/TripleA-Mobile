@@ -1,6 +1,7 @@
 package org.triplea.mobile.app
 
 import android.os.Build
+import android.util.Log
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import android.content.Intent
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
             )
             else -> null
         }
+        Log.i("Import", "intent action=${intent?.action} type=${intent?.type} data=${intent?.data} stream=$uri")
         if (uri != null) NavArgs.pendingImport.value = uri
     }
 }
