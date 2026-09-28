@@ -110,6 +110,12 @@ base64 -w0 release.keystore      # -> secret RELEASE_KEYSTORE_B64
 
 Release and dev builds use different keys, so one does not install over the other.
 
+Release builds run R8. `app/proguard-rules.pro` keeps the engine untouched and keeps the names and
+serialized fields of every `Serializable` class (Guava included): a save game stores class names,
+`SafeObjectInputStream` allows them by name, and a save must load in every build. After touching
+the rules, check that a save made by the release build loads again and that a save made by a debug
+build loads in the release build.
+
 ## Dev builds
 
 Every push to `main` runs `.github/workflows/android.yml`: engine tests, debug APK, and a rolling
