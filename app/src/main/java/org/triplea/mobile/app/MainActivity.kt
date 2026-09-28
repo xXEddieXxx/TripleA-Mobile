@@ -1,5 +1,6 @@
 package org.triplea.mobile.app
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import android.content.Intent
@@ -64,9 +65,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun takeImport(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_VIEW) {
-            intent.data?.let { NavArgs.pendingImport.value = it }
+        val uri: Uri? = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            // shared "to" the app: the file travels as a stream extra, not as the data URI
+            Intent.ACTION_SEND -> @Suppress("DEPRECATION") (
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            )
+            else -> null
         }
+        if (uri != null) NavArgs.pendingImport.value = uri
     }
 }
 

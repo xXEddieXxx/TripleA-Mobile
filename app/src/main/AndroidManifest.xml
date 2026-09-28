@@ -25,7 +25,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- a save game received in a chat or mail app opens here and is imported -->
+            <!-- a save game received in a chat or mail app opens here and is imported: by its
+                 .tsvg name where the URI carries one (file managers, downloads) ... -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -37,6 +38,21 @@
                 <data android:pathPattern=".*\\.tsvg" />
                 <data android:pathPattern=".*\\..*\\.tsvg" />
                 <data android:pathPattern=".*\\..*\\..*\\.tsvg" />
+            </intent-filter>
+            <!-- ... and as a plain binary file, which is what chat and mail apps make of an
+                 unknown extension: their content URIs carry no file name to match on. The
+                 import checks the content, so a foreign file only produces an error message. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <!-- "share with TripleA Mobile" from a chat's or file manager's share sheet -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 
