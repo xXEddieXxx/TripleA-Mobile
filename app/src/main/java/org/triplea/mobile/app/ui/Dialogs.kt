@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateOf
@@ -54,8 +55,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import games.strategy.engine.data.GamePlayer
 import games.strategy.engine.data.ProductionRule
@@ -126,16 +125,6 @@ internal fun unitGroupKey(unit: Unit): UnitGroupKey {
 }
 
 private fun groupKey(unit: Unit) = unitGroupKey(unit)
-
-/**
- * The height a list inside a dialog may take: the preferred height, but never more than about
- * half the screen, so the dialog's buttons stay on screen on small phones in landscape.
- */
-@Composable
-fun dialogListHeight(preferred: Dp): Dp {
-    val screen = LocalConfiguration.current.screenHeightDp.dp
-    return minOf(preferred, screen * 0.45f)
-}
 
 @Composable
 fun UnitIcon(images: ImageCache?, type: UnitType, owner: GamePlayer, size: Int = 32) {
@@ -253,7 +242,7 @@ fun PurchaseDialog(
     val affordable = resources.all { (spent[it] ?: 0) <= (available[it] ?: 0) }
     var warnings by remember(request) { mutableStateOf<List<String>?>(null) }
     var showHint by rememberSaveable { mutableStateOf(false) }
-    var tab by rememberSaveable(request) { mutableStateOf(0) }
+    var tab by rememberSaveable(request) { mutableIntStateOf(0) }
     val expanded = remember(request) { mutableStateMapOf<ProductionRule, Boolean>() }
 
     fun unitTypeOf(rule: ProductionRule): UnitType? {

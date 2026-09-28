@@ -583,7 +583,7 @@ public class TriggerAttachment extends AbstractTriggerAttachment {
           bridge
               .getDisplayChannelBroadcaster()
               .reportMessageToPlayers(
-                  t.getPlayers(), null, ("<html>" + message.trim() + "</html>"), NOTIFICATION);
+                  t.getPlayers(), null, ("<html>" + message.trim() + "</html>"), NOTIFICATION_TYPE);
         }
       }
     }

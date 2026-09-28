@@ -15,6 +15,7 @@ import games.strategy.engine.history.Step
 import games.strategy.triplea.attachments.PoliticalActionAttachment
 import games.strategy.triplea.attachments.UserActionAttachment
 import games.strategy.triplea.attachments.AbstractConditionsAttachment
+import games.strategy.triplea.attachments.AbstractPlayerRulesAttachment
 import games.strategy.triplea.attachments.ICondition
 import games.strategy.triplea.attachments.RulesAttachment
 import games.strategy.triplea.attachments.TerritoryAttachment
@@ -34,6 +35,8 @@ import games.strategy.triplea.util.UnitSeparator
 import org.triplea.geom.Polygon
 import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.UnitImageNames
+import org.triplea.util.FileNameUtils
+import java.lang.ref.SoftReference
 
 /** A group of identical units drawn as one icon with a counter. */
 class UnitStack(
@@ -371,8 +374,70 @@ class MapSnapshot(
         private fun readObjectives(session: LocalGameSession): List<ObjectiveLine> = runCatching {
             val data = session.gameData
             if (!Properties.getNationalObjectives(data.properties)) return@runCatching emptyList()
-            val texts = loadObjectiveTexts(session)
+            // the file and the conditions it names do not change during a game: parse once per session
+            val parsed = objectiveCache?.get()?.takeIf { it.session === session }
+                ?: loadObjectiveTexts(session).let { ParsedObjectives(session, it, listedObjectives(data, it)) }
+                    .also { objectiveCache = SoftReference(it) }
             val bridge = ObjectiveDummyDelegateBridge(data)
+            if (parsed.listed.isNotEmpty()) testObjectives(parsed, bridge) else ruleObjectives(data, parsed.texts, bridge)
+        }.getOrDefault(emptyList())
+
+        /** An objectives.properties entry: the nation whose group lists it, the attachment's owner, name and text. */
+        private class Listed(val player: String, val owner: String, val name: String, val condition: ICondition, val text: String)
+
+        /** objectives.properties of one game, parsed once; `all` is the condition graph the listed ones depend on. */
+        private class ParsedObjectives(val session: LocalGameSession, val texts: Map<String, String>, val listed: List<Listed>) {
+            val all: Set<ICondition> = AbstractConditionsAttachment.getAllConditionsRecursive(listed.mapTo(HashSet()) { it.condition }, null)
+        }
+
+        // soft, so a quit game's data does not stay pinned when memory is needed
+        private var objectiveCache: SoftReference<ParsedObjectives>? = null
+
+        /**
+         * The objectives the map lists in objectives.properties for this game, like the desktop
+         * objective panel: "Game.TABLEGROUP.01;Italians=nameA;nameB" fixes the order per nation,
+         * "Game.Italians;nameA=text" gives the text. A name may be a rules, condition or trigger
+         * attachment, so missions without a PU value (a free unit, a tech) are included too.
+         */
+        private fun listedObjectives(data: GameData, texts: Map<String, String>): List<Listed> {
+            val prefix = FileNameUtils.replaceIllegalCharacters(data.gameName, '_').replace(" ", "_") + "."
+            val entries = texts.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
+            val (groupKeys, textKeys) = entries.keys.filter { ';' in it }.partition { it.startsWith("TABLEGROUP.") }
+            val listed = ArrayList<Listed>()
+            for (groupKey in groupKeys.sorted()) {
+                val player = groupKey.substringAfter(';')
+                for (name in entries.getValue(groupKey).split(';')) {
+                    // the text entry is keyed by the owner of the attachment, which may be another nation
+                    val keys = listOf("$player;$name").filter { it in entries }.ifEmpty { textKeys.filter { it.endsWith(";$name") } }
+                    for (entry in keys) {
+                        val owner = entry.substringBefore(';')
+                        val condition = AbstractPlayerRulesAttachment.getCondition(owner, name, data) ?: continue
+                        listed += Listed(player, owner, name, condition, entries.getValue(entry))
+                    }
+                }
+            }
+            return listed
+        }
+
+        /** The listed objectives tested against the current game state. */
+        private fun testObjectives(parsed: ParsedObjectives, bridge: ObjectiveDummyDelegateBridge): List<ObjectiveLine> {
+            val tested = runCatching { AbstractConditionsAttachment.testAllConditionsRecursive(parsed.all, null, bridge) }
+                .getOrDefault(emptyMap())
+            return parsed.listed.map { line ->
+                val shortName = line.name.removePrefix(Constants.RULES_OBJECTIVE_PREFIX).removePrefix(Constants.RULES_CONDITION_PREFIX)
+                    .removePrefix(Constants.TRIGGER_ATTACHMENT_PREFIX).removePrefix(line.owner).trimStart('_', '-', ' ')
+                ObjectiveLine(
+                    player = line.player,
+                    title = humanize(shortName),
+                    description = line.text,
+                    value = (line.condition as? RulesAttachment)?.objectiveValue ?: 0,
+                    achieved = tested[line.condition] ?: false,
+                )
+            }
+        }
+
+        /** Fallback for maps without a desktop-style objectives.properties: every objectiveAttachment rule. */
+        private fun ruleObjectives(data: GameData, texts: Map<String, String>, bridge: ObjectiveDummyDelegateBridge): List<ObjectiveLine> {
             val lines = ArrayList<ObjectiveLine>()
             for (player in data.playerList.players.filter { !it.isNull }) {
                 val objectives = RulesAttachment.getNationalObjectives(player).sortedBy { it.name }
@@ -383,7 +448,7 @@ class MapSnapshot(
                 for (objective in objectives) {
                     val fullName = objective.name ?: continue
                     val shortName = fullName.removePrefix(Constants.RULES_OBJECTIVE_PREFIX).trimStart('_', '-', ' ')
-                    val value = (objective.getPropertyOrEmpty("objectiveValue").orElse(null)?.value as? Int) ?: 0
+                    val value = objective.objectiveValue
                     val text = objectiveText(texts, player.name, fullName, shortName) ?: describeObjective(objective)
                     lines += ObjectiveLine(
                         player = player.name,
@@ -394,8 +459,8 @@ class MapSnapshot(
                     )
                 }
             }
-            lines
-        }.getOrDefault(emptyList())
+            return lines
+        }
 
         /** objectives.properties of the map: "Player.objectiveName=text" lines, HTML stripped. */
         private fun loadObjectiveTexts(session: LocalGameSession): Map<String, String> = runCatching {

@@ -2,31 +2,20 @@ package org.triplea.java.timer;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 
-/** Factory class for creating timers to execute recurring tasks or one-off delayed tasks */
+/**
+ * Factory class for creating timers to execute recurring tasks.
+ *
+ * <p>mobile: the desktop's {@code executeAfterDelay} was removed; only the Swing main frame used
+ * it, and it leaked a ScheduledThreadPoolExecutor per call.
+ */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Timers {
-
-  /**
-   * Waits a fixed delay and then executes a given runnable.
-   *
-   * @param delay The number of units to delay (eg: 1, 2, 3)
-   * @param delayTimeUnit The unit of the delay (eg: minutes, seconds).
-   * @param runnable The task to be run.
-   */
-  public static void executeAfterDelay(
-      final int delay, final TimeUnit delayTimeUnit, final Runnable runnable) {
-    if (delay < 0) {
-      throw new IllegalArgumentException("Delay must be non-negative, was " + delay);
-    }
-    new ScheduledThreadPoolExecutor(1).schedule(runnable, delay, delayTimeUnit);
-  }
 
   /**
    * Returns a type-safe builder to create a timer that executes a given task at a regular periodic

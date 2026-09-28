@@ -19,28 +19,12 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
-import org.jetbrains.annotations.VisibleForTesting;
 
 /** A collection of useful methods related to files. */
 @UtilityClass
 @Slf4j
 public final class FileUtils {
-
-  public static Path newTempFolder() {
-    try {
-      return Files.createTempDirectory("triplea");
-    } catch (final IOException e) {
-      throw new FileSystemException(e);
-    }
-  }
-
-  private static class FileSystemException extends RuntimeException {
-    private static final long serialVersionUID = -2046259158805830577L;
-
-    FileSystemException(final IOException e) {
-      super("File system exception (check available disk space), " + e.getMessage(), e);
-    }
-  }
+  // mobile: newTempFolder, createTempFile and replaceFolder (unused, Sonar S5443) removed
 
   /**
    * Returns a collection of abstract pathnames denoting the files and directories in the specified
@@ -249,111 +233,8 @@ public final class FileUtils {
     }
   }
 
-  /**
-   * Creates a temp file, logs and returns an empty optional if there is a problem creating the temp
-   * file.
-   */
-  public static Optional<Path> createTempFile() {
-    try {
-      return Optional.of(Files.createTempFile("triplea-temp-file", ".temp"));
-    } catch (final IOException e) {
-      log.error("Failed to create temp file: {}", e.getMessage(), e);
-      return Optional.empty();
-    }
-  }
-
   public static void deleteDirectory(final Path path) throws IOException {
     org.apache.commons.io.FileUtils.deleteDirectory(path.toFile());
-  }
-
-  /**
-   * Does an overwrite of one folder onto another and rolls back if there were errors. The rollback
-   * is done by first moving the destination folder to a backup location. If there are any errors
-   * then we delete whatever we copied and move the backup location back to the destination
-   * location.
-   *
-   * <p>If the destination folder does not exist then this behaves like a folder move.
-   *
-   * @param src The folder to be moved.
-   * @param dest A folder that will be erased and replaced by the contents of 'src'.
-   * @return True if the move operation succeed, false if not. If the operation does not succeed,
-   *     this method will log the details.
-   */
-  public static boolean replaceFolder(final Path src, final Path dest) {
-    return replaceFolder(src, dest, new FileMoveOperation());
-  }
-
-  @VisibleForTesting
-  static class FileMoveOperation {
-    void move(final Path src, final Path dest) throws IOException {
-      Files.move(src, dest);
-    }
-  }
-
-  @VisibleForTesting
-  static boolean replaceFolder(
-      final Path src, final Path dest, final FileMoveOperation fileMoveOperation) {
-
-    if (!Files.exists(dest)) {
-      // no folder exists at the destination, this is just a move and not a replace
-      try {
-        fileMoveOperation.move(src, dest);
-      } catch (final IOException e) {
-        log.warn(
-            "Failed to move {} to {}. <br>"
-                + "Check that the destination folder is not owned by an administrator. <br>"
-                + "Error message: {}",
-            src.toAbsolutePath(),
-            dest.toAbsolutePath(),
-            e.getMessage(),
-            e);
-      }
-      return true;
-    }
-
-    // otherwise, create a backup of the destination folder before we replace it
-    final Path backupFolder;
-    try {
-      backupFolder = Files.createTempDirectory("temp-dir").resolve(dest.getFileName());
-    } catch (final IOException e) {
-      log.warn("Failed to create temp folder: " + e.getMessage(), e);
-      return false;
-    }
-
-    try {
-      // make a complete backup by moving the dest folder to back up
-      fileMoveOperation.move(dest, backupFolder);
-
-      // do the folder move
-      fileMoveOperation.move(src, dest);
-
-      // folder replace was a success, clean up the backup folder
-      deleteDirectory(backupFolder);
-
-      return true;
-    } catch (final IOException e) {
-      log.warn(
-          "Unable to replace folder: {} <br/>"
-              + "Are you low on disk space?<br/>"
-              + " Is the destination folder owned by administrator but you"
-              + " are running TripleA as a non-administrator?",
-          dest.toAbsolutePath());
-
-      // anything that exists at 'dest' is a failed copy and can be cleaned up
-      try {
-        if (Files.exists(dest)) {
-          deleteDirectory(dest);
-        }
-        // restore the backup folder
-        fileMoveOperation.move(backupFolder, dest);
-      } catch (final IOException e2) {
-        log.error(
-            "Failed to rollback, failed to restore backup folder: {}, to: {}",
-            backupFolder.toAbsolutePath(),
-            dest.toAbsolutePath());
-      }
-      return false;
-    }
   }
 
   /**

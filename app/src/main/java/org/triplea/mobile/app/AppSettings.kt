@@ -2,6 +2,7 @@ package org.triplea.mobile.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import games.strategy.triplea.settings.ClientSetting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -116,10 +117,10 @@ object AppSettings {
         // builds before the map followed AI moves stored 0 for everyone: switch those to the new
         // default once; a 0 set on purpose afterwards is kept
         if (!prefs.getBoolean("aiFollowDefaultApplied", false)) {
-            prefs.edit().putBoolean("aiFollowDefaultApplied", true).apply()
+            prefs.edit { putBoolean("aiFollowDefaultApplied", true) }
             if (_state.value.aiMovePauseMillis == 0) {
                 _state.value = _state.value.copy(aiMovePauseMillis = defaults.aiMovePauseMillis)
-                prefs.edit().putInt("aiMovePauseMillis", defaults.aiMovePauseMillis).apply()
+                prefs.edit { putInt("aiMovePauseMillis", defaults.aiMovePauseMillis) }
             }
         }
         applyToEngine(_state.value)
@@ -128,40 +129,40 @@ object AppSettings {
     fun update(change: (Settings) -> Settings) {
         val next = change(_state.value)
         _state.value = next
-        prefs.edit()
-            .putBoolean("confirmPhaseEnd", next.confirmPhaseEnd)
-            .putBoolean("showPhaseBanner", next.showPhaseBanner)
-            .putBoolean("pauseAfterCasualties", next.pauseAfterCasualties)
-            .putBoolean("autoDefaultCasualties", next.autoDefaultCasualties)
-            .putBoolean("showAiBattles", next.showAiBattles)
-            .putBoolean("showBattleHelp", next.showBattleHelp)
-            .putBoolean("autosaveEachRound", next.autosaveEachRound)
-            .putBoolean("replayOnLoad", next.replayOnLoad)
-            .putInt("battleStepPauseMillis", next.battleStepPauseMillis)
-            .putInt("aiMovePauseMillis", next.aiMovePauseMillis)
-            .putInt("aiCombatStepPauseMillis", next.aiCombatStepPauseMillis)
-            .putBoolean("showTerritoryNames", next.showTerritoryNames)
-            .putBoolean("showTerritoryValues", next.showTerritoryValues)
-            .putFloat("mapMaxZoom", next.mapMaxZoom)
-            .putString("theme", next.theme.name)
-            .putBoolean("keepScreenOn", next.keepScreenOn)
-            .putBoolean("fullscreenGame", next.fullscreenGame)
-            .putString("uiMode", next.uiMode.name)
-            .putString("orientation", next.orientation.name)
-            .putBoolean("vibrateOnBattle", next.vibrateOnBattle)
-            .putBoolean("vibrateOnTurn", next.vibrateOnTurn)
-            .putString("mapQuality", next.mapQuality.name)
-            .putBoolean("showRelief", next.showRelief)
-            .putFloat("unitScale", next.unitScale)
-            .putFloat("counterScale", next.counterScale)
-            .putBoolean("soundEnabled", next.soundEnabled)
-            .putFloat("soundVolume", next.soundVolume)
-            .putBoolean("soundBattle", next.soundBattle)
-            .putBoolean("soundPhase", next.soundPhase)
-            .putBoolean("soundPlacement", next.soundPlacement)
-            .putBoolean("soundOther", next.soundOther)
-            .putString("soundTheme", next.soundTheme)
-            .apply()
+        prefs.edit {
+            putBoolean("confirmPhaseEnd", next.confirmPhaseEnd)
+            putBoolean("showPhaseBanner", next.showPhaseBanner)
+            putBoolean("pauseAfterCasualties", next.pauseAfterCasualties)
+            putBoolean("autoDefaultCasualties", next.autoDefaultCasualties)
+            putBoolean("showAiBattles", next.showAiBattles)
+            putBoolean("showBattleHelp", next.showBattleHelp)
+            putBoolean("autosaveEachRound", next.autosaveEachRound)
+            putBoolean("replayOnLoad", next.replayOnLoad)
+            putInt("battleStepPauseMillis", next.battleStepPauseMillis)
+            putInt("aiMovePauseMillis", next.aiMovePauseMillis)
+            putInt("aiCombatStepPauseMillis", next.aiCombatStepPauseMillis)
+            putBoolean("showTerritoryNames", next.showTerritoryNames)
+            putBoolean("showTerritoryValues", next.showTerritoryValues)
+            putFloat("mapMaxZoom", next.mapMaxZoom)
+            putString("theme", next.theme.name)
+            putBoolean("keepScreenOn", next.keepScreenOn)
+            putBoolean("fullscreenGame", next.fullscreenGame)
+            putString("uiMode", next.uiMode.name)
+            putString("orientation", next.orientation.name)
+            putBoolean("vibrateOnBattle", next.vibrateOnBattle)
+            putBoolean("vibrateOnTurn", next.vibrateOnTurn)
+            putString("mapQuality", next.mapQuality.name)
+            putBoolean("showRelief", next.showRelief)
+            putFloat("unitScale", next.unitScale)
+            putFloat("counterScale", next.counterScale)
+            putBoolean("soundEnabled", next.soundEnabled)
+            putFloat("soundVolume", next.soundVolume)
+            putBoolean("soundBattle", next.soundBattle)
+            putBoolean("soundPhase", next.soundPhase)
+            putBoolean("soundPlacement", next.soundPlacement)
+            putBoolean("soundOther", next.soundOther)
+            putString("soundTheme", next.soundTheme)
+        }
         applyToEngine(next)
     }
 

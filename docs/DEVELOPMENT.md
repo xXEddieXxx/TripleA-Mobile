@@ -22,6 +22,16 @@ desktop engine:
 - `ClientSetting` is an in-memory stub holding only the settings the engine reads.
 - Websocket message types, `PbemMessagePoster` and `Chat` are compile-time stubs.
 - Language level and library usage are Java 17 (no `List.getFirst()` etc.).
+- Small fixes for SonarQube findings, each marked with a `// mobile:` comment: `Integer.compare`
+  in comparators, a mutable copy in `FinishedBattle.unitsLostInPrecedingBattle` and
+  `ProBattleUtils`, `BigDecimal.compareTo` in `MovableUnitsFilter`, linear regexes in
+  `PointFileReaderWriter`, and the constants `AbstractTriggerAttachment.NOTIFICATION_TYPE` and
+  `UnitAttachment.BOMBARD_PROPERTY` (renamed because they clashed with the serialized fields
+  `notification` and `bombard`, which must keep their names for save games). Unused code was
+  removed instead of fixed: `Timers.executeAfterDelay` (Swing), `PlayerEmailValidation` (lobby),
+  `FileUtils.newTempFolder/createTempFile/replaceFolder`, `InstalledMap.readGameNotes` and
+  `LocalizeHtml`. `org.triplea.geom.Color` has no lowercase aliases (`Color.black` is
+  `Color.BLACK`).
 
 The mobile specific API lives in `org.triplea.mobile`:
 

@@ -20,20 +20,6 @@ public final class Color implements Serializable {
   public static final Color CYAN = new Color(0, 255, 255);
   public static final Color BLUE = new Color(0, 0, 255);
 
-  public static final Color white = WHITE;
-  public static final Color lightGray = LIGHT_GRAY;
-  public static final Color gray = GRAY;
-  public static final Color darkGray = DARK_GRAY;
-  public static final Color black = BLACK;
-  public static final Color red = RED;
-  public static final Color pink = PINK;
-  public static final Color orange = ORANGE;
-  public static final Color yellow = YELLOW;
-  public static final Color green = GREEN;
-  public static final Color magenta = MAGENTA;
-  public static final Color cyan = CYAN;
-  public static final Color blue = BLUE;
-
   private final int argb;
 
   public Color(final int r, final int g, final int b) {

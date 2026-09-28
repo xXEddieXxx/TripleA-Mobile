@@ -112,14 +112,14 @@ public class UnitBattleComparator implements Comparator<Unit> {
         }
       }
       if (power1 != power2) {
-        return power1 - power2;
+        return Integer.compare(power1, power2); // mobile: S9354
       }
     }
     {
       final int cost1 = costs.getInt(u1.getType());
       final int cost2 = costs.getInt(u2.getType());
       if (cost1 != cost2) {
-        return cost1 - cost2;
+        return Integer.compare(cost1, cost2); // mobile: S9354
       }
     }
     {
@@ -148,7 +148,7 @@ public class UnitBattleComparator implements Comparator<Unit> {
         }
       }
       if (power1reverse != power2reverse) {
-        return power1reverse - power2reverse;
+        return Integer.compare(power1reverse, power2reverse); // mobile: S9354
       }
     }
     if (subDestroyer1 && !subDestroyer2) {
@@ -173,6 +173,7 @@ public class UnitBattleComparator implements Comparator<Unit> {
     }
     final UnitAttachment ua1 = u1.getUnitAttachment();
     final UnitAttachment ua2 = u2.getUnitAttachment();
-    return ua1.getMovement(u1.getOwner()) - ua2.getMovement(u2.getOwner());
+    // mobile: S9354
+    return Integer.compare(ua1.getMovement(u1.getOwner()), ua2.getMovement(u2.getOwner()));
   }
 }

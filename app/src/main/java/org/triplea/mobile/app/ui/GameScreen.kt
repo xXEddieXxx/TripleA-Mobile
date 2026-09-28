@@ -93,7 +93,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -111,6 +111,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -313,7 +314,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             aiMove = null
         }
     }
-    var lastAutosaveRound by remember(session) { mutableStateOf(0) }
+    var lastAutosaveRound by remember(session) { mutableIntStateOf(0) }
     var hiddenBattleId by remember(session) { mutableStateOf<UUID?>(null) }
     var phaseEndConfirm by remember(session) { mutableStateOf<PhaseEndConfirm?>(null) }
 
@@ -1168,7 +1169,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 mapArea(Modifier.weight(1f).fillMaxWidth())
                 if (showDetails) {
                     HorizontalDivider()
-                    val panelHeight = (configuration.screenHeightDp * 0.42f).dp
+                    val windowHeight = LocalWindowInfo.current.containerSize.height
+                    val panelHeight = with(LocalDensity.current) { (windowHeight * 0.42f).toDp() }
                     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().height(panelHeight)) {
                         sidePanel(false)
                     }
@@ -1510,9 +1512,9 @@ private fun OverlayChip(modifier: Modifier = Modifier, content: @Composable () -
 private fun TurnStepStrip(
     steps: List<Pair<String, String>>,
     currentStep: String,
+    modifier: Modifier = Modifier,
     optional: String = "",
     suffix: String = "",
-    modifier: Modifier = Modifier,
 ) {
     val currentIndex = steps.indexOfFirst { it.first == currentStep }
     val mainName = steps.getOrNull(currentIndex)?.second ?: ""

@@ -10,7 +10,7 @@ public class ColorProperty extends AbstractEditableProperty<Color> {
 
   public ColorProperty(final String name, final String description, final Color def) {
     super(name, description);
-    color = def == null ? Color.black : def;
+    color = def == null ? Color.BLACK : def; // mobile: geom Color has no lowercase aliases
   }
 
   @Override
@@ -20,7 +20,7 @@ public class ColorProperty extends AbstractEditableProperty<Color> {
 
   @Override
   public void setValue(final Color value) {
-    color = value == null ? Color.black : value;
+    color = value == null ? Color.BLACK : value; // mobile: see above
   }
 
   @Override

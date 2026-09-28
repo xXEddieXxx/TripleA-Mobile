@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,7 +86,7 @@ fun TechDialog(request: TechRequest) {
     val categories = remember(request) {
         if (ww2v3) TechAdvance.getPlayerTechCategories(player).filter { category -> category.techs.any { it in available } } else emptyList()
     }
-    var count by remember(request) { mutableStateOf(if (ww2v3) 0 else minOf(1, maxBuy)) }
+    var count by remember(request) { mutableIntStateOf(if (ww2v3) 0 else minOf(1, maxBuy)) }
     var category by remember(request) { mutableStateOf(categories.firstOrNull()) }
     var advance by remember(request) { mutableStateOf<TechAdvance?>(if (available.size == 1) available[0] else null) }
     val totalRolls = if (ww2v3) tokens + count else count

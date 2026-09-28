@@ -14,13 +14,13 @@ import games.strategy.triplea.delegate.data.TechResults;
 import games.strategy.triplea.delegate.data.TechRoll;
 import games.strategy.triplea.delegate.remote.IPoliticsDelegate;
 import games.strategy.triplea.delegate.remote.IUserActionDelegate;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import javax.annotation.Nullable;
@@ -33,7 +33,7 @@ import org.triplea.util.Tuple;
  * battle choice, placement, end turn and the notification methods.
  */
 public abstract class HumanPlayerUiAdapter implements HumanPlayerUi {
-  private final Random random = new Random();
+  private final SecureRandom random = new SecureRandom();
 
   @Override
   public void startPhase(final GamePlayer player, final String stepName) {}

@@ -270,7 +270,7 @@ public final class ProTransportUtils {
         }
       }
       final int attack2 = o2.getUnitAttachment().getAttack(player) + maxSupport2;
-      return attack2 - attack1;
+      return Integer.compare(attack2, attack1); // mobile: S9354
     };
   }
 

@@ -601,8 +601,9 @@ public class WeakAi extends AbstractAi {
             return 1;
           }
           // next take territories with the largest PU value
-          return optionalTerritoryAttachment2.get().getProduction()
-              - optionalTerritoryAttachment1.get().getProduction();
+          return Integer.compare( // mobile: S9354
+              optionalTerritoryAttachment2.get().getProduction(),
+              optionalTerritoryAttachment1.get().getProduction());
         });
     final List<Territory> isWaterTerr = Utils.onlyWaterTerr(enemyOwned);
     enemyOwned.removeAll(isWaterTerr);

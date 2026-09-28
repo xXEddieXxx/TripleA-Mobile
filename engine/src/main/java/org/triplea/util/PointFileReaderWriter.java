@@ -22,6 +22,7 @@ import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Utility to read and write files in the form of String -> a list of points, or string-> list of
@@ -30,14 +31,17 @@ import java.util.stream.Collectors;
 public final class PointFileReaderWriter {
 
   // Matches an int tuple like this: (123, 456)
+  // mobile: no leading \s* (only used with find(), where it caused quadratic scans, Sonar S8786)
   private static final Pattern pointPattern =
-      Pattern.compile("\\s*\\(\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*\\)");
+      Pattern.compile("\\(\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*\\)");
   // Matches a "polygon" like this: < something that's not a greater than or less than char >
   private static final Pattern polygonPattern = Pattern.compile("<[^>]*>");
   // Matches a Name-Int-Tuple pair like this: Some Weird Territory Name without an opening round
   // bracket (654, 321)
+  // mobile: the name group is greedy and trimmed in readSingle instead of a lazy group followed
+  // by \s* (overlapping quantifiers, Sonar S8786)
   private static final Pattern singlePointPattern =
-      Pattern.compile("^([^(]*?)\\s*\\(\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*\\)");
+      Pattern.compile("^([^(]*)\\(\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*\\)");
 
   private PointFileReaderWriter() {}
 
@@ -53,7 +57,7 @@ public final class PointFileReaderWriter {
   private static void readSingle(final String line, final Map<String, Point> mapping) {
     final Matcher matcher = singlePointPattern.matcher(line);
     if (matcher.find()) {
-      final String territoryName = matcher.group(1);
+      final String territoryName = matcher.group(1).stripTrailing();
       if (mapping.containsKey(territoryName)) {
         throw new IllegalArgumentException(
             "Territory '"
@@ -283,8 +287,9 @@ public final class PointFileReaderWriter {
   @VisibleForTesting
   static void readPath(final Path input, final Consumer<String> lineParser) throws IOException {
 
-    try {
-      Files.lines(input).filter(Predicate.not(String::isBlank)).forEachOrdered(lineParser);
+    // mobile: try-with-resources so the file handle is released (Sonar S2095)
+    try (Stream<String> lines = Files.lines(input)) {
+      lines.filter(Predicate.not(String::isBlank)).forEachOrdered(lineParser);
     } catch (final IllegalArgumentException e) {
       throw new IOException(e);
     }

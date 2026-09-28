@@ -214,16 +214,16 @@ fun MapView(
     battlePulse: Float,
     showTerritoryNames: Boolean,
     showTerritoryValues: Boolean,
+    onTap: (MapTap) -> kotlin.Unit,
+    onDoubleTap: (MapTap) -> kotlin.Unit,
+    onLongPress: (MapTap) -> kotlin.Unit,
+    modifier: Modifier = Modifier,
     unitScale: Float = 1f,
     counterScale: Float = 1f,
     showRelief: Boolean = true,
     qualityFactor: Int = 1,
     highContrast: Boolean = false,
     largeTouchTargets: Boolean = false,
-    onTap: (MapTap) -> kotlin.Unit,
-    onDoubleTap: (MapTap) -> kotlin.Unit,
-    onLongPress: (MapTap) -> kotlin.Unit,
-    modifier: Modifier = Modifier,
 ) {
     val imageVersion by images.version.collectAsState()
     val hasRelief = remember(mapData) { mapData.hasRelief }

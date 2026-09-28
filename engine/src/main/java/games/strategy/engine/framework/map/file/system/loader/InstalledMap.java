@@ -14,8 +14,6 @@ import lombok.ToString;
 import org.triplea.io.FileUtils;
 import org.triplea.map.description.file.MapDescriptionYaml;
 import org.triplea.map.description.file.SkinDescriptionYaml;
-import org.triplea.map.game.notes.GameNotes;
-import org.triplea.util.LocalizeHtml;
 
 /** Object representing a map that is downloaded and installed. */
 @Builder
@@ -65,22 +63,7 @@ public class InstalledMap {
     return mapDescriptionYaml.getGameXmlPathByGameName(gameName);
   }
 
-  /**
-   * Returns contents of a game notes file if present. Returns empty if the content root or game
-   * notes file cannot be found.
-   */
-  public Optional<String> readGameNotes(final String gameName) {
-    final Optional<Path> xmlPath = getGameXmlFilePath(gameName);
-    final Optional<Path> mapContentRoot = findContentRoot();
-
-    if (xmlPath.isEmpty() || mapContentRoot.isEmpty()) {
-      return Optional.empty();
-    } else {
-      return Optional.ofNullable(
-          LocalizeHtml.localizeImgLinksInHtml(
-              GameNotes.loadGameNotes(xmlPath.get()), mapContentRoot.get()));
-    }
-  }
+  // mobile: readGameNotes removed with LocalizeHtml, the app reads GameNotes directly
 
   public Optional<Path> findMapSkin(String skinName) {
     Path mapPath = mapDescriptionYaml.getYamlFileLocation().getParent();

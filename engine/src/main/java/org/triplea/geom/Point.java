@@ -3,7 +3,7 @@ package org.triplea.geom;
 import java.io.Serializable;
 
 /** Minimal replacement for {@code java.awt.Point}, usable on Android. */
-public class Point implements Serializable, Cloneable {
+public class Point implements Serializable {
   private static final long serialVersionUID = 1L;
 
   public int x;
@@ -47,11 +47,6 @@ public class Point implements Serializable, Cloneable {
   @Override
   public int hashCode() {
     return 31 * x + y;
-  }
-
-  @Override
-  public Point clone() {
-    return new Point(x, y);
   }
 
   @Override

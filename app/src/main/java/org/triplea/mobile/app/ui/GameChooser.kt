@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -150,7 +151,7 @@ private fun MapCard(map: MapChoice, open: Boolean, onToggle: () -> Unit, onPick:
     val preview = rememberPreview(map.previewFile, if (open) 900 else 300)
     var description by remember(map.descriptionFile) { mutableStateOf<String?>(null) }
     var moreText by rememberSaveable(map.mapName) { mutableStateOf(false) }
-    var selected by rememberSaveable(map.mapName) { mutableStateOf(0) }
+    var selected by rememberSaveable(map.mapName) { mutableIntStateOf(0) }
     var pickGame by remember { mutableStateOf(false) }
     LaunchedEffect(open, map.descriptionFile) {
         if (open && description == null && map.descriptionFile != null) {

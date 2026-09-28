@@ -74,7 +74,8 @@ public class UnitAttachment extends DefaultAttachment {
 
   @NonNls public static final String MAY_OVER_STACK_AA = "mayOverStackAA";
   @NonNls public static final String IS_MARINE = "isMarine";
-  @NonNls public static final String BOMBARD = "bombard";
+  // mobile: renamed from BOMBARD, which clashed with the bombard field (Sonar S1845)
+  @NonNls public static final String BOMBARD_PROPERTY = "bombard";
   @NonNls public static final String CHOOSE_BEST_ROLL = "chooseBestRoll";
 
   @Serial private static final long serialVersionUID = -2946748686268541820L;
@@ -3550,7 +3551,7 @@ public class UnitAttachment extends DefaultAttachment {
                   this::setCanBombard,
                   this::getCanBombard,
                   this::resetCanBombard));
-      case BOMBARD ->
+      case BOMBARD_PROPERTY ->
           Optional.of(
               MutableProperty.ofMapper(
                   DefaultAttachment::getInt, this::setBombard, this::getBombard, () -> -1));

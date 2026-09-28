@@ -124,7 +124,8 @@ public class FinishedBattle extends AbstractBattle {
   @Override
   public void unitsLostInPrecedingBattle(
       final Collection<Unit> units, final IDelegateBridge bridge, final boolean withdrawn) {
-    final Collection<Unit> lost = getDependentUnits(units);
+    // mobile: getDependentUnits returns an unmodifiable list, copy it as MustFightBattle does
+    final Collection<Unit> lost = new ArrayList<>(getDependentUnits(units));
     lost.addAll(CollectionUtils.intersection(units, attackingUnits));
     if (!lost.isEmpty()) {
       attackingUnits.removeAll(lost);

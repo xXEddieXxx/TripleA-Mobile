@@ -94,7 +94,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     // StAX XML parser: the JDK ships one, Android does not.
-    implementation("javax.xml.stream:stax-api:1.0-2")
+    implementation(libs.stax.api)
     implementation(libs.stax2.api)
     implementation(libs.woodstox.core)
 

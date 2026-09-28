@@ -239,9 +239,11 @@ public final class ProBattleUtils {
     final GameState data = proData.getData();
 
     // Find enemy strength
+    // mobile: copy, getNeighbors returns the immutable Set.of() for distance 0 (Sonar S6322)
     final Set<Territory> nearbyTerritoriesForEnemy =
-        data.getMap()
-            .getNeighbors(t, distance, ProMatches.territoryCanMoveLandUnits(player, false));
+        new HashSet<>(
+            data.getMap()
+                .getNeighbors(t, distance, ProMatches.territoryCanMoveLandUnits(player, false)));
     nearbyTerritoriesForEnemy.add(t);
     final List<Unit> enemyUnits = new ArrayList<>();
     for (final Territory nearbyTerritory : nearbyTerritoriesForEnemy) {

@@ -33,7 +33,8 @@ import org.triplea.util.Tuple;
  */
 @RemoveOnNextMajorRelease
 public abstract class AbstractTriggerAttachment extends AbstractConditionsAttachment {
-  public static final String NOTIFICATION = "Notification";
+  // mobile: renamed from NOTIFICATION, which clashed with the field below (Sonar S1845)
+  public static final String NOTIFICATION_TYPE = "Notification";
   public static final @NonNls String AFTER = "after";
   public static final @NonNls String BEFORE = "before";
   public static final Predicate<TriggerAttachment> availableUses = t -> t.getUses() != 0;

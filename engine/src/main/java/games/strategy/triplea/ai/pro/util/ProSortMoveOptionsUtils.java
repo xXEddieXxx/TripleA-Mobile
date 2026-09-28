@@ -46,8 +46,9 @@ public final class ProSortMoveOptionsUtils {
             return (o1.getValue().size() - o2.getValue().size());
           } else if (proData.getUnitValue(o1.getKey().getType())
               != proData.getUnitValue(o2.getKey().getType())) {
-            return (proData.getUnitValue(o1.getKey().getType())
-                - proData.getUnitValue(o2.getKey().getType()));
+            return Integer.compare( // mobile: Integer.compare instead of subtraction (S9354)
+                proData.getUnitValue(o1.getKey().getType()),
+                proData.getUnitValue(o2.getKey().getType()));
           }
           return o1.getKey().getType().getName().compareTo(o2.getKey().getType().getName());
         });
@@ -87,7 +88,7 @@ public final class ProSortMoveOptionsUtils {
           final int value1 = proData.getUnitValue(unitType1);
           final int value2 = proData.getUnitValue(unitType2);
           if (value1 != value2) {
-            return value1 - value2;
+            return Integer.compare(value1, value2); // mobile: S9354
           }
           return unitType1.getName().compareTo(unitType2.getName());
         });
@@ -142,7 +143,9 @@ public final class ProSortMoveOptionsUtils {
               attackEfficiencyCache.computeIfAbsent(
                   o2, k -> calculateAttackEfficiency(proData, player, attackMap, territories2, u2));
           if (attackEfficiency1 != attackEfficiency2) {
-            return (attackEfficiency1 < attackEfficiency2) ? 1 : -1;
+            // mobile: Double.compare, equivalent to the ternary now that the efficiency is
+            // guaranteed finite (Sonar S9148)
+            return Double.compare(attackEfficiency2, attackEfficiency1);
           }
 
           final UnitType unitType1 = u1.getType();
@@ -163,7 +166,7 @@ public final class ProSortMoveOptionsUtils {
               distance2 += data.getMap().getDistanceIgnoreEndForCondition(territory2, t, predicate);
             }
             if (distance1 != distance2) {
-              return distance1 - distance2;
+              return Integer.compare(distance1, distance2); // mobile: S9354
             }
           }
 

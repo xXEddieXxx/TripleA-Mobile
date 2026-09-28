@@ -92,7 +92,7 @@ public final class UnitComparator {
       final int hasDepends1 = units.containsAll(transporting1) ? 1 : 0;
       final int hasDepends2 = units.containsAll(transporting2) ? 1 : 0;
       if (hasDepends1 != hasDepends2) {
-        return hasDepends1 - hasDepends2;
+        return Integer.compare(hasDepends1, hasDepends2); // mobile: S9354
       }
 
       // Sort by decreasing transport capacity (only valid for transports)
@@ -117,7 +117,7 @@ public final class UnitComparator {
         final int isLandTransportable1 = t1.getUnitAttachment().isLandTransportable() ? 1 : 0;
         final int isLandTransportable2 = t2.getUnitAttachment().isLandTransportable() ? 1 : 0;
         if (isLandTransportable1 != isLandTransportable2) {
-          return isLandTransportable2 - isLandTransportable1;
+          return Integer.compare(isLandTransportable2, isLandTransportable1); // mobile: S9354
         }
         return Integer.compare(t1.hashCode(), t2.hashCode());
       }

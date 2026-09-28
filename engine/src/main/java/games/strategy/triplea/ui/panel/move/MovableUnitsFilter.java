@@ -180,7 +180,8 @@ public final class MovableUnitsFilter {
   private boolean unitsAreEquivalentWithSameMovementLeft(final Unit u1, final Unit u2) {
     final BigDecimal left1 = u1.getMovementLeft();
     final BigDecimal left2 = u2.getMovementLeft();
-    return u1.isEquivalent(u2) && left1.equals(left2);
+    // mobile: compareTo ignores the scale, equals would separate 2 from 2.0 (Sonar S9351)
+    return u1.isEquivalent(u2) && left1.compareTo(left2) == 0;
   }
 
   private Collection<Unit> getPossibleSeaTransportsToLoad(final Collection<Unit> units) {

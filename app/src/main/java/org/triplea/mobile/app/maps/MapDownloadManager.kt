@@ -444,7 +444,7 @@ object MapDownloadManager {
     suspend fun thumbnail(url: String): Bitmap? {
         thumbnails.get(url)?.let { return it }
         return withContext(Dispatchers.IO) {
-            val file = cacheDir.resolve("thumbs").resolve(sha1(url) + ".img")
+            val file = cacheDir.resolve("thumbs").resolve(cacheKey(url) + ".img")
             var bitmap = runCatching { if (Files.exists(file)) decode(Files.readAllBytes(file)) else null }.getOrNull()
             if (bitmap == null) {
                 bitmap = runCatching {
@@ -474,6 +474,7 @@ object MapDownloadManager {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
-    private fun sha1(text: String): String =
-        MessageDigest.getInstance("SHA-1").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    /** File name for a cached thumbnail: a hash of its URL. */
+    private fun cacheKey(text: String): String =
+        MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
