@@ -81,7 +81,7 @@ TripleA Mobile is made in my spare time and is completely free. If you enjoy the
 buy me a coffee. It keeps the maps downloading and the dice rolling.
 
 <p align="center">
-  <a href="https://www.buymeacoffee.com/PLACEHOLDER"><b>☕ Buy me a coffee</b></a>
+  <a href="https://buymeacoffee.com/xeddie"><b>☕ Buy me a coffee</b></a>
 </p>
 
 Bug reports, ideas and feedback are just as welcome, see the
