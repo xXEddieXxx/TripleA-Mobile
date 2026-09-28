@@ -112,6 +112,11 @@ private fun SettingsContent(modifier: Modifier = Modifier) {
             "Write an 'autosave' save game when your first phase of a round starts.",
             settings.autosaveEachRound,
         ) { v -> AppSettings.update { it.copy(autosaveEachRound = v) } }
+        SwitchRow(
+            "Replay after loading",
+            "When a loaded save game starts, show on the map what the other players did since your last turn. The history tab offers the same replay any time.",
+            settings.replayOnLoad,
+        ) { v -> AppSettings.update { it.copy(replayOnLoad = v) } }
 
         Section("Feedback")
         SwitchRow(

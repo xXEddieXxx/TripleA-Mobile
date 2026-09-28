@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,10 +22,13 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
@@ -225,6 +229,10 @@ internal fun SidePanel(
     /** True on the desktop layout, where the panel carries the flag row and the menu. */
     showHeader: Boolean = true,
     onFlagTap: (() -> kotlin.Unit)? = null,
+    /** A tap on a history event shows it on the map. */
+    onShowEvent: ((HistoryEvent) -> kotlin.Unit)? = null,
+    /** Replays what happened since the player's last turn. */
+    onReplay: (() -> kotlin.Unit)? = null,
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
     val tabs = remember(relationships.isEmpty(), objectives.isEmpty()) {
@@ -287,7 +295,7 @@ internal fun SidePanel(
                     }
                 }
                 PanelTab.STATS -> if (stats.isEmpty()) Text("No statistics yet.", style = MaterialTheme.typography.bodySmall) else StatsTable(stats, showVictoryCities, status.playerName)
-                PanelTab.HISTORY -> if (history.isEmpty()) Text("Nothing happened yet.", style = MaterialTheme.typography.bodySmall) else HistoryList(history, images)
+                PanelTab.HISTORY -> if (history.isEmpty()) Text("Nothing happened yet.", style = MaterialTheme.typography.bodySmall) else HistoryList(history, images, onShowEvent, onReplay)
                 PanelTab.GOALS -> ObjectivesList(objectives, images, status.playerName)
                 PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyList(relationships)
             }
@@ -383,8 +391,21 @@ private enum class HistoryFilter(val label: String) { ALL("All"), BATTLES("Battl
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun HistoryList(history: List<HistoryBlock>, images: ImageCache?) {
+internal fun HistoryList(
+    history: List<HistoryBlock>,
+    images: ImageCache?,
+    onShowEvent: ((HistoryEvent) -> kotlin.Unit)? = null,
+    onReplay: (() -> kotlin.Unit)? = null,
+) {
     val open = remember { mutableStateMapOf<String, Boolean>() }
+    if (onReplay != null) {
+        // what the other players did since my last turn, step by step on the map
+        TextButton(onClick = onReplay, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Replay since my last turn", style = MaterialTheme.typography.labelMedium)
+        }
+    }
     var filter by rememberSaveable { mutableStateOf(HistoryFilter.ALL) }
     val filtered = remember(history, filter) {
         if (filter == HistoryFilter.ALL) history
@@ -444,7 +465,14 @@ internal fun HistoryList(history: List<HistoryBlock>, images: ImageCache?) {
             block.events.forEachIndexed { eventIndex, event ->
                 val eventKey = "$stepKey/e$eventIndex"
                 val eventOpen = open[eventKey] ?: false
-                HistoryEventRow(event, eventOpen, images) { open[eventKey] = !eventOpen }
+                val showable = onShowEvent != null && (event.route.isNotEmpty() || event.territory != null) &&
+                    (event.kind == HistoryKind.MOVE || event.kind == HistoryKind.PLACE || event.kind == HistoryKind.BATTLE)
+                HistoryEventRow(
+                    event,
+                    eventOpen,
+                    images,
+                    onShow = if (showable) ({ onShowEvent?.invoke(event) }) else null,
+                ) { open[eventKey] = !eventOpen }
             }
         }
     }
@@ -453,12 +481,26 @@ internal fun HistoryList(history: List<HistoryBlock>, images: ImageCache?) {
 /** One event: its text, the units as icons; opens into its detail lines with dice and units. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HistoryEventRow(event: HistoryEvent, expanded: Boolean, images: ImageCache?, onToggle: () -> kotlin.Unit) {
+private fun HistoryEventRow(
+    event: HistoryEvent,
+    expanded: Boolean,
+    images: ImageCache?,
+    /** Shows the event on the map; null when it has no place there. */
+    onShow: (() -> kotlin.Unit)? = null,
+    onToggle: () -> kotlin.Unit,
+) {
     val expandable = event.details.isNotEmpty()
+    // a tap shows the event on the map and opens its details; either alone when only one applies
+    val onClick: (() -> kotlin.Unit)? = when {
+        onShow != null && expandable -> ({ onShow(); onToggle() })
+        onShow != null -> onShow
+        expandable -> onToggle
+        else -> null
+    }
     Column(
         Modifier
             .fillMaxWidth()
-            .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(start = 24.dp, top = 3.dp, bottom = 3.dp),
     ) {
         Row(verticalAlignment = Alignment.Top) {

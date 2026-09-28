@@ -150,6 +150,7 @@ import org.triplea.mobile.app.game.EndTurnRequest
 import org.triplea.mobile.app.game.GameController
 import org.triplea.mobile.app.game.GameStatus
 import org.triplea.mobile.app.game.HistoryBlock
+import org.triplea.mobile.app.game.HistoryEvent
 import org.triplea.mobile.app.game.MadeMove
 import org.triplea.mobile.app.game.MapSnapshot
 import org.triplea.mobile.app.game.MoveHelper
@@ -292,6 +293,9 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var previewRoute by remember(session) { mutableStateOf<List<String>>(emptyList()) }
     /** The AI move the map is following right now (only while the AI pauses between moves). */
     var aiMove by remember(session) { mutableStateOf<GameController.AiMove?>(null) }
+    /** A replay of the history on the map: the items in play order and the one shown right now. */
+    var replayList by remember(session) { mutableStateOf<List<ReplayItem>>(emptyList()) }
+    var replayIndex by remember(session) { mutableStateOf<Int?>(null) }
     LaunchedEffect(session) {
         GameController.aiMoves.collectLatest { move ->
             // with the pause at 0 the AI plays at full speed and the map stays where it is
@@ -524,6 +528,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
 
     fun onTap(tap: MapTap) {
         previewRoute = emptyList()
+        replayIndex = null
         val name = tap.territory ?: return
         val territory = MoveHelper.territory(session, name) ?: return
         if (calcPicking) {
@@ -567,6 +572,51 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
 
     /** Centers the map on the current nation's capital (first owned one, else its original one). */
+    /** Shows one history item on the map: its route, and the map brought to it. */
+    fun showReplay(items: List<ReplayItem>, index: Int) {
+        if (index !in items.indices) return
+        replayList = items
+        replayIndex = index
+        val item = items[index]
+        previewRoute = item.route
+        val byName = snapshot?.byName ?: return
+        val points = item.route.mapNotNull { byName[it] }.map { Offset(it.centerX.toFloat(), it.centerY.toFloat()) }
+        when {
+            points.size >= 2 -> mapState.focusOn(points)
+            points.size == 1 -> mapState.centerOn(points[0].x, points[0].y)
+        }
+    }
+
+    fun closeReplay() {
+        replayIndex = null
+        previewRoute = emptyList()
+    }
+
+    /** A tap on an event in the history tab: show it, with the rest of the history around it. */
+    fun showHistoryEvent(event: HistoryEvent) {
+        val items = replayItems(snapshot?.history ?: emptyList())
+        val index = items.indexOfFirst { it.event === event }
+        if (index < 0) toast("Nothing to show on the map for this event") else showReplay(items, index)
+    }
+
+    /** Replays everything that happened after the last turn of a human player on this device. */
+    fun replayLastTurns(quiet: Boolean = false) {
+        val items = replayItems(snapshot?.history ?: emptyList())
+        val start = replayStartAfterHumanTurn(items, GameController::isHumanPlayer)
+        if (start < 0) {
+            if (!quiet) toast("Nothing happened since your last turn")
+        } else showReplay(items, start)
+    }
+
+    // a loaded save starts with the replay of the other players' turns, if the setting is on
+    var autoReplayDone by remember(session) { mutableStateOf(false) }
+    LaunchedEffect(session, snapshot == null) {
+        if (autoReplayDone || snapshot == null || !GameController.startedFromSave || !settings.replayOnLoad) return@LaunchedEffect
+        autoReplayDone = true
+        delay(600) // let the map settle at its start position first
+        replayLastTurns(quiet = true)
+    }
+
     fun jumpToCapital() {
         val name = status.playerName
         val target = runCatching {
@@ -641,7 +691,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         is PickTerritoryAndUnitsRequest -> request.territories.map { it.name }.toSet()
         is ScrambleRequest -> (request.options.map { it.from.name } + request.scrambleTo.name).toSet()
         is KamikazeRequest -> request.targets.keys.map { it.name }.toSet()
-        else -> emptySet()
+        else -> replayIndex?.let { replayList.getOrNull(it)?.route?.toSet() } ?: emptySet()
     }
     val selectedUnitSet = remember(moveUnits) { moveUnits.toHashSet() }
     val routePoints: List<Offset> = remember(movePlan, previewRoute, snapshot) {
@@ -948,6 +998,21 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         }
                     }
                 }
+                replayIndex?.let { index ->
+                    replayList.getOrNull(index)?.let { item ->
+                        OverlayChip(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp)) {
+                            ReplayChip(
+                                item = item,
+                                index = index,
+                                total = replayList.size,
+                                images = images,
+                                onPrevious = { showReplay(replayList, index - 1) },
+                                onNext = { showReplay(replayList, index + 1) },
+                                onClose = ::closeReplay,
+                            )
+                        }
+                    }
+                }
                 movePlan?.let { plan ->
                     MoveConfirmCard(
                         plan = plan,
@@ -1015,6 +1080,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             menu = menu,
             showHeader = showHeader,
             onFlagTap = ::jumpToCapital,
+            onShowEvent = ::showHistoryEvent,
+            onReplay = ::replayLastTurns,
             actions = {
                 if (showHeader) {
                     PhaseActions(
@@ -1229,7 +1296,9 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         ConfirmDialog(ask)
     }
     if (showQuitDialog) {
-        val quit = ConfirmRequest("Quit game?", "Unsaved progress is lost.")
+        // remembered: a request made anew on every recomposition (an AI battle redraws the
+        // screen constantly) would never see its answer
+        val quit = remember { ConfirmRequest("Quit game?", "Unsaved progress is lost.") }
         LaunchedEffect(quit) {
             val yes = withContext(Dispatchers.IO) { runCatching { quit.result.get() }.getOrDefault(false) }
             showQuitDialog = false

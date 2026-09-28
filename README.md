@@ -44,7 +44,8 @@ purchases.
   "Does Nothing" so it only defends itself and stays out of the way.
 - **Play with friends on one phone**: pass the device around, hot seat style.
 - **Play by file**: save your game, share the save file through any chat or mail app, and your
-  friend continues the game on their own phone.
+  friend continues the game on their own phone. A replay in the history tab shows on the map
+  what the others did since your last turn, move by move.
 - **Almost 300 maps**: two maps come with the app, every other map from the TripleA map library
   can be downloaded inside the app. You can also import map zip files from your phone.
 - **Battle calculator**: before you attack, check your odds. The calculator simulates the fight

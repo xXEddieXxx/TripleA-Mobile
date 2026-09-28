@@ -29,6 +29,8 @@ data class Settings(
     /** A short "how battles work" card in the battle window, until the player dismisses it. */
     val showBattleHelp: Boolean = true,
     val autosaveEachRound: Boolean = true,
+    /** After loading a save, replay what the other players did since the player's last turn. */
+    val replayOnLoad: Boolean = true,
     /** Pause after every battle step and dice roll so the battle window can be followed. */
     val battleStepPauseMillis: Int = 600,
     // AI
@@ -85,6 +87,7 @@ object AppSettings {
             showAiBattles = prefs.getBoolean("showAiBattles", defaults.showAiBattles),
             showBattleHelp = prefs.getBoolean("showBattleHelp", defaults.showBattleHelp),
             autosaveEachRound = prefs.getBoolean("autosaveEachRound", defaults.autosaveEachRound),
+            replayOnLoad = prefs.getBoolean("replayOnLoad", defaults.replayOnLoad),
             battleStepPauseMillis = prefs.getInt("battleStepPauseMillis", defaults.battleStepPauseMillis),
             aiMovePauseMillis = prefs.getInt("aiMovePauseMillis", defaults.aiMovePauseMillis),
             aiCombatStepPauseMillis = prefs.getInt("aiCombatStepPauseMillis", defaults.aiCombatStepPauseMillis),
@@ -133,6 +136,7 @@ object AppSettings {
             .putBoolean("showAiBattles", next.showAiBattles)
             .putBoolean("showBattleHelp", next.showBattleHelp)
             .putBoolean("autosaveEachRound", next.autosaveEachRound)
+            .putBoolean("replayOnLoad", next.replayOnLoad)
             .putInt("battleStepPauseMillis", next.battleStepPauseMillis)
             .putInt("aiMovePauseMillis", next.aiMovePauseMillis)
             .putInt("aiCombatStepPauseMillis", next.aiCombatStepPauseMillis)

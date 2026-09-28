@@ -173,6 +173,9 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
 
     private val humanPlayers = mutableSetOf<String>()
 
+    /** Whether the nation is played by a person on this device. */
+    fun isHumanPlayer(name: String): Boolean = humanPlayers.contains(name)
+
     /** Parses and starts a new game. Call from a background thread. */
     /** The game XML the running game was started from; null when it was loaded from a save. */
     @Volatile
@@ -192,11 +195,17 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         val data = MobileEngine.loadSaveGame(saveFile).orElseThrow {
             IllegalStateException("Could not load save game: $saveFile")
         }
-        return startSession(data, kinds)
+        return startSession(data, kinds, fromSave = true)
     }
 
-    fun startSession(data: GameData, kinds: Map<String, PlayerKind>): LocalGameSession {
+    /** Whether the running session was started from a save game rather than a fresh game. */
+    @Volatile
+    var startedFromSave: Boolean = false
+        private set
+
+    fun startSession(data: GameData, kinds: Map<String, PlayerKind>, fromSave: Boolean = false): LocalGameSession {
         quit()
+        startedFromSave = fromSave
         humanPlayers.clear()
         humanPlayers += kinds.filterValues { it == PlayerKind.HUMAN }.keys
         _gameOver.value = null

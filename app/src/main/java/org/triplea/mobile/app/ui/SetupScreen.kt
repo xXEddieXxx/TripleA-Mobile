@@ -213,7 +213,7 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                         loading = true
                         scope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { GameController.startSession(data, kinds.toMap()) }
+                                runCatching { GameController.startSession(data, kinds.toMap(), fromSave = saveFile != null) }
                             }
                             loading = false
                             ok.onSuccess { onGameStarted() }
