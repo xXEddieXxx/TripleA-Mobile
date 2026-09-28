@@ -8,7 +8,9 @@
 The classic <a href="https://github.com/triplea-game/triplea">TripleA</a> board game engine, now on your Android phone.</p>
 
 <p align="center">
-  <a href="https://github.com/xXEddieXxx/TripleA-Mobile/releases/download/dev/triplea-mobile-dev.apk"><b>⬇️ Download the newest APK</b></a>
+  <a href="https://github.com/xXEddieXxx/TripleA-Mobile/releases/latest/download/triplea-mobile.apk"><b>⬇️ Download the latest release</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/xXEddieXxx/TripleA-Mobile/releases/download/dev/triplea-mobile-dev.apk">🧪 Dev build</a>
   &nbsp;·&nbsp;
   <a href="https://buymeacoffee.com/xeddie">☕ Buy me a coffee</a>
 </p>
@@ -54,7 +56,8 @@ purchases.
 
 1. **Install the app.** Download the APK from the link above and open it on your phone. Android
    will ask you to allow installs from this source, since the app is not in the Play Store yet.
-   Android 10 or newer is required.
+   Android 10 or newer is required. New releases install over the old one; a **release** and a
+   **dev build** cannot replace each other, so uninstall one before switching to the other.
 2. **Start a game.** Tap *New game*, pick a map and decide for every nation whether a human or
    the computer plays it.
 3. **Learn the ropes.** The *How to play* screen in the app explains the phases of a turn:
@@ -63,10 +66,13 @@ purchases.
 4. **More maps.** Open the *Map browser*, search or filter, and tap *Download*. Maps are
    downloaded straight from the TripleA map library on GitHub.
 
-The APK is a **development build**. It is rebuilt automatically from every change, so it always
-has the newest features but may also have new bugs. If something breaks, please
+There are two downloads. The **release** is the version to play: tested, signed, and updated
+every few weeks with a changelog on the
+[releases page](https://github.com/xXEddieXxx/TripleA-Mobile/releases). The **dev build** is
+rebuilt automatically from every change, so it always has the newest features but may also have
+new bugs. If something breaks, please
 [open an issue](https://github.com/xXEddieXxx/TripleA-Mobile/issues) and tell us which map you
-played and what happened.
+played, which version (see *About*) and what happened.
 
 ## What is not in the app (yet)
 

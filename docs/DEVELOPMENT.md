@@ -84,12 +84,38 @@ RELEASE_KEY_PASSWORD=...
 Put these into `~/.gradle/gradle.properties` (never into the repository). Without them the
 build produces `app-release-unsigned.apk`.
 
+## Releases
+
+Official releases are built by `.github/workflows/release.yml`, started by hand: GitHub →
+Actions → *Release* → *Run workflow* → enter the version (for example `0.2.0`). The workflow
+refuses an existing version, runs the engine tests, builds `assembleRelease` signed with the
+release key, tags the commit `v0.2.0` and publishes a GitHub release with generated notes and the
+APK attached as `triplea-mobile-0.2.0.apk` and `triplea-mobile.apk`. The README links
+`releases/latest/download/triplea-mobile.apk`, which GitHub resolves to the newest release.
+
+`versionName` is the entered version and `versionCode` is derived from it (`0.2.0` → 200,
+`1.2.3` → 10203), so every release has a higher code than the one before, as Android requires.
+Local builds show `0.0.0-local`, dev builds `dev-<date>-<commit>`.
+
+The signing key lives only in repository secrets: `RELEASE_KEYSTORE_B64` (the keystore,
+base64), `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`. Create it once
+and keep a backup outside the repository; Android only updates an installed app when the new APK
+is signed with the same key:
+
+```
+keytool -genkeypair -v -keystore release.keystore -alias triplea-mobile -keyalg RSA \
+  -keysize 4096 -validity 10000 -dname "CN=TripleA Mobile"
+base64 -w0 release.keystore      # -> secret RELEASE_KEYSTORE_B64
+```
+
+Release and dev builds use different keys, so one does not install over the other.
+
 ## Dev builds
 
 Every push to `main` runs `.github/workflows/android.yml`: engine tests, debug APK, and a rolling
 pre-release named **dev** with the APK attached twice: once with the date and commit in its name
-(`triplea-mobile-dev-<date>-<commit>.apk`) and once as `triplea-mobile-dev.apk`, so the direct
-link in the README always points at the newest build. The release page is
+(`triplea-mobile-dev-<date>-<commit>.apk`) and once as `triplea-mobile-dev.apk`, so the dev link
+in the README always points at the newest build. The release page is
 `https://github.com/xXEddieXxx/TripleA-Mobile/releases/tag/dev`. Android only updates an installed
 app when the new APK is signed with the same key; the workflow header explains how to store a
 fixed debug keystore as the secret `DEV_KEYSTORE_B64`.

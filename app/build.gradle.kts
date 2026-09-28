@@ -11,8 +11,10 @@ android {
         applicationId = "org.triplea.mobile"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Set by the workflows: the release workflow passes the version it publishes (0.2.0 ->
+        // versionCode 200), the dev build a date/commit name. Local builds are "0.0.0-local".
+        versionCode = (providers.gradleProperty("APP_VERSION_CODE").orNull ?: "1").toInt()
+        versionName = providers.gradleProperty("APP_VERSION").orNull ?: "0.0.0-local"
     }
 
     // Release builds are signed with a real key when release.keystore / RELEASE_* properties are

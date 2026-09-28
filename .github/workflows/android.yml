@@ -67,7 +67,11 @@ jobs:
           ./gradlew :engine:test --no-daemon
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y%m%d)
+          # the version shown under "About": dev builds carry their date and commit
+          ./gradlew :app:assembleDebug --no-daemon -PAPP_VERSION="dev-${DATE}-${SHORT}"
 
       - name: Name the file
         id: name
@@ -109,6 +113,8 @@ jobs:
 
             Signing key (SHA-256): `${{ steps.name.outputs.fingerprint }}`
             ${{ steps.key.outputs.fixed == 'true' && 'Signed with the stored dev key: installs over every earlier dev build.' || 'Signed with a one-off key: uninstall any earlier build first (on a Pixel also inside the Private Space), or set the DEV_KEYSTORE_B64 secret so all builds share one key.' }}
+            A dev build does not install over an official release (different key): uninstall the release first.
+            The official releases are at https://github.com/${{ github.repository }}/releases/latest.
           files: |
             ${{ steps.name.outputs.file }}
             triplea-mobile-dev.apk
