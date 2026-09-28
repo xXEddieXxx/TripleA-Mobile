@@ -84,6 +84,31 @@ RELEASE_KEY_PASSWORD=...
 Put these into `~/.gradle/gradle.properties` (never into the repository). Without them the
 build produces `app-release-unsigned.apk`.
 
+### Code quality: SonarQube Cloud
+
+The project is analysed on [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xXEddieXxx_TripleA-Mobile)
+(organization `xxeddiexxx`, project key `xXEddieXxx_TripleA-Mobile`; free for the public GPL
+repository). The Gradle plugin `org.sonarqube` in the root `build.gradle.kts` uploads an analysis
+of both modules and the server computes the findings. The bundled maps and images under
+`assets/` are excluded.
+
+```powershell
+$env:JAVA_HOME = "C:\Users\<you>\AppData\Local\Programs\Android Studio\jbr"   # the scanner needs Java 17+
+$env:SONAR_TOKEN = "<token>"
+.\gradlew :engine:testClasses :app:compileDebugKotlin sonar    # the sonar task itself does not compile
+```
+
+The token is a personal one from SonarQube Cloud (My Account, Security); keep it in the
+`SONAR_TOKEN` environment variable, never in the repository or in Gradle files. Automatic
+Analysis must be off for the project (Administration, Analysis Method), otherwise the server
+refuses scanner uploads. Android Studio's SonarQube for IDE plugin is bound to the same project
+in connected mode (`.idea/sonarlint.xml`), so the IDE shows the server's rules and issue states.
+
+Locally the Claude Code Stop hook runs this analysis after every turn that edited code and blocks
+until no unresolved issue sits on a line the working tree changes; the older findings in the
+copied upstream engine are left alone until their lines are touched. A false positive is
+resolved in SonarQube Cloud (Accept or False positive) rather than with `NOSONAR` comments.
+
 ## Releases
 
 Official releases are built by `.github/workflows/release.yml`, started by hand: GitHub →

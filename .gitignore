@@ -9,6 +9,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 *.log
+.claude/
 
 # signing keys never belong in the repository
 *.keystore

@@ -24,6 +24,7 @@ woodstox = "7.2.2"
 junit-jupiter = "6.1.3"
 coroutines = "1.11.0"
 assertj = "3.27.3"
+sonarqube = "7.5.0.8588"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
@@ -62,3 +63,4 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+sonarqube = { id = "org.sonarqube", version.ref = "sonarqube" }
