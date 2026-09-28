@@ -1,24 +1,98 @@
-# TripleA Mobile
+<p align="center">
+  <img src="app/src/main/res/drawable-nodpi/triplea_logo.png" alt="TripleA Mobile logo" width="140">
+</p>
 
-**[Download the newest dev APK](https://github.com/xXEddieXxx/TripleA-Mobile/releases/download/dev/triplea-mobile-dev.apk)**
-(Android 10 or newer; built automatically from `main`, see [Dev builds](#dev-builds))
+<h1 align="center">TripleA Mobile</h1>
 
-An Android port of the [TripleA](https://github.com/triplea-game/triplea) turn based strategy
-engine with a touch UI written in Jetpack Compose.
+<p align="center"><b>Turn based strategy on the go.</b><br>
+The classic <a href="https://github.com/triplea-game/triplea">TripleA</a> board game engine, now on your Android phone.</p>
 
-Scope of this first version, on purpose:
+<p align="center">
+  <a href="https://github.com/xXEddieXxx/TripleA-Mobile/releases/download/dev/triplea-mobile-dev.apk"><b>⬇️ Download the newest APK</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://buymeacoffee.com/xeddie">☕ Buy me a coffee</a>
+</p>
 
-- single device only: hot seat and human vs. AI (Easy, Fast, Hard/Pro AI)
-- no lobby, no network multiplayer, no play-by-email
-- two maps are bundled (`minimap`, `world_war_ii_classic`); the map browser downloads any map
-  from the desktop client's map list (`triplea_maps.yaml`), and the map browser's Import button
-  installs any map zip from the device (the same layout as the desktop's `downloadedMaps`)
-- save/load of local games (`.tsvg` files, not compatible with desktop saves); a save can be
-  shared from the load screen and imported on another phone (or opened from a chat or mail app),
-  which allows play by file: take your turn, share the save, the next player continues
-- battle calculator (in-game menu): the tapped territory's units on both sides, several defending
-  nations, win chances, average units left and rounds, simulated with the engine's battle code
-- game notes, map import from a zip file, territory effects with their icons and rules
+<p align="center">
+  <img src="docs/img/showcase1.jpeg" alt="A battle on the World War II Classic map" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/img/showcase3.jpeg" alt="Start screen" width="30%">
+  &nbsp;
+  <img src="docs/img/showcase2.jpeg" alt="Buying units on the world map" width="30%">
+  &nbsp;
+  <img src="docs/img/showcase4.jpeg" alt="Map browser with almost 300 maps" width="30%">
+</p>
+
+## What is TripleA Mobile?
+
+TripleA is a free, open source strategy game in the style of *Axis & Allies*: you move armies,
+navies and air forces across a map, fight battles with dice, buy new units and try to conquer
+the world. The desktop version has been around for many years and has a huge library of
+community made maps, from World War II to Napoleon, the Roman Empire or fantasy worlds.
+
+TripleA Mobile brings that game to Android with a touch interface: pinch to zoom, tap a
+territory to move, and let the phone do the dice rolling. No account, no ads, no in-app
+purchases.
+
+## Features
+
+- **Play against the computer** with three AI levels (Easy, Fast, Hard).
+- **Play with friends on one phone**: pass the device around, hot seat style.
+- **Play by file**: save your game, share the save file through any chat or mail app, and your
+  friend continues the game on their own phone.
+- **Almost 300 maps**: two maps come with the app, every other map from the TripleA map library
+  can be downloaded inside the app. You can also import map zip files from your phone.
+- **Battle calculator**: before you attack, check your odds. The calculator simulates the fight
+  with the real game rules and shows win chances and expected losses.
+- **Game notes and rules** for each map, territory effects, and a "How to play" guide built in.
+- **Save and load** as many games as you like.
+
+## Getting started
+
+1. **Install the app.** Download the APK from the link above and open it on your phone. Android
+   will ask you to allow installs from this source, since the app is not in the Play Store yet.
+   Android 10 or newer is required.
+2. **Start a game.** Tap *New game*, pick a map and decide for every nation whether a human or
+   the computer plays it.
+3. **Learn the ropes.** The *How to play* screen in the app explains the phases of a turn:
+   buy units, move, fight, place new units. Each map also has its own notes with the special
+   rules of that scenario.
+4. **More maps.** Open the *Map browser*, search or filter, and tap *Download*. Maps are
+   downloaded straight from the TripleA map library on GitHub.
+
+The APK is a **development build**. It is rebuilt automatically from every change, so it always
+has the newest features but may also have new bugs. If something breaks, please
+[open an issue](https://github.com/xXEddieXxx/TripleA-Mobile/issues) and tell us which map you
+played and what happened.
+
+## What is not in the app (yet)
+
+- No online multiplayer, no lobby, no play-by-email. Everything happens on your phone.
+- Save games cannot be exchanged with the desktop TripleA client.
+- The optional rules (technology, repairs, scramble, kamikaze, random start) got their screens
+  only recently and have seen less play testing than the rest. See the
+  [development notes](docs/DEVELOPMENT.md#known-gaps) for what is still missing.
+
+## Support the project
+
+TripleA Mobile is made in my spare time and is completely free. If you enjoy the app, you can
+buy me a coffee. It keeps the maps downloading and the dice rolling.
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/PLACEHOLDER"><b>☕ Buy me a coffee</b></a>
+</p>
+
+Bug reports, ideas and feedback are just as welcome, see the
+[issue tracker](https://github.com/xXEddieXxx/TripleA-Mobile/issues).
+
+## For developers
+
+The project consists of the TripleA game engine (a Java library, stripped of everything that
+needs a desktop) and an Android app written in Kotlin with Jetpack Compose. Building, project
+layout, dev builds, security notes and known gaps are documented in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
@@ -27,9 +101,10 @@ It is an unofficial port and is not affiliated with the TripleA project.
 
 It is based on the [TripleA](https://github.com/triplea-game/triplea) game engine,
 Copyright © the TripleA developers, licensed under the GPL-3.0. The engine sources in `engine/`
-were modified for Android as described below (Swing/AWT and networking removed, Java 17 language
-level, Android resource loading); the unit images, flags and sounds in `app/src/main/assets` also
-come from the TripleA project. The complete corresponding source of the app is this repository.
+were modified for Android as described in the [development notes](docs/DEVELOPMENT.md)
+(Swing/AWT and networking removed, Java 17 language level, Android resource loading); the unit
+images, flags and sounds in `app/src/main/assets` also come from the TripleA project. The
+complete corresponding source of the app is this repository.
 
 Third party libraries (Android Jetpack, Kotlin, Guava, Gson, Apache Commons, Woodstox, SnakeYAML
 Engine, SLF4J, Lombok, Jakarta XML Binding, JSR-305, JetBrains annotations, desugar_jdk_libs) are
@@ -40,124 +115,3 @@ Maps are made by the TripleA community and live in their own repositories under
 own terms. The bundled `minimap` comes from the TripleA repository (GPL-3.0); the bundled
 `world_war_ii_classic` comes from its triplea-maps repository, which states no license, and is
 included in the same way the desktop client distributes it.
-
-## Project layout
-
-| Module    | What it is                                                                                   |
-|-----------|----------------------------------------------------------------------------------------------|
-| `engine/` | The TripleA game engine (delegates, data model, XML parser, AI), stripped of Swing/AWT, networking, lobby, chat and forum posting. Plain Java 17 library, runs on the JVM and on Android. |
-| `app/`    | The Android application (Kotlin, Jetpack Compose). Map rendering, phase interaction, dialogs. |
-
-### Engine
-
-The engine sources were copied from the desktop project (`game-core`, `ai`, `map-data`,
-`domain-data`, `xml-reader`, `java-extras`) and then reduced. Notable changes compared to the
-desktop engine:
-
-- `java.awt.{Point,Polygon,Rectangle,Dimension,Color}` are replaced by `org.triplea.geom.*`.
-- `javax.swing.tree.*` (used by the game history) is replaced by `org.triplea.tree.*`.
-- `ResourceLoader` uses plain file lookups instead of a `URLClassLoader`.
-- `ClientSetting` is an in-memory stub holding only the settings the engine reads.
-- Websocket message types, `PbemMessagePoster` and `Chat` are compile-time stubs.
-- Language level and library usage are Java 17 (no `List.getFirst()` etc.).
-
-The mobile specific API lives in `org.triplea.mobile`:
-
-- `MobileEngine` – configuration (data folder), map discovery, parse/load/save games
-- `LocalGameSession` – creates and runs a local `ServerGame`
-- `HumanPlayerUi` / `HumanPlayerUiAdapter` – the blocking questions the engine asks a human
-- `MobilePlayer` – the human `Player` implementation (port of the desktop `TripleAPlayer`)
-- `GameEventListener` / `MobileDisplay` – battle and message events
-- `UnitImageNames` – unit icon file naming rules
-
-`engine/src/test` contains a smoke test that runs an AI-only game on the minimap for three rounds
-and round-trips a save game.
-
-### App
-
-- `GameController` – singleton that owns the session, implements `HumanPlayerUi` and publishes
-  `UiRequest`s (move, purchase, place, battle, casualties, ...) as Kotlin flows
-- `MapSnapshot` – rendering data (territory paths, owner colors, unit stacks) built under the
-  engine read lock whenever the game data changes
-- `MapView` – Compose canvas with pinch zoom/pan, tile drawing and tap-to-territory hit testing
-- `GameScreen` / `Dialogs` – phase panel and the dialogs for engine questions
-
-## Building
-
-Requirements (nothing needs to be installed system wide):
-
-- Any JDK 17 or newer to run Gradle. Android Studio's bundled JDK works; on the command line a
-  portable JDK in `C:\dev\tools\jdk-17` was used. The engine is compiled with `--release 17`, so
-  the JDK version running Gradle does not matter.
-- Android SDK with platform 36 and build-tools 36.0.0 – `C:\dev\tools\android-sdk`
-  (`local.properties` points to it; adjust `sdk.dir` for another machine)
-
-In Android Studio simply open the project folder; the Gradle wrapper (9.6) and the Android Gradle
-plugin (9.4) are configured in the project. Do not run a command line build while Android Studio
-is building: both write to the same `build/` folders and the outputs end up incomplete.
-
-```powershell
-$env:JAVA_HOME = "C:\dev\tools\jdk-17"
-.\gradlew :engine:test            # engine unit/smoke tests (JVM)
-.\gradlew :app:assembleDebug      # APK in app\build\outputs\apk\debug\
-.\gradlew :app:installDebug       # install on a connected device / emulator
-```
-
-The app runs on Android 10 (API 29) and newer. The engine relies on Java 11/17 library methods
-(`String.isBlank`, `Stream.toList`, ...), provided through desugaring.
-
-### Release builds
-
-`assembleRelease` runs R8 (the engine itself is kept unobfuscated, see `app/proguard-rules.pro`,
-because it relies on reflection and Java serialization). The APK is signed only when a keystore
-is configured; it is never signed with the debug key:
-
-```
-RELEASE_STORE_FILE=release.keystore      # path relative to the project root
-RELEASE_STORE_PASSWORD=...
-RELEASE_KEY_ALIAS=...
-RELEASE_KEY_PASSWORD=...
-```
-
-Put these into `~/.gradle/gradle.properties` (never into the repository). Without them the
-build produces `app-release-unsigned.apk`.
-
-## Dev builds
-
-Every push to `main` runs `.github/workflows/android.yml`: engine tests, debug APK, and a rolling
-pre-release named **dev** with the APK attached twice: once with the date and commit in its name
-(`triplea-mobile-dev-<date>-<commit>.apk`) and once as `triplea-mobile-dev.apk`, so the direct
-link at the top of this file always points at the newest build. The release page is
-`https://github.com/xXEddieXxx/TripleA-Mobile/releases/tag/dev`. Android only updates an installed app when
-the new APK is signed with the same key; the workflow header explains how to store a fixed debug
-keystore as the secret `DEV_KEYSTORE_B64`.
-
-## Security notes
-
-- Network: only HTTPS to GitHub (map list and map archives); cleartext traffic is refused by the
-  network security config and by the download code, also after redirects.
-- Map archives are unpacked with path traversal checks and size/entry limits.
-- Save games are Java serialized; they are read through `SafeObjectInputStream`, which only
-  resolves engine, JDK and Guava classes, so a crafted save cannot instantiate arbitrary classes.
-- Game XML is parsed with DTDs and external entities disabled.
-- The app asks for no permissions beyond INTERNET and VIBRATE and stores everything in its
-  private app folder.
-
-## How a game runs
-
-1. `SetupScreen` parses the chosen game XML and lets the user assign Human/AI per nation.
-2. `LocalGameSession.create` builds the `ServerGame` with a `LocalNoOpMessenger` (no network) and
-   starts the game loop on a background thread.
-3. When the engine reaches a human phase, `MobilePlayer` calls into `GameController`, which
-   publishes a `UiRequest` and blocks the game thread until the UI completes it.
-4. Every game data change bumps a version counter; `GameScreen` rebuilds the `MapSnapshot` and
-   redraws the map.
-
-## Known gaps
-
-- Technology rolls and repairs use engine defaults (no UI yet); politics and user actions have dialogs.
-- Scramble, kamikaze suicide attacks and "pick territory and units" questions use the adapter
-  defaults (moving air out of range with the "Kamikaze Airplanes" rule is asked for).
-- Save games are not compatible with the desktop client (different serialized classes).
-- Maps that switch territory effect markers off in `map.properties` show their effects only in
-  the zone panel, as the desktop client does.

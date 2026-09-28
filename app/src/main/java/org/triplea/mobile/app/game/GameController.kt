@@ -6,8 +6,22 @@ import games.strategy.engine.data.GameData
 import games.strategy.engine.data.GamePlayer
 import games.strategy.engine.data.MoveDescription
 import games.strategy.engine.data.ProductionRule
+import games.strategy.engine.data.RepairRule
+import games.strategy.engine.data.Resource
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
+import games.strategy.triplea.Constants
+import games.strategy.triplea.Properties
+import games.strategy.triplea.attachments.PlayerAttachment
+import games.strategy.triplea.attachments.TerritoryAttachment
+import games.strategy.triplea.delegate.GameStepPropertiesHelper
+import games.strategy.triplea.delegate.Matches
+import games.strategy.triplea.delegate.TechTracker
+import games.strategy.triplea.delegate.TechnologyDelegate
+import games.strategy.triplea.delegate.battle.ScrambleLogic
+import games.strategy.triplea.delegate.data.TechResults
+import games.strategy.triplea.delegate.data.TechRoll
+import org.triplea.util.Tuple
 import games.strategy.triplea.attachments.PoliticalActionAttachment
 import games.strategy.triplea.attachments.UserActionAttachment
 import games.strategy.triplea.delegate.DiceRoll
@@ -427,6 +441,102 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         val actions = runCatching { delegate.validActions.toList() }.getOrDefault(emptyList())
         if (actions.isEmpty()) return null
         return ask(UserActionRequest(player, actions, firstRun)).orElse(null)
+    }
+
+    // ---- the optional rules: technology, repairs, scramble, kamikaze, random start ------------
+
+    override fun getTechRolls(player: GamePlayer): Optional<TechRoll> {
+        val data = player.data
+        val props = data.properties
+        // the same conditions under which the desktop client offers the tech roll
+        if (!Properties.getTechDevelopment(props)) return Optional.empty()
+        if (!TerritoryAttachment.doWeHaveEnoughCapitalsToProduce(player, data.map)) return Optional.empty()
+        if (TechnologyDelegate.getAvailableTechs(player, data.technologyFrontier).isEmpty()) return Optional.empty()
+        val pus = player.resources.getQuantity(Constants.PUS)
+        val cost = runCatching { TechTracker.getTechCost(player) }.getOrDefault(5).coerceAtLeast(1)
+        val tokens = if (Properties.getWW2V3TechModel(props)) player.resources.getQuantity(Constants.TECH_TOKENS) else 0
+        if (pus < cost && tokens <= 0) return Optional.empty()
+        return ask(TechRequest(player))
+    }
+
+    override fun notifyTechResults(results: TechResults) {
+        if (results.isError) {
+            notifyError(results.errorString)
+            return
+        }
+        val rolls = results.rolls ?: IntArray(0)
+        val text = StringBuilder()
+        if (rolls.isNotEmpty()) {
+            // engine dice are 0 based
+            text.append("Rolled ").append(rolls.joinToString(", ") { (it + 1).toString() })
+            text.append(": ").append(results.hits).append(if (results.hits == 1) " hit." else " hits.")
+        }
+        val advances = results.advances.orEmpty()
+        text.append(if (advances.isEmpty()) "\nNo new technology this turn." else "\nDiscovered: " + advances.joinToString(", ") + ".")
+        _messages.tryEmit(UiMessage("Technology", text.toString().trim()))
+    }
+
+    override fun getRepair(
+        player: GamePlayer,
+        bid: Boolean,
+        allowedPlayersToRepair: Collection<GamePlayer>,
+    ): Optional<Map<Unit, IntegerMap<RepairRule>>> {
+        val data = player.data
+        val rules = player.repairFrontier?.rules?.toList().orEmpty()
+        if (rules.isEmpty()) return Optional.empty()
+        val owners = HashSet(allowedPlayersToRepair).also { it.add(player) }
+        var damaged = Matches.unitIsOwnedByAnyOf(owners).and(Matches.unitHasTakenSomeBombingUnitDamage())
+        if (GameStepPropertiesHelper.isOnlyRepairIfDisabled(data)) damaged = damaged.and(Matches.unitIsDisabled())
+        val items = ArrayList<RepairItem>()
+        for (territory in data.map.territories) {
+            for (unit in territory.units) {
+                if (!damaged.test(unit)) continue
+                val rule = rules.firstOrNull { it.results.getInt(unit.type) > 0 } ?: continue
+                items += RepairItem(unit, territory.name, rule, unit.unitDamage, rule.results.getInt(unit.type))
+            }
+        }
+        if (items.isEmpty()) return Optional.empty()
+        return ask(RepairRequest(player, items))
+    }
+
+    override fun scrambleUnitsQuery(
+        player: GamePlayer,
+        scrambleTo: Territory,
+        possibleScramblers: Map<Territory, Tuple<Collection<Unit>, Collection<Unit>>>,
+    ): Map<Territory, Collection<Unit>> {
+        val options = possibleScramblers.entries.mapNotNull { (from, bases) ->
+            val units = bases.second.toList()
+            if (units.isEmpty()) return@mapNotNull null
+            val max = runCatching { ScrambleLogic.getMaxScrambleCount(bases.first) }.getOrDefault(Int.MAX_VALUE)
+            ScrambleOption(from, units, max.coerceIn(0, units.size))
+        }.filter { it.max > 0 }.sortedBy { it.from.name }
+        if (options.isEmpty()) return emptyMap()
+        return ask(ScrambleRequest(player, scrambleTo, options))
+    }
+
+    override fun selectKamikazeSuicideAttacks(
+        player: GamePlayer,
+        possibleUnitsToAttack: Map<Territory, Collection<Unit>>,
+        attackResourceToken: Resource,
+        maxNumberOfAttacksAllowed: Int,
+    ): Map<Territory, IntegerMap<Unit>> {
+        val targets = possibleUnitsToAttack.entries
+            .filter { it.value.isNotEmpty() }
+            .sortedBy { it.key.name }
+            .associate { it.key to it.value.toList() }
+        if (targets.isEmpty() || maxNumberOfAttacksAllowed <= 0) return emptyMap()
+        val attackValue = runCatching { PlayerAttachment.get(player)?.suicideAttackResources?.getInt(attackResourceToken) }.getOrNull() ?: 0
+        return ask(KamikazeRequest(player, targets, attackResourceToken, attackValue, maxNumberOfAttacksAllowed))
+    }
+
+    override fun pickTerritoryAndUnits(
+        player: GamePlayer,
+        territoryChoices: List<Territory>,
+        unitChoices: List<Unit>,
+        unitsPerPick: Int,
+    ): Tuple<Territory, Set<Unit>> {
+        if (territoryChoices.isEmpty()) return super.pickTerritoryAndUnits(player, territoryChoices, unitChoices, unitsPerPick)
+        return ask(PickTerritoryAndUnitsRequest(player, territoryChoices.toList(), unitChoices.toList(), unitsPerPick))
     }
 
     override fun confirmCasualties(battleId: UUID, message: String) {

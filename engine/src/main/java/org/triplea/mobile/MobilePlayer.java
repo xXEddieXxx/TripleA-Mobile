@@ -496,7 +496,7 @@ public class MobilePlayer extends AbstractBasePlayer {
   public Map<Territory, Collection<Unit>> scrambleUnitsQuery(
       final Territory scrambleTo,
       final Map<Territory, Tuple<Collection<Unit>, Collection<Unit>>> possibleScramblers) {
-    return ui.scrambleUnitsQuery(scrambleTo, possibleScramblers);
+    return ui.scrambleUnitsQuery(getGamePlayer(), scrambleTo, possibleScramblers);
   }
 
   @Override
@@ -545,7 +545,7 @@ public class MobilePlayer extends AbstractBasePlayer {
       final Resource resource = entry.getKey();
       final int max = entry.getValue();
       final Map<Territory, IntegerMap<Unit>> selection =
-          ui.selectKamikazeSuicideAttacks(possibleUnitsToAttack, resource, max);
+          ui.selectKamikazeSuicideAttacks(gamePlayer, possibleUnitsToAttack, resource, max);
       for (final Entry<Territory, IntegerMap<Unit>> selectionEntry : selection.entrySet()) {
         final Territory territory = selectionEntry.getKey();
         final Map<Unit, IntegerMap<Resource>> currentTerr =

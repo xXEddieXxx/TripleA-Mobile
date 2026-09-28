@@ -3,6 +3,8 @@ package org.triplea.mobile.app.game
 import games.strategy.engine.data.GamePlayer
 import games.strategy.engine.data.MoveDescription
 import games.strategy.engine.data.ProductionRule
+import games.strategy.engine.data.RepairRule
+import games.strategy.engine.data.Resource
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
 import games.strategy.triplea.attachments.PoliticalActionAttachment
@@ -12,11 +14,13 @@ import games.strategy.triplea.delegate.data.BattleListing
 import games.strategy.triplea.delegate.data.CasualtyDetails
 import games.strategy.triplea.delegate.data.CasualtyList
 import games.strategy.triplea.delegate.data.FightBattleDetails
+import games.strategy.triplea.delegate.data.TechRoll
 import games.strategy.triplea.ui.PlaceData
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import org.triplea.java.collections.IntegerMap
+import org.triplea.util.Tuple
 
 /**
  * A question the engine (running on the game thread) asks the user. The UI answers by calling
@@ -106,3 +110,54 @@ class RetreatRequest(
     val message: String,
     val submerge: Boolean,
 ) : UiRequest<Optional<Territory>>()
+
+/**
+ * The technology phase: how many dice to roll (or research tokens to buy) and, where the map
+ * allows it, which technology or field to research. Empty means no research this turn.
+ */
+class TechRequest(val player: GamePlayer) : UiRequest<Optional<TechRoll>>()
+
+/** One unit with bombing damage that can be repaired, with the rule that repairs it. */
+class RepairItem(
+    val unit: Unit,
+    val territory: String,
+    val rule: RepairRule,
+    /** Damage points on the unit. */
+    val damage: Int,
+    /** Damage points one application of the rule repairs (usually 1). */
+    val pointsPerRepair: Int,
+)
+
+/** Repairs before the purchase: how much damage to repair on which units. Empty means none. */
+class RepairRequest(val player: GamePlayer, val items: List<RepairItem>) :
+    UiRequest<Optional<Map<Unit, IntegerMap<RepairRule>>>>()
+
+/** The aircraft that can scramble from one territory, and how many the air bases there allow. */
+class ScrambleOption(val from: Territory, val units: List<Unit>, val max: Int)
+
+/** The defender's choice which aircraft scramble into the battle at [scrambleTo]. */
+class ScrambleRequest(val player: GamePlayer, val scrambleTo: Territory, val options: List<ScrambleOption>) :
+    UiRequest<Map<Territory, Collection<Unit>>>()
+
+/**
+ * Kamikaze suicide attacks: how many attacks, paid with [resource], against which enemy units.
+ * At most [maxAttacks] in total; each attack hits on a roll of [attackValue] or less.
+ */
+class KamikazeRequest(
+    val player: GamePlayer,
+    val targets: Map<Territory, List<Unit>>,
+    val resource: Resource,
+    val attackValue: Int,
+    val maxAttacks: Int,
+) : UiRequest<Map<Territory, IntegerMap<Unit>>>()
+
+/**
+ * A random start map: pick one of [territories] and [unitsPerPick] of the player's [units] to
+ * start there with. Fewer units are only allowed when fewer are left.
+ */
+class PickTerritoryAndUnitsRequest(
+    val player: GamePlayer,
+    val territories: List<Territory>,
+    val units: List<Unit>,
+    val unitsPerPick: Int,
+) : UiRequest<Tuple<Territory, Set<Unit>>>()

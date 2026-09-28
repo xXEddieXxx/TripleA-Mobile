@@ -144,6 +144,7 @@ public abstract class HumanPlayerUiAdapter implements HumanPlayerUi {
 
   @Override
   public Map<Territory, Collection<Unit>> scrambleUnitsQuery(
+      final GamePlayer player,
       final Territory scrambleTo,
       final Map<Territory, Tuple<Collection<Unit>, Collection<Unit>>> possibleScramblers) {
     return Map.of();
@@ -160,6 +161,7 @@ public abstract class HumanPlayerUiAdapter implements HumanPlayerUi {
 
   @Override
   public Map<Territory, IntegerMap<Unit>> selectKamikazeSuicideAttacks(
+      final GamePlayer player,
       final Map<Territory, Collection<Unit>> possibleUnitsToAttack,
       final Resource attackResourceToken,
       final int maxNumberOfAttacksAllowed) {

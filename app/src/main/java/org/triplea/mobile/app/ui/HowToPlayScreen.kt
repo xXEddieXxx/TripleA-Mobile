@@ -134,8 +134,10 @@ private val CHAPTERS = listOf(
         )
         Paragraphs(
             """
-            Some maps add a technology phase, a politics phase (declare war, make alliances) or special
-            user actions. These only appear when the map uses them.
+            Some maps add more: a technology phase (buy research dice, a six discovers a technology), a
+            politics phase (declare war, make alliances), special user actions, repairing bombed
+            factories before the purchase, scrambling fighters from an air base into a nearby battle,
+            or kamikaze attacks on enemy ships. These only appear when the map uses them.
             """,
         )
     },

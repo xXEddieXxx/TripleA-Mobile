@@ -162,6 +162,11 @@ import org.triplea.mobile.app.game.PurchaseRequest
 import org.triplea.mobile.app.game.RetreatRequest
 import org.triplea.mobile.app.game.SelectTerritoryRequest
 import org.triplea.mobile.app.game.SelectUnitsRequest
+import org.triplea.mobile.app.game.TechRequest
+import org.triplea.mobile.app.game.RepairRequest
+import org.triplea.mobile.app.game.ScrambleRequest
+import org.triplea.mobile.app.game.KamikazeRequest
+import org.triplea.mobile.app.game.PickTerritoryAndUnitsRequest
 import org.triplea.mobile.app.game.TerritorySnapshot
 import org.triplea.mobile.app.game.UiMessage
 import org.triplea.mobile.app.game.UiRequest
@@ -633,6 +638,9 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val highlighted = when (val request = pending) {
         is SelectTerritoryRequest -> request.candidates.map { it.name }.toSet()
         is RetreatRequest -> request.possibleTerritories.map { it.name }.toSet()
+        is PickTerritoryAndUnitsRequest -> request.territories.map { it.name }.toSet()
+        is ScrambleRequest -> (request.options.map { it.from.name } + request.scrambleTo.name).toSet()
+        is KamikazeRequest -> request.targets.keys.map { it.name }.toSet()
         else -> emptySet()
     }
     val selectedUnitSet = remember(moveUnits) { moveUnits.toHashSet() }
@@ -1149,6 +1157,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         is RetreatRequest -> if (battleQuestion == null) RetreatDialog(request)
         is PoliticsRequest -> PoliticsDialog(request, session)
         is UserActionRequest -> UserActionDialog(request, session)
+        is TechRequest -> TechDialog(request)
+        is RepairRequest -> RepairDialog(request, images)
+        is ScrambleRequest -> ScrambleDialog(request, images)
+        is KamikazeRequest -> KamikazeDialog(request, images)
+        is PickTerritoryAndUnitsRequest -> PickTerritoryAndUnitsDialog(request, images)
         is CasualtyNoticeRequest -> {
             // shown inside the battle window; without a battle window, continue right away
             if (currentBattle == null) LaunchedEffect(request) { request.complete(true) }
@@ -1343,7 +1356,9 @@ private fun phaseHint(
         is PurchaseRequest -> "Purchase"
         is BattleRequest, is CasualtyRequest, is ConfirmRequest,
         is SelectTerritoryRequest, is SelectUnitsRequest, is RetreatRequest,
-        is PoliticsRequest, is UserActionRequest, is CasualtyNoticeRequest -> ""
+        is PoliticsRequest, is UserActionRequest, is CasualtyNoticeRequest,
+        is TechRequest, is RepairRequest, is ScrambleRequest, is KamikazeRequest,
+        is PickTerritoryAndUnitsRequest -> ""
         null -> if (status.isHumanTurn) "" else if (status.playerName.isBlank()) "Starting…"
         else status.playerName + (if (aiSeconds >= 5) " · ${aiSeconds}s" else "") + " …"
     }

@@ -136,7 +136,14 @@ public interface HumanPlayerUi {
       Collection<Territory> possibleTerritories,
       String message);
 
+  /**
+   * Ask the defender which aircraft scramble into the battle at {@code scrambleTo}. For every
+   * territory that can scramble, the tuple holds the air bases there and the aircraft that may
+   * scramble; at most {@code ScrambleLogic.getMaxScrambleCount(airbases)} of them may be chosen.
+   * An empty map means no aircraft scramble.
+   */
   Map<Territory, Collection<Unit>> scrambleUnitsQuery(
+      GamePlayer player,
       Territory scrambleTo,
       Map<Territory, Tuple<Collection<Unit>, Collection<Unit>>> possibleScramblers);
 
@@ -144,7 +151,13 @@ public interface HumanPlayerUi {
 
   boolean acceptAction(GamePlayer playerSendingProposal, String question, boolean politics);
 
+  /**
+   * Ask how many kamikaze suicide attacks (paid with {@code attackResourceToken}, at most {@code
+   * maxNumberOfAttacksAllowed} in total) are made against which enemy units. An empty map means no
+   * attacks.
+   */
   Map<Territory, IntegerMap<Unit>> selectKamikazeSuicideAttacks(
+      GamePlayer player,
       Map<Territory, Collection<Unit>> possibleUnitsToAttack,
       Resource attackResourceToken,
       int maxNumberOfAttacksAllowed);
