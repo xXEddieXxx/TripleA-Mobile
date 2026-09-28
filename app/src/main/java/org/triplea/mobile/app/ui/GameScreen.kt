@@ -252,7 +252,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         GameController.messages.collect { message ->
             if (message.isError) {
                 snackbarHostState.currentSnackbarData?.dismiss()
-                launch { snackbarHostState.showSnackbar(message.text, duration = SnackbarDuration.Short) }
+                launch { showBriefly(snackbarHostState, message.text) }
             } else {
                 messageDialog = message
             }
@@ -375,7 +375,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     fun toast(text: String) {
         toastJob.value?.cancel()
         snackbarHostState.currentSnackbarData?.dismiss()
-        toastJob.value = scope.launch { snackbarHostState.showSnackbar(text, duration = SnackbarDuration.Short) }
+        toastJob.value = scope.launch { showBriefly(snackbarHostState, text) }
     }
 
     fun clearSelection() {
@@ -1391,6 +1391,20 @@ internal fun stepIcon(stepName: String): androidx.compose.ui.graphics.vector.Ima
 
 internal fun summarizeUnits(units: Collection<Unit>): String =
     units.groupBy { it.type.name }.entries.joinToString(", ") { "${it.value.size} ${it.key}" }
+
+/** How long a hint or error stays on screen; the stock snackbar durations (4 s, 10 s) felt too long. */
+private const val BRIEF_MESSAGE_MILLIS = 2000L
+
+/** Shows a snackbar for [BRIEF_MESSAGE_MILLIS] and takes it away again. */
+private suspend fun showBriefly(host: SnackbarHostState, text: String) {
+    val showing = kotlinx.coroutines.coroutineScope {
+        val job = launch { host.showSnackbar(text, duration = SnackbarDuration.Indefinite) }
+        delay(BRIEF_MESSAGE_MILLIS)
+        host.currentSnackbarData?.dismiss()
+        job
+    }
+    showing.cancel()
+}
 
 /** Small translucent box for text floating on the map. */
 @Composable

@@ -553,7 +553,20 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     }
 
     override fun battleSteps(battleId: UUID, steps: List<String>) {
-        updateBattle(battleId) { it.copy(steps = steps) }
+        updateBattle(battleId) {
+            // the engine sends the step list again when a new round begins (it never announces
+            // single steps of a normal battle); once both sides have fired, that is the next round
+            val newRound = it.attacker in it.firedThisRound && it.defender in it.firedThisRound
+            val gone = if (newRound) it.dying.toSet() else emptySet()
+            it.copy(
+                steps = steps,
+                round = if (newRound) it.round + 1 else it.round,
+                firedThisRound = if (newRound) emptySet() else it.firedThisRound,
+                attackingUnits = it.attackingUnits - gone,
+                defendingUnits = it.defendingUnits - gone,
+                dying = it.dying - gone,
+            )
+        }
     }
 
     override fun battleStep(battleId: UUID, step: String) {

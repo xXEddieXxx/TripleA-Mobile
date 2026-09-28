@@ -504,6 +504,14 @@ public class MustFightBattle extends DependentBattle
         Collection<Unit> killed =
             CollectionUtils.getMatches(killedDuringCurrentRound, Matches.unitIsOwnedBy(attacker));
         damagedChangeInto(attacker, attackingUnits, killed, bridge, side);
+        // tell the display which marked casualties leave now (the desktop only did so for
+        // suicide units; the mobile battle window keeps casualties on the line until this point)
+        if (!attackingWaitingToDie.isEmpty()) {
+          bridge
+              .getDisplayChannelBroadcaster()
+              .deadUnitNotification(
+                  battleId, attacker, new ArrayList<>(attackingWaitingToDie), Map.of());
+        }
         removeUnits(attackingWaitingToDie, bridge, battleSite, side);
         attackingWaitingToDie.clear();
       } else {
@@ -511,6 +519,12 @@ public class MustFightBattle extends DependentBattle
             CollectionUtils.getMatches(
                 killedDuringCurrentRound, Matches.unitIsOwnedBy(attacker).negate());
         damagedChangeInto(defender, defendingUnits, killed, bridge, side);
+        if (!defendingWaitingToDie.isEmpty()) {
+          bridge
+              .getDisplayChannelBroadcaster()
+              .deadUnitNotification(
+                  battleId, defender, new ArrayList<>(defendingWaitingToDie), Map.of());
+        }
         removeUnits(defendingWaitingToDie, bridge, battleSite, side);
         defendingWaitingToDie.clear();
       }
