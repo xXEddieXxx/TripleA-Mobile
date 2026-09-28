@@ -27,6 +27,7 @@ import games.strategy.triplea.attachments.TerritoryEffectAttachment
 import games.strategy.engine.data.TerritoryEffect
 import games.strategy.triplea.delegate.TerritoryEffectHelper
 import games.strategy.triplea.ui.mapdata.MapData
+import games.strategy.triplea.delegate.TechTracker
 import games.strategy.triplea.util.TuvCostsCalculator
 import games.strategy.triplea.util.TuvUtils
 import games.strategy.triplea.util.UnitSeparator
@@ -129,6 +130,8 @@ class PlayerStats(
     val units: Int,
     val tuv: Int,
     val victoryCities: Int,
+    /** The technologies the nation has researched, in the map's order. */
+    val technologies: List<String> = emptyList(),
 )
 
 /** Immutable rendering data derived from the game state, rebuilt whenever the game data changes. */
@@ -576,6 +579,9 @@ class MapSnapshot(
                     units = units.size,
                     tuv = runCatching { TuvUtils.getTuv(units, tuvCalculator.getCostsForTuv(player)) }.getOrDefault(0),
                     victoryCities = victoryCities[player.name] ?: 0,
+                    technologies = runCatching {
+                        TechTracker.getCurrentTechAdvances(player, gameData.technologyFrontier).map { it.name }
+                    }.getOrDefault(emptyList()),
                 )
             }
         }.getOrDefault(emptyList())

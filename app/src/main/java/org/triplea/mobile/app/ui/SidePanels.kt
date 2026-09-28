@@ -340,6 +340,36 @@ internal fun StatsTable(stats: List<PlayerStats>, showVictoryCities: Boolean, cu
             if (showVictoryCities) Cell(row.victoryCities.toString(), bold)
         }
     }
+    // the technologies each nation has researched, as the desktop's tech panel shows them
+    val researched = stats.filter { it.technologies.isNotEmpty() }
+    if (researched.isNotEmpty()) {
+        Text(
+            "Technology",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+        )
+        HorizontalDivider()
+        researched.forEach { row ->
+            val bold = row.name == currentPlayer
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
+                Text(
+                    row.name,
+                    style = cell,
+                    fontWeight = if (bold) FontWeight.Bold else null,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(88.dp),
+                )
+                Text(
+                    row.technologies.joinToString(", "),
+                    style = cell,
+                    fontWeight = if (bold) FontWeight.Bold else null,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
 }
 
 /** What the history list shows. */

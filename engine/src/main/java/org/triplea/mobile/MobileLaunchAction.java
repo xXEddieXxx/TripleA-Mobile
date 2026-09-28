@@ -43,6 +43,7 @@ public class MobileLaunchAction implements LaunchAction {
     final List<PlayerTypes.Type> types = new ArrayList<>();
     types.add(humanPlayerType);
     types.addAll(PlayerTypes.getBuiltInPlayerTypes());
+    types.add(PlayerKind.DOES_NOTHING_AI);
     return types;
   }
 
