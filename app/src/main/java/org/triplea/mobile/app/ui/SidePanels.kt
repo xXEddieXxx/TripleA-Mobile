@@ -51,6 +51,7 @@ import games.strategy.engine.data.Unit
 import org.triplea.mobile.app.game.BattleState
 import org.triplea.mobile.app.game.GameStatus
 import org.triplea.mobile.app.game.HistoryBlock
+import org.triplea.mobile.app.game.ObjectiveLine
 import org.triplea.mobile.app.game.HistoryEvent
 import org.triplea.mobile.app.game.HistoryKind
 import org.triplea.mobile.app.game.UnitRef
@@ -111,6 +112,55 @@ internal fun TerritoryDetails(territory: TerritorySnapshot?, images: ImageCache)
     }
 }
 
+/**
+ * The national objectives, grouped by nation with the current nation first: a check for met ones,
+ * the PU value on the right, and what the objective asks for underneath.
+ */
+@Composable
+internal fun ObjectivesList(objectives: List<ObjectiveLine>, images: ImageCache, currentPlayer: String) {
+    val byPlayer = remember(objectives, currentPlayer) {
+        objectives.groupBy { it.player }.entries.sortedBy { if (it.key == currentPlayer) 0 else 1 }
+    }
+    byPlayer.forEach { (player, lines) ->
+        val flag = remember(player, images) { images.getNow("flags/$player.png", listOf("flags/$player.png", "flags/${player}_small.png")) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)) {
+            if (flag != null) {
+                Image(flag.asImageBitmap(), contentDescription = player, modifier = Modifier.height(16.dp).widthIn(max = 28.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(player, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            val met = lines.count { it.achieved }
+            Text("$met / ${lines.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        lines.forEach { line ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+                Text(
+                    if (line.achieved) "\u2713" else "\u25cb",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (line.achieved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(18.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(line.title, style = MaterialTheme.typography.labelLarge, color = if (line.achieved) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (line.description.isNotBlank()) {
+                        Text(line.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (line.value != 0) {
+                    Text(
+                        (if (line.value > 0) "+" else "") + "${line.value} PU",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (line.achieved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Relationships of every nation, grouped like the desktop client's politics tab. */
 @Composable
 internal fun DiplomacyList(relationships: List<RelationshipLine>) {
@@ -143,6 +193,7 @@ private enum class PanelTab(val label: String) {
     ZONE("Zone"),
     STATS("Stats"),
     HISTORY("History"),
+    GOALS("Goals"),
     DIPLOMACY("Diplomacy"),
 }
 
@@ -168,6 +219,7 @@ internal fun SidePanel(
     history: List<HistoryBlock>,
     relationships: List<RelationshipLine>,
     menu: @Composable () -> kotlin.Unit,
+    objectives: List<ObjectiveLine> = emptyList(),
     actions: @Composable ColumnScope.() -> kotlin.Unit,
     movesThisPhase: @Composable ColumnScope.() -> kotlin.Unit = {},
     /** True on the desktop layout, where the panel carries the flag row and the menu. */
@@ -175,8 +227,10 @@ internal fun SidePanel(
     onFlagTap: (() -> kotlin.Unit)? = null,
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = remember(relationships.isEmpty()) {
-        if (relationships.isEmpty()) PanelTab.entries.filter { it != PanelTab.DIPLOMACY } else PanelTab.entries.toList()
+    val tabs = remember(relationships.isEmpty(), objectives.isEmpty()) {
+        PanelTab.entries.filter { tab ->
+            (tab != PanelTab.DIPLOMACY || relationships.isNotEmpty()) && (tab != PanelTab.GOALS || objectives.isNotEmpty())
+        }
     }
     if (tabIndex >= tabs.size) tabIndex = 0
     val tab = tabs[tabIndex]
@@ -234,6 +288,7 @@ internal fun SidePanel(
                 }
                 PanelTab.STATS -> if (stats.isEmpty()) Text("No statistics yet.", style = MaterialTheme.typography.bodySmall) else StatsTable(stats, showVictoryCities, status.playerName)
                 PanelTab.HISTORY -> if (history.isEmpty()) Text("Nothing happened yet.", style = MaterialTheme.typography.bodySmall) else HistoryList(history, images)
+                PanelTab.GOALS -> ObjectivesList(objectives, images, status.playerName)
                 PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyList(relationships)
             }
         }

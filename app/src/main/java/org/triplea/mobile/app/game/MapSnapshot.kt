@@ -14,7 +14,15 @@ import games.strategy.engine.history.Round
 import games.strategy.engine.history.Step
 import games.strategy.triplea.attachments.PoliticalActionAttachment
 import games.strategy.triplea.attachments.UserActionAttachment
+import games.strategy.triplea.attachments.AbstractConditionsAttachment
+import games.strategy.triplea.attachments.ICondition
+import games.strategy.triplea.attachments.RulesAttachment
 import games.strategy.triplea.attachments.TerritoryAttachment
+import games.strategy.triplea.Constants
+import games.strategy.triplea.Properties
+import games.strategy.triplea.ui.ObjectiveDummyDelegateBridge
+import games.strategy.engine.data.GamePlayer
+import org.triplea.java.collections.IntegerMap
 import games.strategy.triplea.attachments.TerritoryEffectAttachment
 import games.strategy.engine.data.TerritoryEffect
 import games.strategy.triplea.delegate.TerritoryEffectHelper
@@ -68,6 +76,9 @@ class TerritorySnapshot(
     val drawName: Boolean,
     val effects: List<EffectMarker> = emptyList(),
 )
+
+/** A national objective of one nation: what it asks for, what it pays, and whether it is met now. */
+class ObjectiveLine(val player: String, val title: String, val description: String, val value: Int, val achieved: Boolean)
 
 /** A unit type of one owner in a history entry: a sample unit for the icon and how many. */
 class UnitRef(val sample: Unit, val count: Int)
@@ -137,6 +148,8 @@ class MapSnapshot(
     val hasUserActions: Boolean,
     /** Whether the map wants its territory effects drawn as markers on the map (map.properties). */
     val showEffectMarkers: Boolean = false,
+    /** The national objectives of every nation with their current state; empty when the map has none. */
+    val objectives: List<ObjectiveLine> = emptyList(),
 ) {
     val byName: Map<String, TerritorySnapshot> = territories.associateBy { it.name }
 
@@ -341,10 +354,97 @@ class MapSnapshot(
                     hasUserActions = players.any { UserActionAttachment.getUserActionAttachments(it).isNotEmpty() }
                 }
             }
-            return MapSnapshot(version, territories, battleSites, stats, hasVictoryCities, history, relationships, hasPolitics, hasUserActions, useEffectMarkers)
+            val objectives = gameData.acquireReadLock().use { readObjectives(session) }
+            return MapSnapshot(version, territories, battleSites, stats, hasVictoryCities, history, relationships, hasPolitics, hasUserActions, useEffectMarkers, objectives)
         }
 
         private const val MAX_HISTORY_BLOCKS = 300
+
+        /**
+         * The national objectives of every nation, tested against the current game state with the
+         * engine's own condition code (the same the end turn phase uses to pay them out). The text
+         * comes from the map's objectives.properties when it has one, else from the rule itself.
+         */
+        private fun readObjectives(session: LocalGameSession): List<ObjectiveLine> = runCatching {
+            val data = session.gameData
+            if (!Properties.getNationalObjectives(data.properties)) return@runCatching emptyList()
+            val texts = loadObjectiveTexts(session)
+            val bridge = ObjectiveDummyDelegateBridge(data)
+            val lines = ArrayList<ObjectiveLine>()
+            for (player in data.playerList.players.filter { !it.isNull }) {
+                val objectives = RulesAttachment.getNationalObjectives(player).sortedBy { it.name }
+                if (objectives.isEmpty()) continue
+                val tested = runCatching {
+                    AbstractConditionsAttachment.testAllConditionsRecursive(HashSet<ICondition>(objectives), null, bridge)
+                }.getOrDefault(emptyMap())
+                for (objective in objectives) {
+                    val fullName = objective.name ?: continue
+                    val shortName = fullName.removePrefix(Constants.RULES_OBJECTIVE_PREFIX).trimStart('_', '-', ' ')
+                    val value = (objective.getPropertyOrEmpty("objectiveValue").orElse(null)?.value as? Int) ?: 0
+                    val text = objectiveText(texts, player.name, fullName, shortName) ?: describeObjective(objective)
+                    lines += ObjectiveLine(
+                        player = player.name,
+                        title = humanize(shortName),
+                        description = text,
+                        value = value,
+                        achieved = tested[objective] ?: false,
+                    )
+                }
+            }
+            lines
+        }.getOrDefault(emptyList())
+
+        /** objectives.properties of the map: "Player.objectiveName=text" lines, HTML stripped. */
+        private fun loadObjectiveTexts(session: LocalGameSession): Map<String, String> = runCatching {
+            val file = session.resourceLoader.optionalResource("objectives.properties").orElse(null) ?: return@runCatching emptyMap()
+            val props = java.util.Properties()
+            java.io.InputStreamReader(java.nio.file.Files.newInputStream(file), Charsets.UTF_8).use { props.load(it) }
+            props.entries.associate { (k, v) -> k.toString().trim() to GameController.stripHtml(v.toString()).replace(Regex("\\s+"), " ").trim() }
+        }.getOrDefault(emptyMap())
+
+        private fun objectiveText(texts: Map<String, String>, player: String, name: String, shortName: String): String? {
+            if (texts.isEmpty()) return null
+            val candidates = listOf("$player.$name", "$player.$shortName", name, shortName)
+            candidates.firstNotNullOfOrNull { texts[it] }?.let { return it }
+            // maps are not consistent about the key: accept anything that ends with the objective's name
+            return texts.entries.firstOrNull { (k, _) -> k.endsWith(".$name") || k.endsWith(".$shortName") }?.value
+        }
+
+        /** "GermansControlCaucasus_2" -> "Germans Control Caucasus 2". */
+        private fun humanize(name: String): String =
+            name.replace('_', ' ').replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace(Regex("\\s+"), " ").trim()
+
+        /** What a rule asks for, read from its properties, when the map ships no text for it. */
+        private fun describeObjective(rule: RulesAttachment): String {
+            fun names(property: String): List<String> =
+                (rule.getPropertyOrEmpty(property).orElse(null)?.value as? Array<*>)?.map { it.toString() }.orEmpty()
+            val count = (rule.getPropertyOrEmpty("territoryCount").orElse(null)?.value as? Int) ?: -1
+            val parts = ArrayList<String>()
+            fun add(label: String, list: List<String>) {
+                if (list.isEmpty()) return
+                val need = if (count > 0 && count < list.size) "$count of " else ""
+                parts += "$label $need${list.joinToString(", ")}"
+            }
+            add("own", names("directOwnershipTerritories"))
+            add("allies own", names("alliedOwnershipTerritories"))
+            add("units in", names("directPresenceTerritories"))
+            add("allied units in", names("alliedPresenceTerritories"))
+            add("enemy units in", names("enemyPresenceTerritories"))
+            add("no own units in", names("directExclusionTerritories"))
+            add("no allied units in", names("alliedExclusionTerritories"))
+            add("no enemy units in", names("enemyExclusionTerritories"))
+            (rule.getPropertyOrEmpty("atWarPlayers").orElse(null)?.value as? Collection<*>)?.takeIf { it.isNotEmpty() }?.let { players ->
+                parts += "at war with " + players.joinToString(", ") { (it as? GamePlayer)?.name ?: it.toString() }
+            }
+            @Suppress("UNCHECKED_CAST")
+            (rule.getPropertyOrEmpty("unitPresence").orElse(null)?.value as? IntegerMap<Any>)?.let { map ->
+                val units = map.keySet().joinToString(", ") { "${map.getInt(it)} $it" }
+                if (units.isNotBlank()) parts += "units: $units"
+            }
+            val invert = (rule.getPropertyOrEmpty("invert").orElse(null)?.value as? Boolean) ?: false
+            val text = parts.joinToString("  ·  ")
+            return if (invert && text.isNotBlank()) "not: $text" else text
+        }
 
         /** What a territory effect does, in a few words: "attack +1: infantry · no blitz: tank". */
         private fun effectSummary(gameData: GameData, effect: TerritoryEffect): String = runCatching {

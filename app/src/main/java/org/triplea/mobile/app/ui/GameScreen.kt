@@ -1003,6 +1003,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             showVictoryCities = snapshot?.hasVictoryCities ?: false,
             history = snapshot?.history ?: emptyList(),
             relationships = if (snapshot?.hasPolitics == true) snapshot?.relationships ?: emptyList() else emptyList(),
+            objectives = snapshot?.objectives ?: emptyList(),
             menu = menu,
             showHeader = showHeader,
             onFlagTap = ::jumpToCapital,
