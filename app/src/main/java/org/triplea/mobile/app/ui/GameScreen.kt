@@ -801,6 +801,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 )
                 DropdownMenuItem(text = { Text("Battle calculator") }, onClick = { showMenu = false; showCalc = true })
                 DropdownMenuItem(text = { Text("How to play") }, onClick = { showMenu = false; showHowTo = true })
+                DropdownMenuItem(text = { Text("Report a bug") }, onClick = { showMenu = false; openBugReport(view.context, session.gameData.gameName) })
                 DropdownMenuItem(text = { Text("Quit to menu") }, onClick = { showMenu = false; showQuitDialog = true })
             }
         }
