@@ -189,6 +189,9 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
   (`whoPaysHowMuch` is always empty) and no fuel check before scrambling; the engine rejects a
   scramble the player cannot fuel.
 - The remaining `HumanPlayerUiAdapter` defaults: "select fixed dice" (edit mode) rolls randomly.
-- Save games are not compatible with the desktop client (different serialized classes).
+- Save games can be exchanged with the desktop client as long as both run the same engine
+  version: the history is serialized as a change list (`History.writeReplace` to
+  `SerializedHistory`), so no Swing classes end up in the file. A save written by a newer
+  engine may still fail to load on the other side.
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.

@@ -114,6 +114,7 @@ object SaveTransfer {
     /** A plain file name inside the save folder: no paths, only harmless characters, ".tsvg" at the end. */
     private fun safeName(raw: String): String {
         val base = raw.substringAfterLast('/').substringAfterLast('\\')
+            .removeSuffix(".gz") // chat apps rename a sniffed gzip file
             .removeSuffix(".tsvg")
             .replace(Regex("[^A-Za-z0-9 _.()-]"), "")
             .trim()
