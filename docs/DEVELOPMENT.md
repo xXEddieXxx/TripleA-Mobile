@@ -164,7 +164,8 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
 ## Security notes
 
 - Network: only HTTPS to GitHub (map list and map archives); cleartext traffic is refused by the
-  network security config and by the download code, also after redirects.
+  network security config (and `usesCleartextTraffic="false"` in the manifest) and by the
+  download code, also after redirects.
 - Map archives are unpacked with path traversal checks and size/entry limits.
 - Save games are Java serialized; they are read through `SafeObjectInputStream`, which only
   resolves engine, JDK and Guava classes, so a crafted save cannot instantiate arbitrary classes.
