@@ -45,7 +45,8 @@ purchases.
 - **Play with friends on one phone**: pass the device around, hot seat style.
 - **Play by file**: save your game, share the save file through any chat or mail app, and your
   friend continues the game on their own phone. A replay in the history tab shows on the map
-  what the others did since your last turn, move by move.
+  what the others did since your last turn, move by move. The same save file opens in the
+  desktop TripleA client and vice versa, as long as both run the same engine version.
 - **Almost 300 maps**: two maps come with the app, every other map from the TripleA map library
   can be downloaded inside the app. You can also import map zip files from your phone.
 - **Battle calculator**: before you attack, check your odds. The calculator simulates the fight
@@ -78,7 +79,6 @@ played, which version (see *About*) and what happened.
 ## What is not in the app (yet)
 
 - No online multiplayer, no lobby, no play-by-email. Everything happens on your phone.
-- Save games cannot be exchanged with the desktop TripleA client.
 - The optional rules (technology, repairs, scramble, kamikaze, random start) got their screens
   only recently and have seen less play testing than the rest. See the
   [development notes](docs/DEVELOPMENT.md#known-gaps) for what is still missing.
