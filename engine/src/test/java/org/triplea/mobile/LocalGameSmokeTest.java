@@ -60,6 +60,7 @@ class LocalGameSmokeTest {
     assertThat(session.getMapData().getTerritories()).isNotEmpty();
     assertThat(session.getMapData().getMapDimensions().width).isEqualTo(900);
 
+    final Map<String, Integer> unitsAtStart = unitCounts(gameData);
     session.setUpForSteps();
     int steps = 0;
     while (gameData.getSequence().getRound() < 3 && steps < 400 && !session.isGameOver()) {
@@ -68,6 +69,16 @@ class LocalGameSmokeTest {
     }
     assertThat(gameData.getSequence().getRound()).isGreaterThanOrEqualTo(3);
     assertThat(events.steps).isGreaterThan(0);
+
+    // the history view is a clone that winds back: at its end it matches the game, at the root
+    // the start of the game, nodes that are not in the clone are reported as such, and the live
+    // game is left untouched by all of it
+    final HistoryView view = HistoryView.of(gameData);
+    assertThat(unitCounts(view.getGameData())).isEqualTo(unitCounts(gameData)).isNotEqualTo(unitsAtStart);
+    assertThat(view.gotoNode()).isTrue();
+    assertThat(unitCounts(view.getGameData())).isEqualTo(unitsAtStart);
+    assertThat(view.gotoNode(0, 0, 9999)).isFalse();
+    assertThat(unitCounts(gameData)).isNotEqualTo(unitsAtStart);
 
     final Path save = MobileEngine.getSaveGamesFolder().resolve("smoke.tsvg");
     MobileEngine.saveGame(gameData, save);
@@ -78,6 +89,16 @@ class LocalGameSmokeTest {
     assertThat(MobileEngine.listSaveGames()).contains(save);
 
     session.stop();
+  }
+
+  /** Units per territory, the fingerprint of a game state. */
+  private static Map<String, Integer> unitCounts(final GameData data) {
+    try (GameData.Unlocker ignored = data.acquireReadLock()) {
+      return data.getMap().getTerritories().stream()
+          .collect(
+              java.util.stream.Collectors.toMap(
+                  games.strategy.engine.data.Territory::getName, t -> t.getUnits().size()));
+    }
   }
 
   /** Human UI that is never used because every player is an AI. */

@@ -111,6 +111,8 @@ class HistoryEvent(
     val territory: String? = null,
     /** The territories of a move (start to end) or the one of a placement, for a short headline. */
     val route: List<String> = emptyList(),
+    /** The node's child indices from the history root (round, step, event): its address for `HistoryView.gotoNode`. */
+    val path: IntArray = IntArray(0),
 ) {
     /** Dice rolled in this event (battles), attacker and defender alike. */
     val diceCount: Int get() = details.sumOf { it.dice.size }
@@ -218,9 +220,13 @@ class MapSnapshot(
         private val pathCache = HashMap<String, List<Path>>()
         private val boundsCache = HashMap<String, android.graphics.RectF>()
 
-        /** Builds a snapshot under the game data read lock. */
-        fun build(session: LocalGameSession, version: Int): MapSnapshot {
-            val gameData: GameData = session.gameData
+        /**
+         * Builds a snapshot under the game data read lock. [gameData] defaults to the live game; a
+         * `HistoryView` clone gives the map as it was at a point of the history (its history list and
+         * objectives are left out: the live ones apply, and the objective cache is bound to the session).
+         */
+        fun build(session: LocalGameSession, version: Int, gameData: GameData = session.gameData): MapSnapshot {
+            val live = gameData === session.gameData
             val mapData: MapData = session.mapData
             val unitWidth = (mapData.defaultUnitWidth * mapData.defaultUnitScale).toInt().coerceAtLeast(8)
             val territories = ArrayList<TerritorySnapshot>()
@@ -339,7 +345,7 @@ class MapSnapshot(
                 }
                 stats += computeStats(gameData)
             }
-            val history = gameData.acquireReadLock().use { readHistory(gameData) }
+            val history = if (live) gameData.acquireReadLock().use { readHistory(gameData) } else emptyList()
             var relationships: List<RelationshipLine> = emptyList()
             var hasPolitics = false
             var hasUserActions = false
@@ -360,7 +366,7 @@ class MapSnapshot(
                     hasUserActions = players.any { UserActionAttachment.getUserActionAttachments(it).isNotEmpty() }
                 }
             }
-            val objectives = gameData.acquireReadLock().use { readObjectives(session) }
+            val objectives = if (live) gameData.acquireReadLock().use { readObjectives(session) } else emptyList()
             return MapSnapshot(version, territories, battleSites, stats, hasVictoryCities, history, relationships, hasPolitics, hasUserActions, useEffectMarkers, objectives)
         }
 
@@ -545,9 +551,9 @@ class MapSnapshot(
         private fun readHistory(gameData: GameData): List<HistoryBlock> = runCatching {
             val blocks = ArrayList<HistoryBlock>()
             val root = gameData.history.root
-            for (roundNode in root.childList()) {
+            for ((roundIndex, roundNode) in root.childList().withIndex()) {
                 val roundNo = (roundNode as? Round)?.roundNo ?: 0
-                for (stepNode in roundNode.childList()) {
+                for ((stepIndex, stepNode) in roundNode.childList().withIndex()) {
                     val step = stepNode as? Step ?: continue
                     val stepName = runCatching { step.stepName }.getOrNull().orEmpty()
                     val stepKind = when {
@@ -558,7 +564,7 @@ class MapSnapshot(
                         else -> HistoryKind.OTHER
                     }
                     val events = ArrayList<HistoryEvent>()
-                    for (eventNode in step.childList()) {
+                    for ((eventIndex, eventNode) in step.childList().withIndex()) {
                         val event = eventNode as? Event ?: continue
                         val details = event.childList().mapNotNull { child ->
                             val eventChild = child as? EventChild ?: return@mapNotNull null
@@ -590,6 +596,7 @@ class MapSnapshot(
                                 is PlacementDescription -> runCatching { listOf(data.territory.name) }.getOrDefault(emptyList())
                                 else -> emptyList()
                             },
+                            path = intArrayOf(roundIndex, stepIndex, eventIndex),
                         )
                     }
                     if (events.isEmpty()) continue

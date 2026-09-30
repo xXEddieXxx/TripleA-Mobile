@@ -4,12 +4,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,8 +30,9 @@ import org.triplea.mobile.app.game.HistoryKind
 import org.triplea.mobile.app.render.ImageCache
 
 /*
- * Replaying the game history on the map: every move, placement and battle of the history can be
- * shown where it happened, and stepped through in play order. The point of it is play by file:
+ * Replaying the game history on the map, the desktop client's "Show History" mode: every event of
+ * the history can be shown on the map as it stood at that moment (a clone of the game data wound
+ * back with HistoryView), and stepped through in play order. The point of it is play by file:
  * whoever receives a save wants to see what the other players did since their own last turn.
  */
 
@@ -38,11 +41,12 @@ class ReplayItem(val block: HistoryBlock, val event: HistoryEvent) {
     /** The territories the map shows for this item: the route of a move, the place of a battle. */
     val route: List<String> get() = if (event.route.isNotEmpty()) event.route else listOfNotNull(event.territory)
 
-    /** "Move", "Placement" or "Battle", for the chip. */
+    /** "Move", "Placement", "Battle" or "Purchase", for the chip. */
     val label: String get() = when (event.kind) {
         HistoryKind.MOVE -> "Move"
         HistoryKind.PLACE -> "Placement"
         HistoryKind.BATTLE -> "Battle"
+        HistoryKind.PURCHASE -> "Purchase"
         else -> "Event"
     }
 
@@ -55,23 +59,22 @@ class ReplayItem(val block: HistoryBlock, val event: HistoryEvent) {
     }
 }
 
-/** The events of the history that can be shown on the map, in play order. */
+/** Every event of the history in play order: the stops of the desktop's Back/Next buttons. */
 fun replayItems(history: List<HistoryBlock>): List<ReplayItem> = history.flatMap { block ->
-    block.events
-        .filter { it.kind == HistoryKind.MOVE || it.kind == HistoryKind.PLACE || it.kind == HistoryKind.BATTLE }
-        .map { ReplayItem(block, it) }
-        .filter { it.route.isNotEmpty() }
+    block.events.map { ReplayItem(block, it) }
 }
 
 /**
- * Where a replay of "what happened since my last turn" starts: the first item after the last
- * event of a human player, or 0 when no human has played yet. -1 when nothing happened since.
+ * Where a replay of "what happened since my last turn" starts: the first item of the latest run
+ * of other players' events, which is the one after the last human event before it. What the
+ * human did since (a trigger when the turn began, a purchase) does not hide that run. -1 when no
+ * other player has done anything yet.
  */
 fun replayStartAfterHumanTurn(items: List<ReplayItem>, isHuman: (String) -> Boolean): Int {
-    if (items.isEmpty()) return -1
-    val last = items.indexOfLast { isHuman(it.block.player) }
-    if (last < 0) return 0
-    return if (last + 1 < items.size) last + 1 else -1
+    // steps without a player (the game's set-up) are nobody's turn
+    val end = items.indexOfLast { it.block.player.isNotBlank() && !isHuman(it.block.player) }
+    if (end < 0) return -1
+    return items.subList(0, end).indexOfLast { isHuman(it.block.player) } + 1
 }
 
 /** The chip over the map while replaying: flag, units, what happened, and the previous/next buttons. */
@@ -85,6 +88,8 @@ fun ReplayChip(
     onNext: () -> kotlin.Unit,
     onClose: () -> kotlin.Unit,
     modifier: Modifier = Modifier,
+    /** The map of that moment is still being prepared. */
+    busy: Boolean = false,
 ) {
     val player = item.block.player
     val flag = remember(player, images) {
@@ -106,7 +111,8 @@ fun ReplayChip(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text("${index + 1}/$total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (busy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                else Text("${index + 1}/$total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 item.event.units.groupBy { it.sample.type to it.sample.owner }.entries.take(4).forEach { (key, refs) ->

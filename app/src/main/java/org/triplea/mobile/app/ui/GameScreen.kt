@@ -98,6 +98,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,8 +134,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.triplea.mobile.HistoryView
 import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppSettings
@@ -252,6 +257,18 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             snapshot = withContext(Dispatchers.Default) { MapSnapshot.build(session, version) }
         }
     }
+    /**
+     * History mode, as on the desktop: a clone of the game data wound back to the shown event, and
+     * the map built from it. The clone is dropped when the replay closes and made again on demand,
+     * so an event newer than the clone is found by cloning anew (`gotoNode` says when it is missing).
+     */
+    var historyView by remember(session) { mutableStateOf<HistoryView?>(null) }
+    var historySnapshot by remember(session) { mutableStateOf<MapSnapshot?>(null) }
+    var historyBusy by remember(session) { mutableStateOf(false) }
+    var historyJob by remember(session) { mutableStateOf<Job?>(null) }
+    val historyMutex = remember(session) { Mutex() }
+    /** What the map and the panels show: the past while replaying, else the live game. */
+    val shown = historySnapshot ?: snapshot
 
     val snackbarHostState = remember { SnackbarHostState() }
     var messageDialog by remember { mutableStateOf<UiMessage?>(null) }
@@ -297,11 +314,12 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     /** A replay of the history on the map: the items in play order and the one shown right now. */
     var replayList by remember(session) { mutableStateOf<List<ReplayItem>>(emptyList()) }
     var replayIndex by remember(session) { mutableStateOf<Int?>(null) }
+    val inHistory = replayIndex != null
     LaunchedEffect(session) {
         GameController.aiMoves.collectLatest { move ->
             // with the pause at 0 the AI plays at full speed and the map stays where it is
             val pause = AppSettings.current.aiMovePauseMillis
-            if (pause <= 0) return@collectLatest
+            if (pause <= 0 || replayIndex != null) return@collectLatest // the past map keeps its own route
             val byName = snapshot?.byName ?: return@collectLatest
             val points = move.route.mapNotNull { byName[it] }.map { Offset(it.centerX.toFloat(), it.centerY.toFloat()) }
             if (points.size < 2) return@collectLatest
@@ -378,6 +396,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
     // a waiting casualty report always brings the window back, otherwise the game would hang hidden
     val battleVisible = currentBattle != null && (currentBattle.id != hiddenBattleId || casualtyNotice != null || casualtyRequest != null || battleQuestion != null)
+    /** The same for callbacks, which may outlive the composition they were made in. */
+    val battleOnScreen by rememberUpdatedState(battleVisible)
 
     // one message at a time: a new one replaces the old instead of queueing up for minutes
     val toastJob = remember { mutableStateOf<Job?>(null) }
@@ -528,8 +548,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
 
     fun onTap(tap: MapTap) {
+        // callbacks read the state itself: a plain val of the composition would be a stale capture
+        if (replayIndex != null) {
+            // the past map only answers with what stood there then; the chip's close returns to the game
+            tap.territory?.let { selectedTerritory = it }
+            return
+        }
         previewRoute = emptyList()
-        replayIndex = null
         val name = tap.territory ?: return
         val territory = MoveHelper.territory(session, name) ?: return
         if (calcPicking) {
@@ -567,31 +592,81 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
 
     fun onDoubleTap(tap: MapTap) {
+        if (replayIndex != null) return // the unit menu works on the live game
         val name = tap.territory ?: return
         val territory = MoveHelper.territory(session, name) ?: return
         openUnitMenu(territory)
     }
 
     /** Centers the map on the current nation's capital (first owned one, else its original one). */
-    /** Shows one history item on the map: its route, and the map brought to it. */
+    /**
+     * Shows one history item: the map as it was at that moment (the clone wound to the event), its
+     * route, and the map brought to it. Without the memory for a clone the live map stays, with the
+     * route on it.
+     */
     fun showReplay(items: List<ReplayItem>, index: Int) {
         if (index !in items.indices) return
+        if (battleOnScreen) {
+            // the battle window sits on the live map and may wait for an answer
+            toast("Finish or hide the battle first")
+            return
+        }
+        if (replayIndex == null) clearSelection()
         replayList = items
         replayIndex = index
         val item = items[index]
         previewRoute = item.route
-        val byName = snapshot?.byName ?: return
-        val points = item.route.mapNotNull { byName[it] }.map { Offset(it.centerX.toFloat(), it.centerY.toFloat()) }
-        when {
-            points.size >= 2 -> mapState.focusOn(points)
-            points.size == 1 -> mapState.centerOn(points[0].x, points[0].y)
+        snapshot?.byName?.let { byName ->
+            val points = item.route.mapNotNull { byName[it] }.map { Offset(it.centerX.toFloat(), it.centerY.toFloat()) }
+            when {
+                points.size >= 2 -> mapState.focusOn(points)
+                points.size == 1 -> mapState.centerOn(points[0].x, points[0].y)
+            }
+        }
+        historyJob?.cancel()
+        historyJob = scope.launch {
+            historyBusy = true
+            try {
+                // one at a time: the clone is wound and read on Dispatchers.Default, and an older step
+                // that was cancelled while running must not overwrite a newer one
+                val current = historyView
+                val past = historyMutex.withLock {
+                    withContext(Dispatchers.Default) {
+                        runCatching {
+                            // an event the clone does not know happened after it was made: clone anew.
+                            // ponytail: a clone taken between an event's node and its change shows that one
+                            // event without the change; re-clone when the live history grew if it ever shows
+                            val clone = current?.takeIf { it.gotoNode(*item.event.path) }
+                                ?: HistoryView.of(session.gameData).also { check(it.gotoNode(*item.event.path)) { "event not in the history" } }
+                            clone to MapSnapshot.build(session, 0, clone.gameData)
+                        }.onFailure { android.util.Log.w("GameScreen", "history view", it) }.getOrNull()
+                    }
+                }
+                // not reached when the replay was closed meanwhile: withContext then throws, and the clone is dropped
+                if (past == null) {
+                    historySnapshot = null // the live map, not the moment of the step before
+                    toast("The map of that moment could not be shown")
+                } else {
+                    historyView = past.first
+                    historySnapshot = past.second
+                }
+            } finally {
+                if (isActive) historyBusy = false // a cancelled step leaves the indicator to its successor
+            }
         }
     }
 
     fun closeReplay() {
         replayIndex = null
         previewRoute = emptyList()
+        historyJob?.cancel()
+        historySnapshot = null
+        historyView = null // freed; the next replay clones the game anew
     }
+    BackHandler(enabled = inHistory) { closeReplay() }
+    // a battle opens its window on the live map: leave the past, as the desktop returns to the
+    // current game when it needs the player
+    LaunchedEffect(battleVisible) { if (battleVisible && inHistory) closeReplay() }
 
     /** A tap on an event in the history tab: show it, with the rest of the history around it. */
     fun showHistoryEvent(event: HistoryEvent) {
@@ -701,7 +776,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         names.mapNotNull { name -> byName[name]?.let { Offset(it.centerX.toFloat(), it.centerY.toFloat()) } }
     }
     val battleSites = buildSet {
-        snapshot?.battleSites?.let { addAll(it) }
+        shown?.battleSites?.let { addAll(it) }
         currentBattle?.takeIf { !it.ended }?.let { add(it.territory) }
     }
     val battlePulse = if (battleSites.isEmpty()) 0f else {
@@ -720,7 +795,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             }
         }.getOrNull().orEmpty()
     }
-    val selectedSnapshot = selectedTerritory?.let { snapshot?.byName?.get(it) }
+    val selectedSnapshot = selectedTerritory?.let { shown?.byName?.get(it) }
     val territoryInfo = selectedSnapshot?.let { territory ->
         buildString {
             append(territory.name)
@@ -856,7 +931,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val mapArea: @Composable (Modifier) -> kotlin.Unit = { areaModifier ->
         Box(areaModifier) {
             MapView(
-                snapshot = snapshot,
+                snapshot = shown,
                 mapData = session.mapData,
                 images = images,
                 state = mapState,
@@ -1011,6 +1086,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                                 onPrevious = { showReplay(replayList, index - 1) },
                                 onNext = { showReplay(replayList, index + 1) },
                                 onClose = ::closeReplay,
+                                busy = historyBusy,
                             )
                         }
                     }
@@ -1046,6 +1122,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     PhaseActions(
                         session = session,
                         pendingRequest = pending,
+                        onBackToGame = if (inHistory) ::closeReplay else null,
                         gameOver = gameOver,
                         hasSelection = moveFrom != null,
                         onClearSelection = ::clearSelection,
@@ -1074,8 +1151,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             moveFrom = moveFrom,
             moveUnits = moveUnits,
             battle = currentBattle,
-            stats = snapshot?.stats ?: emptyList(),
-            showVictoryCities = snapshot?.hasVictoryCities ?: false,
+            stats = shown?.stats ?: emptyList(),
+            showVictoryCities = shown?.hasVictoryCities ?: false,
             history = snapshot?.history ?: emptyList(),
             relationships = if (snapshot?.hasPolitics == true) snapshot?.relationships ?: emptyList() else emptyList(),
             objectives = snapshot?.objectives ?: emptyList(),
@@ -1089,6 +1166,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     PhaseActions(
                         session = session,
                         pendingRequest = pending,
+                        onBackToGame = if (inHistory) ::closeReplay else null,
                         gameOver = gameOver,
                         hasSelection = moveFrom != null,
                         onClearSelection = ::clearSelection,
@@ -1603,9 +1681,15 @@ private fun PhaseActions(
     fullWidth: Boolean = false,
     movesCount: Int = 0,
     onOpenPurchase: () -> kotlin.Unit = {},
+    /** Set while the map shows the past: the desktop's "Show Current Game" replaces the phase buttons. */
+    onBackToGame: (() -> kotlin.Unit)? = null,
 ) {
     val compactPadding = PaddingValues(horizontal = 14.dp)
     val buttonModifier = (if (fullWidth) Modifier.fillMaxWidth() else Modifier).heightIn(min = 46.dp)
+    if (onBackToGame != null) {
+        Button(onClick = onBackToGame, contentPadding = compactPadding, modifier = buttonModifier) { ButtonLabel(Icons.Filled.Close, "Back to game") }
+        return
+    }
     if (gameOver != null) {
         Button(onClick = onQuit, contentPadding = compactPadding, modifier = buttonModifier) { ButtonLabel(Icons.AutoMirrored.Filled.ArrowBack, "Menu") }
         return

@@ -181,6 +181,12 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
    publishes a `UiRequest` and blocks the game thread until the UI completes it.
 4. Every game data change bumps a version counter; `GameScreen` rebuilds the `MapSnapshot` and
    redraws the map.
+5. The history replay works like the desktop's "Show History" mode: `HistoryView` clones the game
+   data under the write lock (`GameDataUtils.cloneGameDataKeepSameHistory`) and winds the clone to
+   the tapped event with `History.gotoNode`; the map, stats and territory panel are built from the
+   clone while the game goes on. Unlike the desktop there is no `HistorySynchronizer`: the clone
+   is dropped when the replay closes and made anew for an event it does not contain. "Back to
+   game", the back key or a battle window (the game needs the player) end the mode.
 
 ## Known gaps
 

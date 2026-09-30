@@ -465,13 +465,12 @@ internal fun HistoryList(
             block.events.forEachIndexed { eventIndex, event ->
                 val eventKey = "$stepKey/e$eventIndex"
                 val eventOpen = open[eventKey] ?: false
-                val showable = onShowEvent != null && (event.route.isNotEmpty() || event.territory != null) &&
-                    (event.kind == HistoryKind.MOVE || event.kind == HistoryKind.PLACE || event.kind == HistoryKind.BATTLE)
                 HistoryEventRow(
                     event,
                     eventOpen,
                     images,
-                    onShow = if (showable) ({ onShowEvent?.invoke(event) }) else null,
+                    // every event has a moment on the map, as in the desktop history tree
+                    onShow = onShowEvent?.let { show -> { show(event) } },
                 ) { open[eventKey] = !eventOpen }
             }
         }
