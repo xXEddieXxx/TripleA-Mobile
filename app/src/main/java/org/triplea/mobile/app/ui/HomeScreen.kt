@@ -1,8 +1,10 @@
 package org.triplea.mobile.app.ui
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -56,40 +58,42 @@ fun HomeScreen(
         ready = true
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Image(
-            painterResource(R.drawable.triplea_logo),
-            contentDescription = "TripleA",
-            modifier = Modifier.height(132.dp).padding(bottom = 8.dp),
-        )
-        Text("TripleA Mobile", style = MaterialTheme.typography.headlineLarge)
-        Text(
-            "Turn based strategy on the go",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 4.dp, bottom = 32.dp),
-        )
-        if (!ready) {
-            CircularProgressIndicator()
-            Text("Preparing maps...", modifier = Modifier.padding(top = 12.dp))
-            return@Column
+    // centred while it fits, scrollable when it does not (landscape)
+    Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Image(
+                painterResource(R.drawable.triplea_logo),
+                contentDescription = "TripleA",
+                modifier = Modifier.height(132.dp).padding(bottom = 8.dp),
+            )
+            Text("TripleA Mobile", style = MaterialTheme.typography.headlineLarge)
+            Text(
+                "Turn based strategy on the go",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp, bottom = 32.dp),
+            )
+            if (!ready) {
+                CircularProgressIndicator()
+                Text("Preparing maps...", modifier = Modifier.padding(top = 12.dp))
+                return@Column
+            }
+            Button(onClick = onNewGame, modifier = Modifier.fillMaxWidth()) { Text("New game") }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onLoadGames, modifier = Modifier.fillMaxWidth()) {
+                Text(if (saves.isEmpty()) "Load game" else "Load game (${saves.size})")
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onMapBrowser, modifier = Modifier.fillMaxWidth()) { Text("Map browser") }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Text("Settings") }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onHowToPlay, modifier = Modifier.fillMaxWidth()) { Text("How to play") }
+            Spacer(Modifier.height(12.dp))
+            TextButton(onClick = onAbout) { Text("About & licenses") }
         }
-        Button(onClick = onNewGame, modifier = Modifier.fillMaxWidth()) { Text("New game") }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onLoadGames, modifier = Modifier.fillMaxWidth()) {
-            Text(if (saves.isEmpty()) "Load game" else "Load game (${saves.size})")
-        }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onMapBrowser, modifier = Modifier.fillMaxWidth()) { Text("Map browser") }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Text("Settings") }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onHowToPlay, modifier = Modifier.fillMaxWidth()) { Text("How to play") }
-        Spacer(Modifier.height(12.dp))
-        TextButton(onClick = onAbout) { Text("About & licenses") }
     }
 }
 

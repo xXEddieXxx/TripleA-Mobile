@@ -304,8 +304,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
     var showMoves by remember { mutableStateOf(false) }
-    /** The purchase screen can be put away to look at the map while the phase stays open. */
-    var purchaseHidden by remember(pending) { mutableStateOf(true) }
+    /** The purchase, politics and action screens can be put away to look at the map while the phase stays open. */
+    var dialogHidden by remember(pending) { mutableStateOf(pending is PurchaseRequest) }
     val purchaseCounts = remember(pending) { mutableStateMapOf<ProductionRule, Int>() }
     /** Route of a move from the undo list shown on the map until the next tap. */
     var previewRoute by remember(session) { mutableStateOf<List<String>>(emptyList()) }
@@ -1019,8 +1019,12 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             if (currentBattle != null && battleVisible) {
                 // the window may use the space between the turn strip and the action buttons at
                 // the bottom, never more: on small screens its middle part scrolls instead. The
-                // action row only holds buttons in the move, place, purchase and end turn phases.
-                val actionsBelow = !desktop && (pending is MoveRequest || pending is PlaceRequest || pending is PurchaseRequest || pending is EndTurnRequest)
+                // action row only holds buttons in the move, place, purchase, politics, user action
+                // and end turn phases.
+                val actionsBelow = !desktop && (
+                    pending is MoveRequest || pending is PlaceRequest || pending is PurchaseRequest ||
+                        pending is PoliticsRequest || pending is UserActionRequest || pending is EndTurnRequest
+                    )
                 BoxWithConstraints(
                     Modifier
                         .align(Alignment.TopCenter)
@@ -1130,7 +1134,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         onDone = { confirm -> if (settings.confirmPhaseEnd) phaseEndConfirm = confirm else confirm.proceed() },
                         onQuit = onQuit,
                         movesCount = madeMoves.size,
-                        onOpenPurchase = { purchaseHidden = false },
+                        onOpenDialog = { dialogHidden = false },
                     )
                     }
                 }
@@ -1175,7 +1179,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         onQuit = onQuit,
                         fullWidth = true,
                         movesCount = madeMoves.size,
-                        onOpenPurchase = { purchaseHidden = false },
+                        onOpenDialog = { dialogHidden = false },
                     )
                 }
             },
@@ -1294,8 +1298,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     when (val request = pending) {
         is PurchaseRequest -> {
             val capacity = remember(request) { MoveHelper.placementCapacity(session, request.player) }
-            if (!purchaseHidden) {
-                PurchaseDialog(request, images, capacity, counts = purchaseCounts, onShowMap = { purchaseHidden = true })
+            if (!dialogHidden) {
+                PurchaseDialog(request, images, capacity, counts = purchaseCounts, onShowMap = { dialogHidden = true })
             }
         }
         is BattleRequest -> BattleListDialog(request)
@@ -1303,8 +1307,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         is CasualtyRequest -> if (casualtyRequest == null) CasualtyDialog(request, images)
         is SelectTerritoryRequest -> TerritoryPickerDialog(request)
         is RetreatRequest -> if (battleQuestion == null) RetreatDialog(request)
-        is PoliticsRequest -> PoliticsDialog(request, session)
-        is UserActionRequest -> UserActionDialog(request, session)
+        is PoliticsRequest -> if (!dialogHidden) PoliticsDialog(request, session, onShowMap = { dialogHidden = true })
+        is UserActionRequest -> if (!dialogHidden) UserActionDialog(request, session, onShowMap = { dialogHidden = true })
         is TechRequest -> TechDialog(request)
         is RepairRequest -> RepairDialog(request, images)
         is ScrambleRequest -> ScrambleDialog(request, images)
@@ -1504,9 +1508,11 @@ private fun phaseHint(
         }
         is EndTurnRequest -> "End turn"
         is PurchaseRequest -> "Purchase"
+        is PoliticsRequest -> "Politics"
+        is UserActionRequest -> "Actions"
         is BattleRequest, is CasualtyRequest, is ConfirmRequest,
         is SelectTerritoryRequest, is SelectUnitsRequest, is RetreatRequest,
-        is PoliticsRequest, is UserActionRequest, is CasualtyNoticeRequest,
+        is CasualtyNoticeRequest,
         is TechRequest, is RepairRequest, is ScrambleRequest, is KamikazeRequest,
         is PickTerritoryAndUnitsRequest -> ""
         null -> if (status.isHumanTurn) "" else if (status.playerName.isBlank()) "Starting…"
@@ -1680,7 +1686,8 @@ private fun PhaseActions(
     onQuit: () -> kotlin.Unit,
     fullWidth: Boolean = false,
     movesCount: Int = 0,
-    onOpenPurchase: () -> kotlin.Unit = {},
+    /** Brings back a purchase, politics or action screen put away to look at the map. */
+    onOpenDialog: () -> kotlin.Unit = {},
     /** Set while the map shows the past: the desktop's "Show Current Game" replaces the phase buttons. */
     onBackToGame: (() -> kotlin.Unit)? = null,
 ) {
@@ -1738,8 +1745,13 @@ private fun PhaseActions(
             ) { ButtonLabel(Icons.Filled.Check, "Done") }
         }
         is PurchaseRequest -> {
-            Button(onClick = onOpenPurchase, contentPadding = compactPadding, modifier = buttonModifier) {
+            Button(onClick = onOpenDialog, contentPadding = compactPadding, modifier = buttonModifier) {
                 ButtonLabel(Icons.Filled.ShoppingCart, if (pendingRequest.bid) "Bid" else "Buy")
+            }
+        }
+        is PoliticsRequest, is UserActionRequest -> {
+            Button(onClick = onOpenDialog, contentPadding = compactPadding, modifier = buttonModifier) {
+                ButtonLabel(Icons.Filled.Handshake, if (pendingRequest is PoliticsRequest) "Politics" else "Actions")
             }
         }
         is EndTurnRequest -> {

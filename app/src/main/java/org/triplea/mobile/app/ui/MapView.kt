@@ -244,7 +244,9 @@ fun MapView(
 
     fun resolve(screen: Offset): MapTap {
         val p = state.toMap(screen)
-        val underFinger = mapData.getTerritoryAt(p.x.toDouble(), p.y.toDouble())
+        // only this game's territories: a map folder may carry another game's polygons on top
+        val byName = currentSnapshot?.byName
+        val underFinger = mapData.getTerritoryAt(p.x.toDouble(), p.y.toDouble()) { byName == null || it in byName }
         // make small icons reachable: at least a 44dp touch target on screen
         val touch = minTouchPx / state.scale
         val slack = max(0f, (touch - unitWidth) / 2f)
@@ -256,7 +258,7 @@ fun MapView(
             else -> {
                 // water under the finger, but a land territory smaller than the touch target
                 // within reach: that island was meant (zoomed in, islands outgrow the rule)
-                val under = underFinger?.let { currentSnapshot?.byName?.get(it) }
+                val under = underFinger?.let { byName?.get(it) }
                 if (under == null || under.isWater) {
                     currentSnapshot?.tinyLandNear(p.x, p.y, maxSize = touch, reach = touch / 2f)?.name ?: underFinger
                 } else underFinger

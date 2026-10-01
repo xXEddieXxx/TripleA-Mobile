@@ -790,10 +790,12 @@ private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
     description: (T) -> String?,
     onChoose: (T) -> kotlin.Unit,
     onDone: () -> kotlin.Unit,
+    /** The X, back and a tap outside put the dialog away to look at the map; the phase stays open. */
+    onShowMap: () -> kotlin.Unit,
 ) {
     AppDialog(
         title = title,
-        onDismiss = null,
+        onDismiss = onShowMap,
         buttons = { Button(onClick = onDone) { Text("Done") } },
     ) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -814,7 +816,7 @@ private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
 
 /** The politics phase: the desktop client's politics panel with the map's own texts. */
 @Composable
-fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession) {
+fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession, onShowMap: () -> kotlin.Unit) {
     val texts = remember(session) { runCatching { PoliticsText(session.resourceLoader) }.getOrNull() }
     ActionChoiceDialog(
         title = "Politics: ${request.player.name}",
@@ -823,12 +825,13 @@ fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession) {
         description = { texts?.getDescription(it.text) },
         onChoose = { request.complete(Optional.of(it)) },
         onDone = { request.complete(Optional.empty()) },
+        onShowMap = onShowMap,
     )
 }
 
 /** The user actions phase (map specific actions such as lend-lease or mobilisation). */
 @Composable
-fun UserActionDialog(request: UserActionRequest, session: LocalGameSession) {
+fun UserActionDialog(request: UserActionRequest, session: LocalGameSession, onShowMap: () -> kotlin.Unit) {
     val texts = remember(session) { runCatching { UserActionText(session.resourceLoader) }.getOrNull() }
     ActionChoiceDialog(
         title = "Actions: ${request.player.name}",
@@ -837,6 +840,7 @@ fun UserActionDialog(request: UserActionRequest, session: LocalGameSession) {
         description = { texts?.getDescription(it.text) },
         onChoose = { request.complete(Optional.of(it)) },
         onDone = { request.complete(Optional.empty()) },
+        onShowMap = onShowMap,
     )
 }
 

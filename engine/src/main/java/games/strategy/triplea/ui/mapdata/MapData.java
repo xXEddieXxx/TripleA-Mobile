@@ -26,6 +26,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -583,13 +584,22 @@ public class MapData {
     return Optional.ofNullable(namePlace.get(terr.getName()));
   }
 
-  /** Get the territory at the x,y co-ordinates could be null. */
-  public @Nullable String getTerritoryAt(final double x, final double y) {
+  /**
+   * Get the territory at the x,y co-ordinates could be null. Mobile: only names accepted by
+   * {@code inGame} are considered. A map folder shared by several games (world_at_war: World At War and
+   * WAW 1940) has polygons for every game's territories, and an equal or smaller polygon of
+   * another game ("Lower Burma" over "Burma") would otherwise win and swallow the tap.
+   */
+  public @Nullable String getTerritoryAt(
+      final double x, final double y, final Predicate<String> inGame) {
     // try to find a land territory.
     // sea zones often surround a land territory
     int smallestArea = Integer.MAX_VALUE;
     @Nullable String closestMatch = null;
     for (final String name : polys.keySet()) {
+      if (!inGame.test(name)) {
+        continue;
+      }
       final Collection<Polygon> polygons = polys.get(name);
       for (final Polygon poly : polygons) {
         if (poly.contains(x, y)) {

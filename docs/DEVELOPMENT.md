@@ -22,6 +22,9 @@ desktop engine:
 - `ClientSetting` is an in-memory stub holding only the settings the engine reads.
 - Websocket message types, `PbemMessagePoster` and `Chat` are compile-time stubs.
 - Language level and library usage are Java 17 (no `List.getFirst()` etc.).
+- `MapData.getTerritoryAt` takes a filter for the current game's territory names: a map folder
+  shared by several games (world_at_war) has polygons of other games on top of this game's ones,
+  which otherwise swallow the tap ("Lower Burma" over "Burma").
 - Small fixes for SonarQube findings, each marked with a `// mobile:` comment: `Integer.compare`
   in comparators, a mutable copy in `FinishedBattle.unitsLostInPrecedingBattle` and
   `ProBattleUtils`, `BigDecimal.compareTo` in `MovableUnitsFilter`, linear regexes in
