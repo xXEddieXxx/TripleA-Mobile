@@ -112,6 +112,23 @@ object MoveHelper {
         }
     }
 
+    /**
+     * The unit scroller's stops in map order: one per territory and unit type of the player that can
+     * still move in this phase. The desktop stops once per territory; a type at a time suits a small
+     * screen, where the next tap is the destination.
+     */
+    fun scrollerStops(session: LocalGameSession, player: GamePlayer, nonCombat: Boolean): List<Pair<Territory, List<Unit>>> {
+        val combatMove = Matches.unitCanMoveDuringCombatMove()
+        session.gameData.acquireReadLock().use {
+            return session.gameData.map.territories.flatMap { territory ->
+                movableUnits(session, player, territory)
+                    .filter { nonCombat || combatMove.test(it) }
+                    .groupBy { it.type }
+                    .values.map { territory to it }
+            }
+        }
+    }
+
     /** Validates a move and reduces the units to those that can actually make it. */
     fun plan(
         session: LocalGameSession,

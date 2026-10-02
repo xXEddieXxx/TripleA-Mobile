@@ -23,6 +23,22 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.outlined.Bedtime as BedtimeOutlined
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -117,6 +133,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.triplea.map.game.notes.GameNotes
@@ -413,6 +432,79 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         movePlan = null
     }
 
+    // the unit scroller (a setting): arrows to the units that can still move, as on the desktop
+    /** Units the scroller passes over until they move or are woken, while this game screen is open (not saved). */
+    var sleepingUnits by remember(session) { mutableStateOf<Set<Unit>>(emptySet()) }
+
+    /** The sleepers of the nation moving now; in a hot-seat game the others keep theirs. */
+    fun ownSleepers(): List<Unit> {
+        val player = (pending as? MoveRequest)?.player ?: return emptyList()
+        return session.gameData.acquireReadLock().use { sleepingUnits.filter { it.owner == player } }
+    }
+
+    /** The stop the scroller showed or moved from last, by territory and unit type; a new phase starts over. */
+    var scrollerKey by remember(session) { mutableStateOf<Pair<String, String>?>(null) }
+    /** After a move from the scroller's stop: what stayed behind there comes next. */
+    var scrollerResume by remember(session) { mutableStateOf(false) }
+    LaunchedEffect(status.stepName, status.playerName) {
+        scrollerKey = null
+        scrollerResume = false
+    }
+    val showScroller = settings.showUnitScroller && pending is MoveRequest && !inHistory
+
+    /**
+     * Selects the next (or previous) units that can still move and brings them into view. It goes on
+     * from the units selected now, else from the stop shown or moved from last; that stop itself
+     * comes first after a move (units stayed behind). Nothing happens when no unit is left.
+     */
+    fun scrollUnits(forward: Boolean) {
+        val request = pending as? MoveRequest ?: return
+        // read when pressed, on the main thread like the stack taps: the game thread waits for the move.
+        // ponytail: a full map scan per press, move it to Dispatchers.Default if huge maps stutter
+        val (stops, order) = runCatching {
+            session.gameData.acquireReadLock().use {
+                MoveHelper.scrollerStops(session, request.player, request.nonCombat) to
+                    session.gameData.map.territories.withIndex().associate { it.value.name to it.index }
+            }
+        }.onFailure { android.util.Log.w("GameScreen", "unit scroller", it) }.getOrNull() ?: return
+        val step = if (forward) 1 else -1
+        val selected = moveUnits.firstOrNull()?.let { (moveFrom?.name ?: "") to it.type.name }
+        val key = selected ?: scrollerKey
+        val found = stops.indexOfFirst { (territory, units) -> (territory.name to units.first().type.name) == key }
+        val start = when {
+            found >= 0 -> if (scrollerResume && selected == null && forward) found else found + step
+            key == null -> if (forward) 0 else -1
+            else -> {
+                // the stop is gone (moved, asleep): go on from its territory in map order
+                val at = order[key.first] ?: 0
+                if (forward) stops.indexOfFirst { (order[it.first.name] ?: 0) >= at }.takeIf { it >= 0 } ?: 0
+                else stops.indexOfLast { (order[it.first.name] ?: 0) <= at }
+            }
+        }
+        val (index, units) = stops.indices.asSequence().map { (start + it * step).mod(stops.size) }.firstNotNullOfOrNull { i ->
+            stops[i].second.filter { it !in sleepingUnits }.takeIf { it.isNotEmpty() }?.let { i to it }
+        } ?: return
+        val territory = stops[index].first
+        scrollerKey = territory.name to units.first().type.name
+        scrollerResume = false
+        previewRoute = emptyList()
+        movePlan = null
+        moveFrom = territory
+        moveUnits = units
+        selectedTerritory = territory.name
+        snapshot?.byName?.get(territory.name)?.let { mapState.centerOn(it.centerX.toFloat(), it.centerY.toFloat()) }
+    }
+
+    /** Puts the selected units to sleep, or wakes them when they already sleep; the selection stays. */
+    fun toggleSleep() {
+        val units = moveUnits.toSet()
+        sleepingUnits = if (units.all { it in sleepingUnits }) sleepingUnits - units else sleepingUnits + units
+    }
+
+    fun wakeAllUnits() {
+        sleepingUnits = sleepingUnits - ownSleepers().toSet()
+    }
+
     fun planMove(request: MoveRequest, from: Territory, to: Territory, units: List<Unit>, transports: List<Unit>? = null) {
         scope.launch {
             val result = withContext(Dispatchers.Default) {
@@ -707,7 +799,16 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
 
     fun performMove(plan: MovePlan) {
-        (pending as? MoveRequest)?.complete(Optional.of(plan.description))
+        // moved units wake up, and the scroller goes on from here; plan.units is the plan's own list,
+        // not game data, so reading it after complete() is safe
+        val moved = plan.description.units.toList()
+        val request = pending as? MoveRequest
+        if (request != null) {
+            request.complete(Optional.of(plan.description))
+            sleepingUnits = sleepingUnits - moved.toSet()
+            moved.firstOrNull()?.let { scrollerKey = plan.from.name to it.type.name }
+            scrollerResume = true
+        }
         clearSelection()
     }
 
@@ -892,18 +993,28 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val edgeBottom = maxOf(cutout.calculateBottomPadding(), 6.dp)
 
     /** Flag of the owner, name and value of the tapped territory; top right in landscape, bottom left in portrait. */
-    val territoryChip: @Composable () -> kotlin.Unit = {
+    /** [fixed]: one size for every territory, a long name shrinks to fit the box (portrait). */
+    val territoryChip: @Composable (Modifier, Boolean) -> kotlin.Unit = { chipModifier, fixed ->
         selectedSnapshot?.let { t ->
             val ownerFlag = remember(t.ownerName, images) {
                 if (t.isWater) null else images.getNow("flags/${t.ownerName}.png", listOf("flags/${t.ownerName}.png", "flags/${t.ownerName}_small.png"))
             }
-            OverlayChip {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            OverlayChip(chipModifier) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = if (fixed) Modifier.fillMaxWidth() else Modifier) {
                     if (ownerFlag != null) {
                         Image(ownerFlag.asImageBitmap(), contentDescription = t.ownerName, modifier = Modifier.height(20.dp).widthIn(max = 34.dp))
                         Spacer(Modifier.width(8.dp))
                     }
-                    Text(t.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    // the line height follows the shrunk font, else two lines never fit the fixed box
+                    val nameStyle = MaterialTheme.typography.titleSmall.let { if (fixed) it.copy(lineHeight = 1.15.em) else it }
+                    Text(
+                        t.name,
+                        style = nameStyle,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        autoSize = if (fixed) TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = nameStyle.fontSize) else null,
+                        modifier = Modifier.weight(1f, fill = fixed),
+                    )
                     t.effects.forEach { effect ->
                         val icon = remember(effect.name, images) { images.getNow(effect.imagePaths.last(), effect.imagePaths) }
                         if (icon != null) {
@@ -926,6 +1037,28 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 }
             }
         }
+    }
+
+    /** The awake units that can still move, shown beside the arrows in landscape (portrait has no room). */
+    val unitsLeft by produceState<Int?>(null, showScroller && landscape, pending, snapshot, sleepingUnits) {
+        val request = pending as? MoveRequest
+        value = if (!showScroller || !landscape || request == null) null else withContext(Dispatchers.Default) {
+            runCatching {
+                MoveHelper.scrollerStops(session, request.player, request.nonCombat).sumOf { (_, units) -> units.count { it !in sleepingUnits } }
+            }.getOrNull()
+        }
+    }
+
+    /** Bottom left, where the thumb is; portrait and desktop give it a line of its own above the phase buttons. */
+    val unitScroller: @Composable () -> kotlin.Unit = {
+        UnitScrollerBar(
+            left = unitsLeft,
+            sleeping = moveUnits.isNotEmpty() && moveUnits.all { it in sleepingUnits },
+            onPrevious = { scrollUnits(forward = false) },
+            onNext = { scrollUnits(forward = true) },
+            onSleep = ::toggleSleep,
+            onWakeAll = ::wakeAllUnits,
+        )
     }
 
     val mapArea: @Composable (Modifier) -> kotlin.Unit = { areaModifier ->
@@ -1000,7 +1133,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     Modifier.align(Alignment.TopEnd).padding(top = edgeTop, end = edgeEnd),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.widthIn(max = 240.dp)) { territoryChip() }
+                    Box(Modifier.widthIn(max = 240.dp)) { territoryChip(Modifier, false) }
                     Spacer(Modifier.width(4.dp))
                     menu()
                 }
@@ -1113,14 +1246,22 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                 }
+                // a line of its own in portrait: beside the phase buttons there is no room for it
+                if (showScroller && (desktop || !landscape)) Box(Modifier.padding(start = 12.dp, top = 6.dp)) { unitScroller() }
                 if (!desktop) Row(
                     verticalAlignment = Alignment.Bottom,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     if (!landscape) {
-                        Box(Modifier.weight(1f).padding(end = 8.dp), contentAlignment = Alignment.BottomStart) { territoryChip() }
+                        Box(Modifier.weight(1f).padding(end = 8.dp), contentAlignment = Alignment.BottomStart) {
+                            // one size for every territory: as tall as the phase buttons, as wide as the room
+                            // beside the three icon buttons of a move (Material buttons are at least 58dp wide);
+                            // fewer buttons leave a gap, wider ones (Buy) narrow the box and with it the chip
+                            val chipWidth = configuration.screenWidthDp.dp - edgeStart - edgeEnd - 24.dp - 8.dp - (3 * 58 + 2 * 8).dp
+                            territoryChip(Modifier.size(chipWidth, 46.dp), true)
+                        }
                     } else {
-                        Spacer(Modifier.weight(1f))
+                        Box(Modifier.weight(1f)) { if (showScroller) unitScroller() }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PhaseActions(
@@ -1135,6 +1276,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         onQuit = onQuit,
                         movesCount = madeMoves.size,
                         onOpenDialog = { dialogHidden = false },
+                        iconOnly = !landscape,
                     )
                     }
                 }
@@ -1576,6 +1718,71 @@ private suspend fun showBriefly(host: SnackbarHostState, text: String) {
     showing.cancel()
 }
 
+/**
+ * The unit scroller: the arrows select the previous / next units that can still move, the moon puts
+ * the selected units to sleep. A small check beside the moon shows that the selected units sleep (a
+ * tap wakes them), and a long press wakes every unit.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun UnitScrollerBar(
+    /** Units still to move, or null to leave the count out. */
+    left: Int?,
+    sleeping: Boolean,
+    onPrevious: () -> kotlin.Unit,
+    onNext: () -> kotlin.Unit,
+    onSleep: () -> kotlin.Unit,
+    onWakeAll: () -> kotlin.Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f), shape = MaterialTheme.shapes.small) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onPrevious) { Icon(Icons.Filled.ChevronLeft, contentDescription = "previous units") }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        role = Role.Button,
+                        onClickLabel = if (sleeping) "wake" else "sleep",
+                        onLongClickLabel = "wake all",
+                        onLongClick = onWakeAll,
+                        onClick = onSleep,
+                    )
+                    .semantics {
+                        contentDescription = "sleep"
+                        stateDescription = if (sleeping) "sleeping" else "awake"
+                    },
+            ) {
+                Icon(Icons.Outlined.BedtimeOutlined, contentDescription = null)
+                if (sleeping) {
+                    // a bold check drawn by hand (the icon's stroke is thin), with a light rim so it stands out on the moon
+                    val checkColor = MaterialTheme.colorScheme.primary
+                    val rimColor = MaterialTheme.colorScheme.surface
+                    Canvas(Modifier.align(Alignment.BottomEnd).padding(end = 4.dp, bottom = 4.dp).size(26.dp)) {
+                        val check = Path().apply {
+                            moveTo(size.width * 0.15f, size.height * 0.55f)
+                            lineTo(size.width * 0.4f, size.height * 0.8f)
+                            lineTo(size.width * 0.88f, size.height * 0.22f)
+                        }
+                        drawPath(check, rimColor, style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                        drawPath(check, checkColor, style = Stroke(width = 4.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    }
+                }
+            }
+            IconButton(onClick = onNext) { Icon(Icons.Filled.ChevronRight, contentDescription = "next units") }
+            if (left != null) {
+                Text(
+                    "$left left",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 10.dp),
+                )
+            }
+        }
+    }
+}
+
 /** Small translucent box for text floating on the map. */
 @Composable
 private fun OverlayChip(modifier: Modifier = Modifier, content: @Composable () -> kotlin.Unit) {
@@ -1584,7 +1791,7 @@ private fun OverlayChip(modifier: Modifier = Modifier, content: @Composable () -
         shape = MaterialTheme.shapes.small,
         modifier = modifier,
     ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) { content() }
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalArrangement = Arrangement.Center) { content() }
     }
 }
 
@@ -1662,9 +1869,9 @@ private fun FullScreenPage(onBack: () -> kotlin.Unit, content: @Composable () ->
 
 /** Icon plus a short word: readable for players who see poorly or read little English. */
 @Composable
-private fun ButtonLabel(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+private fun ButtonLabel(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, iconOnly: Boolean = false) {
     Icon(icon, contentDescription = text, modifier = Modifier.size(22.dp))
-    if (text.isNotBlank()) {
+    if (text.isNotBlank() && !iconOnly) {
         Spacer(Modifier.width(6.dp))
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
@@ -1690,6 +1897,8 @@ private fun PhaseActions(
     onOpenDialog: () -> kotlin.Unit = {},
     /** Set while the map shows the past: the desktop's "Show Current Game" replaces the phase buttons. */
     onBackToGame: (() -> kotlin.Unit)? = null,
+    /** Clear, Undo and Done as symbols only, for the narrow portrait screen. */
+    iconOnly: Boolean = false,
 ) {
     val compactPadding = PaddingValues(horizontal = 14.dp)
     val buttonModifier = (if (fullWidth) Modifier.fillMaxWidth() else Modifier).heightIn(min = 46.dp)
@@ -1704,11 +1913,11 @@ private fun PhaseActions(
     when (pendingRequest) {
         is MoveRequest -> {
             if (hasSelection) {
-                FilledTonalButton(onClick = onClearSelection, contentPadding = compactPadding, modifier = buttonModifier) { ButtonLabel(Icons.Filled.Clear, "Clear") }
+                FilledTonalButton(onClick = onClearSelection, contentPadding = compactPadding, modifier = buttonModifier) { ButtonLabel(Icons.Filled.Clear, "Clear", iconOnly) }
             }
             val moves = movesCount
             FilledTonalButton(onClick = onUndo, enabled = moves > 0, contentPadding = compactPadding, modifier = buttonModifier) {
-                ButtonLabel(Icons.AutoMirrored.Filled.Undo, if (moves > 0) "Undo · $moves" else "Undo")
+                ButtonLabel(Icons.AutoMirrored.Filled.Undo, if (moves > 0) "Undo · $moves" else "Undo", iconOnly)
             }
             Button(
                 onClick = {
@@ -1723,11 +1932,11 @@ private fun PhaseActions(
                 },
                 contentPadding = compactPadding,
                 modifier = buttonModifier,
-            ) { ButtonLabel(Icons.Filled.Check, "Done") }
+            ) { ButtonLabel(Icons.Filled.Check, "Done", iconOnly) }
         }
         is PlaceRequest -> {
             FilledTonalButton(onClick = onUndo, enabled = movesCount > 0, contentPadding = compactPadding, modifier = buttonModifier) {
-                ButtonLabel(Icons.AutoMirrored.Filled.Undo, if (movesCount > 0) "Undo · $movesCount" else "Undo")
+                ButtonLabel(Icons.AutoMirrored.Filled.Undo, if (movesCount > 0) "Undo · $movesCount" else "Undo", iconOnly)
             }
             Button(
                 onClick = {
@@ -1742,7 +1951,7 @@ private fun PhaseActions(
                 },
                 contentPadding = compactPadding,
                 modifier = buttonModifier,
-            ) { ButtonLabel(Icons.Filled.Check, "Done") }
+            ) { ButtonLabel(Icons.Filled.Check, "Done", iconOnly) }
         }
         is PurchaseRequest -> {
             Button(onClick = onOpenDialog, contentPadding = compactPadding, modifier = buttonModifier) {

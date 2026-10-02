@@ -86,6 +86,11 @@ private fun SettingsContent(modifier: Modifier = Modifier) {
             settings.showPhaseBanner,
         ) { v -> AppSettings.update { it.copy(showPhaseBanner = v) } }
         SwitchRow(
+            "Unit scroller",
+            "Arrows in the move phases jump to the next or previous units that can still move; the moon puts units to sleep so the arrows pass them by. A long press on the moon wakes them all.",
+            settings.showUnitScroller,
+        ) { v -> AppSettings.update { it.copy(showUnitScroller = v) } }
+        SwitchRow(
             "Pause after casualties",
             "Show the casualty report of every battle round in the battle window and wait for Continue.",
             settings.pauseAfterCasualties,

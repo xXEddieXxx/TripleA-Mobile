@@ -34,6 +34,8 @@ data class Settings(
     val replayOnLoad: Boolean = true,
     /** Pause after every battle step and dice roll so the battle window can be followed. */
     val battleStepPauseMillis: Int = 600,
+    /** Previous / sleep / next buttons that walk through the units that can still move. */
+    val showUnitScroller: Boolean = false,
     // AI
     /** Pause after every AI move; while above 0 the map follows the AI's moves. */
     val aiMovePauseMillis: Int = 800,
@@ -90,6 +92,7 @@ object AppSettings {
             autosaveEachRound = prefs.getBoolean("autosaveEachRound", defaults.autosaveEachRound),
             replayOnLoad = prefs.getBoolean("replayOnLoad", defaults.replayOnLoad),
             battleStepPauseMillis = prefs.getInt("battleStepPauseMillis", defaults.battleStepPauseMillis),
+            showUnitScroller = prefs.getBoolean("showUnitScroller", defaults.showUnitScroller),
             aiMovePauseMillis = prefs.getInt("aiMovePauseMillis", defaults.aiMovePauseMillis),
             aiCombatStepPauseMillis = prefs.getInt("aiCombatStepPauseMillis", defaults.aiCombatStepPauseMillis),
             showTerritoryNames = prefs.getBoolean("showTerritoryNames", defaults.showTerritoryNames),
@@ -139,6 +142,7 @@ object AppSettings {
             putBoolean("autosaveEachRound", next.autosaveEachRound)
             putBoolean("replayOnLoad", next.replayOnLoad)
             putInt("battleStepPauseMillis", next.battleStepPauseMillis)
+            putBoolean("showUnitScroller", next.showUnitScroller)
             putInt("aiMovePauseMillis", next.aiMovePauseMillis)
             putInt("aiCombatStepPauseMillis", next.aiCombatStepPauseMillis)
             putBoolean("showTerritoryNames", next.showTerritoryNames)

@@ -243,6 +243,7 @@ private val CHAPTERS = listOf(
                 "Drag to move the map, pinch to zoom. World maps scroll around endlessly sideways.",
                 "Tap a unit icon to select one unit, tap again to take more; when all are taken the next tap clears the stack. Double-tap or long-press a territory for the unit menu with exact numbers.",
                 "With units selected, tap the destination. Tap another territory to change it, or Clear to start over.",
+                "With the unit scroller switched on in the settings, the arrows at the bottom left select the next or previous units that can still move. The moon puts the selected units to sleep, so the arrows pass them by; a check beside it shows that the selected units sleep, a tap wakes them and a long press wakes all.",
                 "Undo lists every move of the phase; each can be taken back on its own. Tapping a move shows its route on the map.",
                 "Done ends the phase. You are asked first, because a finished phase cannot be reopened.",
                 "The status line at the bottom shows the tapped territory, its owner and its value. The details panel (info symbol) shows the units there, statistics of all nations, the game history and, if the map has it, diplomacy.",
