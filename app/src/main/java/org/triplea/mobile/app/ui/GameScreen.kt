@@ -544,7 +544,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     fun tapStack(request: MoveRequest, territory: Territory, stack: UnitStack) {
         selectedTerritory = territory.name
         val movable = MoveHelper.movableUnits(session, request.player, territory).toHashSet()
-        val inStack = stack.units.filter { it in movable }
+        val inStack = MoveHelper.mostMovementFirst(session, stack.units.filter { it in movable })
         if (inStack.isEmpty()) {
             // enemy or allied units: nothing to say, the territory is simply selected
             if (stack.ownerName == request.player.name) toast("${stack.typeName} in ${territory.name} cannot move any more")
@@ -573,21 +573,23 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         val name = territory.name
         when (val request = pending) {
             is MoveRequest -> {
-                val units = MoveHelper.movableUnits(session, request.player, territory)
+                val units = MoveHelper.mostMovementFirst(session, MoveHelper.movableUnits(session, request.player, territory))
                 if (units.isEmpty()) {
                     selectedTerritory = name
                     toast("No units of ${request.player.name} that can still move in $name")
                     return
                 }
                 val preselected = if (moveFrom == territory) moveUnits.toHashSet() else units.toHashSet()
+                val movesLeft = MoveHelper.movesLeftLabels(session, units)
                 unitPicker = UnitPickerSpec(
                     title = name,
                     message = "",
                     units = units,
                     max = units.size,
                     initialSelection = units.filter { it in preselected }
-                        .groupBy { unitGroupKey(it) }
+                        .groupBy { unitGroupKey(it, movesLeft[it].orEmpty()) }
                         .mapValues { it.value.size },
+                    movesLeft = movesLeft,
                     onConfirm = { chosen ->
                         unitPicker = null
                         movePlan = null

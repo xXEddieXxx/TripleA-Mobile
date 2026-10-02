@@ -14,6 +14,7 @@ import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate
 import games.strategy.triplea.delegate.remote.IMoveDelegate
 import games.strategy.triplea.ui.panel.move.MovableUnitsFilter
 import games.strategy.triplea.delegate.TransportTracker
+import games.strategy.triplea.delegate.UnitComparator
 import games.strategy.triplea.util.TransportUtils
 import games.strategy.triplea.UnitUtils
 import org.triplea.mobile.LocalGameSession
@@ -109,6 +110,33 @@ object MoveHelper {
                     !Matches.unitIsInfrastructure().test(it) &&
                     (Matches.unitHasMovementLeft().test(it) || (territory.isWater && Matches.unitIsBeingTransported().test(it)))
             }
+        }
+    }
+
+    /**
+     * The units with each type kept together in its first-seen order and the most movement left first
+     * within a type, like a desktop click: taking "one fighter" takes the one that reaches farthest.
+     */
+    fun mostMovementFirst(session: LocalGameSession, units: List<Unit>): List<Unit> {
+        val mostFirst = UnitComparator.getHighestToLowestMovementComparator()
+        session.gameData.acquireReadLock().use {
+            return units.groupBy { it.type }.values.flatMap { it.sortedWith(mostFirst) }
+        }
+    }
+
+    /**
+     * Movement left of each unit that has moved or whose movement differs from its type's standard
+     * (a base bonus), as shown in the move chooser ("3", "1.5"). Land cargo moves with its
+     * transport, so its own spent movement would read as "cannot move" and is left out; fighters on an
+     * allied carrier also count as transported but fly on their own movement.
+     */
+    fun movesLeftLabels(session: LocalGameSession, units: List<Unit>): Map<Unit, String> {
+        val landCargo = Matches.unitIsLand().and(Matches.unitIsBeingTransported())
+        session.gameData.acquireReadLock().use {
+            // unmoved units with the standard movement of their type get no label, so they stay one plain row
+            return units.filter { !landCargo.test(it) && (it.hasMoved() || it.bonusMovement != 0) }
+                // Android's stripTrailingZeros keeps the scale of a zero ("0.0"): spent movement is "0"
+                .associateWith { it.movementLeft.takeIf { left -> left.signum() > 0 }?.stripTrailingZeros()?.toPlainString() ?: "0" }
         }
     }
 

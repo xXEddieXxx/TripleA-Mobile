@@ -98,18 +98,25 @@ class UnitPickerSpec(
     val onCancel: () -> kotlin.Unit,
     /** Which units use up the limit; constructions (factories) are placed outside of it. */
     val countsTowardMax: (Unit) -> Boolean = { true },
+    /**
+     * Movement left per unit ("3"), read by the caller under the engine lock: one row per amount, like
+     * the desktop move chooser, so the planes that reach are picked. Units not in the map get no split.
+     */
+    val movesLeft: Map<Unit, String> = emptyMap(),
 )
 
-data class UnitGroupKey(val type: String, val owner: String, val damaged: Boolean, val cargo: String = "") {
-    /** "Transport · 2 infantry", "Battleship (damaged)". */
-    fun title(): String = type + (if (damaged) " (damaged)" else "") + (if (cargo.isNotBlank()) "  ·  $cargo" else "")
+data class UnitGroupKey(val type: String, val owner: String, val damaged: Boolean, val cargo: String = "", val movesLeft: String = "") {
+    /** "Transport · 2 infantry", "Battleship (damaged)", "Fighter · 3 moves left". */
+    fun title(): String = type + (if (damaged) " (damaged)" else "") + (if (cargo.isNotBlank()) "  ·  $cargo" else "") +
+        (if (movesLeft.isNotBlank()) "  ·  $movesLeft ${if (movesLeft == "1") "move" else "moves"} left" else "")
 }
 
 /**
  * The group a unit is shown in: type, owner, damage, and for sea transports what they carry, so
- * loaded and empty transports can be told apart when choosing units.
+ * loaded and empty transports can be told apart when choosing units; [movesLeft] also splits by
+ * movement left (see [UnitPickerSpec.movesLeft]).
  */
-internal fun unitGroupKey(unit: Unit): UnitGroupKey {
+internal fun unitGroupKey(unit: Unit, movesLeft: String = ""): UnitGroupKey {
     val cargo = runCatching {
         if (Matches.unitIsSeaTransport().test(unit)) {
             val carried = unit.transporting
@@ -121,6 +128,7 @@ internal fun unitGroupKey(unit: Unit): UnitGroupKey {
         unit.owner.name,
         Matches.unitHasTakenSomeBombingUnitDamage().test(unit) || unit.hits > 0,
         cargo,
+        movesLeft,
     )
 }
 
@@ -143,7 +151,7 @@ fun UnitIcon(images: ImageCache?, type: UnitType, owner: GamePlayer, size: Int =
 
 @Composable
 fun UnitPickerDialog(spec: UnitPickerSpec, images: ImageCache?) {
-    val groups = remember(spec) { spec.units.groupBy { groupKey(it) } }
+    val groups = remember(spec) { spec.units.groupBy { unitGroupKey(it, spec.movesLeft[it].orEmpty()) } }
     val counts = remember(spec) {
         mutableStateMapOf<UnitGroupKey, Int>().also { map ->
             groups.keys.forEach { key -> map[key] = spec.initialSelection[key] ?: 0 }
