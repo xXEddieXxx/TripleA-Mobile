@@ -60,10 +60,15 @@ android {
                 "META-INF/services/javax.xml.stream.XMLOutputFactory",
                 "META-INF/services/javax.xml.stream.XMLEventFactory",
             )
+            // the libraries' license and notice files ship in the APK, as their licenses ask;
+            // several jars use the same file names, so those are joined into one file
+            val licenseFiles = setOf(
+                "/META-INF/LICENSE", "/META-INF/LICENSE.txt", "/META-INF/LICENSE.md",
+                "/META-INF/NOTICE", "/META-INF/NOTICE.txt", "/META-INF/NOTICE.md",
+            )
+            excludes -= licenseFiles
+            merges += licenseFiles
             excludes += setOf(
-                "META-INF/*.md",
-                "META-INF/LICENSE*",
-                "META-INF/NOTICE*",
                 "META-INF/DEPENDENCIES",
                 "META-INF/INDEX.LIST",
                 "META-INF/versions/9/module-info.class",

@@ -105,7 +105,6 @@ layout, dev builds, security notes and known gaps are documented in
 ## License
 
 TripleA Mobile is free software under the **GNU General Public License v3.0** (see `LICENSE`).
-It is an unofficial port and is not affiliated with the TripleA project.
 
 It is based on the [TripleA](https://github.com/triplea-game/triplea) game engine,
 Copyright © the TripleA developers, licensed under the GPL-3.0. The engine sources in `engine/`
