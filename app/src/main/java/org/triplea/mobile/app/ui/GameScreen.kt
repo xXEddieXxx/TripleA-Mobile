@@ -46,6 +46,11 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -983,14 +988,16 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         }
     }
 
-    // keep floating elements away from rounded display corners and camera cutouts (fullscreen has no bar insets)
+    // keep floating elements away from rounded display corners and camera cutouts (fullscreen has no bar insets);
+    // the landscape and desktop map runs under visible system bars too, so there they count as well
     val cornerInset = roundedCornerInset()
-    val cutout = WindowInsets.displayCutout.asPaddingValues()
+    val barsAndCutout = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    val edgeInsets = (if (desktop || landscape) barsAndCutout else WindowInsets.displayCutout).asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
-    val edgeStart = maxOf(cutout.calculateStartPadding(layoutDirection), cornerInset, 8.dp)
-    val edgeEnd = maxOf(cutout.calculateEndPadding(layoutDirection), cornerInset, 8.dp)
-    val edgeTop = maxOf(cutout.calculateTopPadding(), 6.dp)
-    val edgeBottom = maxOf(cutout.calculateBottomPadding(), 6.dp)
+    val edgeStart = maxOf(edgeInsets.calculateStartPadding(layoutDirection), cornerInset, 8.dp)
+    val edgeEnd = maxOf(edgeInsets.calculateEndPadding(layoutDirection), cornerInset, 8.dp)
+    val edgeTop = maxOf(edgeInsets.calculateTopPadding(), 6.dp)
+    val edgeBottom = maxOf(edgeInsets.calculateBottomPadding(), 6.dp)
 
     /** Flag of the owner, name and value of the tapped territory; top right in landscape, bottom left in portrait. */
     /** [fixed]: one size for every territory, a long name shrinks to fit the box (portrait). */
@@ -1110,7 +1117,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     currentStep = currentTurnStep,
                     optional = optionalPhase,
                     suffix = if (!status.isHumanTurn && aiSeconds >= 5) "${aiSeconds}s" else "",
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = if (landscape) edgeTop else 0.dp),
+                    // portrait phones have the app bar above the map; the other layouts reach the top edge
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = if (landscape || desktop) edgeTop else 0.dp),
                 )
             }
             if (landscape && !desktop) {
@@ -1344,26 +1352,33 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         )
     }
 
+    // Beside the map no Scaffold insets: the map runs under the camera cutout and the system bars
+    // (their insets left a blank strip at a side that showed the bare base tiles); the floating
+    // controls keep their own distance (edgeStart ...), the panels pad themselves.
+    val panelInsets = barsAndCutout.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)
+    val snackbarHost: @Composable () -> kotlin.Unit = {
+        SnackbarHost(snackbarHostState, Modifier.windowInsetsPadding(barsAndCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)))
+    }
     Box(Modifier.fillMaxSize()) {
     if (desktop) {
         // tablet layout like the desktop client: map plus a permanent tabbed panel on the right
-        Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
-            Row(Modifier.fillMaxSize().padding(padding)) {
+        Scaffold(snackbarHost = snackbarHost, contentWindowInsets = WindowInsets(0)) {
+            Row(Modifier.fillMaxSize()) {
                 mapArea(Modifier.weight(1f).fillMaxHeight())
                 VerticalDivider()
-                Surface(tonalElevation = 2.dp, modifier = Modifier.width(DESKTOP_PANEL_WIDTH).fillMaxHeight()) {
-                    sidePanel(true)
+                Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxHeight()) {
+                    Box(Modifier.windowInsetsPadding(panelInsets).width(DESKTOP_PANEL_WIDTH)) { sidePanel(true) }
                 }
             }
         }
     } else if (landscape) {
-        Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
-            Row(Modifier.fillMaxSize().padding(padding)) {
+        Scaffold(snackbarHost = snackbarHost, contentWindowInsets = WindowInsets(0)) {
+            Row(Modifier.fillMaxSize()) {
                 mapArea(Modifier.weight(1f).fillMaxHeight())
                 if (showDetails) {
                     VerticalDivider()
-                    Surface(tonalElevation = 3.dp, modifier = Modifier.width(SIDE_PANEL_WIDTH).fillMaxHeight()) {
-                        sidePanel(false)
+                    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxHeight()) {
+                        Box(Modifier.windowInsetsPadding(panelInsets).width(SIDE_PANEL_WIDTH)) { sidePanel(false) }
                     }
                 }
             }
