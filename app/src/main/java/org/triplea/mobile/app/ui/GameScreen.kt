@@ -91,6 +91,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -99,11 +100,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -120,6 +123,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -145,6 +149,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.triplea.map.game.notes.GameNotes
 import androidx.compose.ui.unit.dp
+import games.strategy.engine.data.GamePlayer
 import games.strategy.engine.data.GameStep
 import games.strategy.engine.data.ProductionRule
 import games.strategy.engine.data.Territory
@@ -967,7 +972,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 DropdownMenuItem(text = { Text("Save game") }, onClick = { showMenu = false; showSaveDialog = true })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { showMenu = false; showSettings = true })
                 DropdownMenuItem(
-                    text = { Text("Game notes") },
+                    text = { Text("Game notes & units") },
                     onClick = {
                         showMenu = false
                         scope.launch {
@@ -978,7 +983,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                                     xml?.let { GameController.stripHtml(GameNotes.loadGameNotes(it)) }
                                 }.getOrNull()
                             }
-                            if (notes.isNullOrBlank()) toast("This map has no game notes") else gameNotes = notes
+                            gameNotes = notes.orEmpty()
                         }
                     },
                 )
@@ -1441,13 +1446,28 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { gameNotes = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back") }
-                    Text("Game notes: ${session.gameData.gameName}", style = MaterialTheme.typography.titleMedium)
+                    Text(session.gameData.gameName, style = MaterialTheme.typography.titleMedium)
                 }
-                Text(
-                    notes,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
-                )
+                // like the desktop Help menu: the map's notes and the "Unit Help" table
+                var notesTab by rememberSaveable { mutableIntStateOf(if (notes.isBlank()) 1 else 0) }
+                PrimaryTabRow(selectedTabIndex = notesTab) {
+                    listOf("Notes", "Units").forEachIndexed { index, label ->
+                        Tab(selected = notesTab == index, onClick = { notesTab = index }, text = { Text(label) })
+                    }
+                }
+                if (notesTab == 0) {
+                    Text(
+                        notes.ifBlank { "This map has no game notes." },
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+                    )
+                } else {
+                    val units by produceState<Map<GamePlayer, List<UnitStatsEntry>>?>(null, session) {
+                        value = withContext(Dispatchers.Default) { unitStatsByPlayer(session) }
+                    }
+                    units?.let { UnitStatsList(it, images, status.playerName) }
+                        ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                }
             }
         }
     }

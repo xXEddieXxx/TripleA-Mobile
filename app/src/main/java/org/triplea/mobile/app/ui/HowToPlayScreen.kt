@@ -249,7 +249,7 @@ private val CHAPTERS = listOf(
                 "The status line at the bottom shows the tapped territory, its owner and its value. The details panel (info symbol) shows the units there, statistics of all nations, the game history and, if the map has it, diplomacy.",
                 "Tapping an event in the history shows the map as it was at that moment, like the desktop's history mode; the arrows step through the events, and Back to game returns to the present. The phase buttons rest while you look at the past; a battle brings you back to the game.",
                 "The battle window opens for every fight; Hide puts it away, the next battle opens it again.",
-                "Save game, settings, game notes and this guide are in the menu at the top right. An autosave is written every round when your turn begins.",
+                "Save game, settings, game notes with the stats of every unit, and this guide are in the menu at the top right. An autosave is written every round when your turn begins.",
             ),
         )
     },

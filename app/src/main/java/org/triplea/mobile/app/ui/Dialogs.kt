@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -64,6 +65,8 @@ import games.strategy.engine.data.Unit
 import games.strategy.engine.data.UnitType
 import games.strategy.triplea.attachments.AbstractUserActionAttachment
 import games.strategy.triplea.attachments.PoliticalActionAttachment
+import games.strategy.triplea.attachments.UnitAttachment
+import games.strategy.triplea.util.TuvUtils
 import games.strategy.triplea.ui.PoliticsText
 import games.strategy.triplea.ui.UserActionText
 import org.triplea.mobile.LocalGameSession
@@ -474,14 +477,7 @@ private fun PurchaseRow(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
-                            if (ua != null) {
-                                val attackRolls = ua.getAttackRolls(player)
-                                val defenseRolls = ua.getDefenseRolls(player)
-                                StatCell("Att", (if (attackRolls > 1) "${attackRolls}×" else "") + ua.getAttack(player))
-                                StatCell("Def", (if (defenseRolls > 1) "${defenseRolls}×" else "") + ua.getDefense(player))
-                                StatCell("Move", ua.getMovement(player).toString())
-                                if (ua.hitPoints > 1) StatCell("HP", ua.hitPoints.toString())
-                            }
+                            if (ua != null) UnitStatCells(ua, player)
                             StatCell("Cost", rule.costs.keySet().joinToString(" ") { "${rule.costs.getInt(it)}" } + if (rule.costs.keySet().size == 1) "" else " (${rule.costs.keySet().joinToString("/") { it.name }})")
                         }
                     }
@@ -524,6 +520,91 @@ private fun StatCell(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleSmall)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Attack, defense, movement and hit points of a unit type for [player]. */
+@Composable
+private fun UnitStatCells(ua: UnitAttachment, player: GamePlayer) {
+    val attackRolls = ua.getAttackRolls(player)
+    val defenseRolls = ua.getDefenseRolls(player)
+    StatCell("Att", (if (attackRolls > 1) "${attackRolls}×" else "") + ua.getAttack(player))
+    StatCell("Def", (if (defenseRolls > 1) "${defenseRolls}×" else "") + ua.getDefense(player))
+    StatCell("Move", ua.getMovement(player).toString())
+    if (ua.hitPoints > 1) StatCell("HP", ua.hitPoints.toString())
+}
+
+/** A unit type in the unit overview, with its cost per unit ("3 PUs") when the map gives one. */
+class UnitStatsEntry(val type: UnitType, val cost: String?)
+
+/**
+ * The unit types of every nation like the desktop "Unit Help": what it can build plus what it owns
+ * on the map; nations without units are left out.
+ */
+fun unitStatsByPlayer(session: LocalGameSession): Map<GamePlayer, List<UnitStatsEntry>> {
+    val data = session.gameData
+    data.acquireReadLock().use {
+        val costs = runCatching { TuvUtils.getResourceCostsForTuv(data, true) }.getOrDefault(emptyMap())
+        return (data.playerList.players + data.playerList.nullPlayer).associateWith { player ->
+            val types = HashSet<UnitType>()
+            player.productionFrontier?.rules?.forEach { rule -> types += rule.results.keySet().filterIsInstance<UnitType>() }
+            data.map.territories.forEach { t -> t.unitCollection.filter { it.owner == player }.mapTo(types) { it.type } }
+            types.filter { session.mapData.shouldDrawUnit(it.name) }
+                .sortedBy { it.name }
+                .map { type -> UnitStatsEntry(type, costs[player]?.get(type)?.let { runCatching { it.toString() }.getOrNull() }) }
+        }.filterValues { it.isNotEmpty() }
+    }
+}
+
+/** The unit overview: one tab per nation, each unit with its stats and expandable abilities. */
+@Composable
+fun UnitStatsList(units: Map<GamePlayer, List<UnitStatsEntry>>, images: ImageCache?, initialPlayer: String) {
+    val players = units.keys.toList()
+    if (players.isEmpty()) {
+        Text("This map has no units.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+        return
+    }
+    var selected by rememberSaveable { mutableIntStateOf(players.indexOfFirst { it.name == initialPlayer }.coerceAtLeast(0)) }
+    val player = players[selected.coerceIn(players.indices)]
+    val expanded = remember(player) { mutableStateMapOf<UnitType, Boolean>() }
+    Column(Modifier.fillMaxSize()) {
+        PrimaryScrollableTabRow(selectedTabIndex = players.indexOf(player), edgePadding = 8.dp) {
+            players.forEachIndexed { index, p ->
+                Tab(selected = p == player, onClick = { selected = index }, text = { Text(p.name, maxLines = 1) })
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+            items(units.getValue(player), key = { it.type.name }) { entry ->
+                val ua: UnitAttachment? = entry.type.unitAttachment
+                val open = expanded[entry.type] == true
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { expanded[entry.type] = !open },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            UnitIcon(images, entry.type, player, size = 44)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(entry.type.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                    if (ua != null) UnitStatCells(ua, player)
+                                    entry.cost?.let { StatCell("Cost", it) }
+                                }
+                            }
+                        }
+                        if (open) {
+                            val info = remember(entry.type, player) {
+                                ua?.let { runCatching { parseUnitInfo(it.toStringShortAndOnlyImportantDifferences(player)) }.getOrNull() }.orEmpty()
+                            }
+                            Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                UnitInfoView(info, modifier = Modifier.padding(10.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
