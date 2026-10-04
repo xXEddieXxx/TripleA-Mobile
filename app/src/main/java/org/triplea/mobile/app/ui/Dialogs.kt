@@ -3,7 +3,14 @@ package org.triplea.mobile.app.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.SecondaryScrollableTabRow
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -27,7 +34,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -64,7 +70,6 @@ import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
 import games.strategy.engine.data.UnitType
 import games.strategy.triplea.attachments.AbstractUserActionAttachment
-import games.strategy.triplea.attachments.PoliticalActionAttachment
 import games.strategy.triplea.attachments.UnitAttachment
 import games.strategy.triplea.util.TuvUtils
 import games.strategy.triplea.ui.PoliticsText
@@ -264,16 +269,8 @@ fun PurchaseDialog(
     fun unitsIn(rule: ProductionRule): Int = rule.results.keySet().filterIsInstance<UnitType>().sumOf { rule.results.getInt(it) }
 
     val sections = remember(rules) {
-        val grouped = rules.groupBy { rule ->
-            val ua = unitTypeOf(rule)?.unitAttachment
-            when {
-                ua == null -> "Other"
-                ua.isAir -> "Air"
-                ua.isSea -> "Sea"
-                else -> "Land"
-            }
-        }
-        listOf("Land", "Air", "Sea", "Other").mapNotNull { name -> grouped[name]?.let { name to it } }
+        val grouped = rules.groupBy { unitKind(unitTypeOf(it)) }
+        UNIT_KINDS.mapNotNull { name -> grouped[name]?.let { name to it } }
     }
 
     fun finish() {
@@ -440,6 +437,7 @@ fun PurchaseDialog(
 }
 
 /** One purchasable unit: icon, name, a clear stat strip, the stepper, and expandable abilities. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PurchaseRow(
     rule: ProductionRule,
@@ -476,7 +474,8 @@ private fun PurchaseRow(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        // wraps instead of running off the card when a unit has many values (HP, multi-resource cost)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
                             if (ua != null) UnitStatCells(ua, player)
                             StatCell("Cost", rule.costs.keySet().joinToString(" ") { "${rule.costs.getInt(it)}" } + if (rule.costs.keySet().size == 1) "" else " (${rule.costs.keySet().joinToString("/") { it.name }})")
                         }
@@ -486,16 +485,7 @@ private fun PurchaseRow(
                     if (ua == null) emptyList()
                     else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
                 }
-                if (info.isNotEmpty()) {
-                    TextButton(onClick = onToggle, contentPadding = PaddingValues(horizontal = 6.dp), modifier = Modifier.width(32.dp)) {
-                        Text(
-                            "?",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                if (info.isNotEmpty()) HelpToggle(expanded, onToggle)
                 Stepper(count, max, onCount)
             }
             if (expanded) {
@@ -503,15 +493,56 @@ private fun PurchaseRow(
                     if (ua == null) emptyList()
                     else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
                 }
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clickable(onClick = onToggle),
-                ) {
-                    UnitInfoView(info, modifier = Modifier.padding(10.dp))
-                }
+                DetailsBox(onClose = onToggle, modifier = Modifier.padding(top = 8.dp)) { UnitInfoView(info) }
             }
         }
+    }
+}
+
+/** The small "?" that opens a row's details; 48dp, the minimum touch target, and named for TalkBack. */
+@Composable
+private fun HelpToggle(expanded: Boolean, onToggle: () -> kotlin.Unit) {
+    TextButton(
+        onClick = onToggle,
+        contentPadding = PaddingValues(0.dp),
+        modifier = Modifier.size(48.dp).semantics { contentDescription = if (expanded) "Hide details" else "Show details" },
+    ) {
+        Text(
+            "?",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (expanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.clearAndSetSemantics {},
+        )
+    }
+}
+
+/** A map name (nation, technology) as players read it: "UK_Pacific" -> "UK Pacific". */
+internal fun displayName(name: String) = name.replace('_', ' ')
+
+/**
+ * The nation tab row under a page's own tabs (game info: units, tech, diplomacy): secondary tabs,
+ * so the two rows read as two levels.
+ */
+@Composable
+internal fun NationTabs(nations: List<String>, selected: Int, onSelect: (Int) -> kotlin.Unit) {
+    SecondaryScrollableTabRow(selectedTabIndex = selected, edgePadding = 8.dp) {
+        nations.forEachIndexed { index, nation ->
+            Tab(selected = index == selected, onClick = { onSelect(index) }, text = { Text(displayName(nation), maxLines = 1) })
+        }
+    }
+}
+
+/** The details a "?" or a tap opens under a row, framed so they stand out from the card or dialog behind. */
+@Composable
+private fun DetailsBox(onClose: () -> kotlin.Unit, modifier: Modifier = Modifier, content: @Composable () -> kotlin.Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.small,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.fillMaxWidth().clickable(onClick = onClose),
+    ) {
+        Box(Modifier.padding(10.dp)) { content() }
     }
 }
 
@@ -532,6 +563,19 @@ private fun UnitStatCells(ua: UnitAttachment, player: GamePlayer) {
     StatCell("Def", (if (defenseRolls > 1) "${defenseRolls}×" else "") + ua.getDefense(player))
     StatCell("Move", ua.getMovement(player).toString())
     if (ua.hitPoints > 1) StatCell("HP", ua.hitPoints.toString())
+}
+
+/** The unit groups of the purchase dialog and the unit overview, in display order. */
+private val UNIT_KINDS = listOf("Land", "Air", "Sea", "Other")
+
+private fun unitKind(type: UnitType?): String {
+    val ua = type?.unitAttachment
+    return when {
+        ua == null -> "Other"
+        ua.isAir -> "Air"
+        ua.isSea -> "Sea"
+        else -> "Land"
+    }
 }
 
 /** A unit type in the unit overview, with its cost per unit ("3 PUs") when the map gives one. */
@@ -557,6 +601,7 @@ fun unitStatsByPlayer(session: LocalGameSession): Map<GamePlayer, List<UnitStats
 }
 
 /** The unit overview: one tab per nation, each unit with its stats and expandable abilities. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun UnitStatsList(units: Map<GamePlayer, List<UnitStatsEntry>>, images: ImageCache?, initialPlayer: String) {
     val players = units.keys.toList()
@@ -568,37 +613,36 @@ fun UnitStatsList(units: Map<GamePlayer, List<UnitStatsEntry>>, images: ImageCac
     val player = players[selected.coerceIn(players.indices)]
     val expanded = remember(player) { mutableStateMapOf<UnitType, Boolean>() }
     Column(Modifier.fillMaxSize()) {
-        PrimaryScrollableTabRow(selectedTabIndex = players.indexOf(player), edgePadding = 8.dp) {
-            players.forEachIndexed { index, p ->
-                Tab(selected = p == player, onClick = { selected = index }, text = { Text(p.name, maxLines = 1) })
-            }
-        }
+        NationTabs(players.map { it.name }, players.indexOf(player)) { selected = it }
+        val grouped = remember(units, player) { units.getValue(player).groupBy { unitKind(it.type) } }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-            items(units.getValue(player), key = { it.type.name }) { entry ->
-                val ua: UnitAttachment? = entry.type.unitAttachment
-                val open = expanded[entry.type] == true
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { expanded[entry.type] = !open },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                ) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            UnitIcon(images, entry.type, player, size = 44)
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(entry.type.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
-                                    if (ua != null) UnitStatCells(ua, player)
-                                    entry.cost?.let { StatCell("Cost", it) }
+            UNIT_KINDS.forEach { kind ->
+                val entries = grouped[kind] ?: return@forEach
+                item(key = "kind:$kind") { SectionLabel(kind) }
+                items(entries, key = { it.type.name }) { entry ->
+                    val ua: UnitAttachment? = entry.type.unitAttachment
+                    val open = expanded[entry.type] == true
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { expanded[entry.type] = !open },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    ) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                UnitIcon(images, entry.type, player, size = 44)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(entry.type.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                        if (ua != null) UnitStatCells(ua, player)
+                                        entry.cost?.let { StatCell("Cost", it) }
+                                    }
                                 }
                             }
-                        }
-                        if (open) {
-                            val info = remember(entry.type, player) {
-                                ua?.let { runCatching { parseUnitInfo(it.toStringShortAndOnlyImportantDifferences(player)) }.getOrNull() }.orEmpty()
-                            }
-                            Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                                UnitInfoView(info, modifier = Modifier.padding(10.dp))
+                            if (open) {
+                                val info = remember(entry.type, player) {
+                                    ua?.let { runCatching { parseUnitInfo(it.toStringShortAndOnlyImportantDifferences(player)) }.getOrNull() }.orEmpty()
+                                }
+                                DetailsBox(onClose = { expanded[entry.type] = false }, modifier = Modifier.padding(top = 8.dp)) { UnitInfoView(info) }
                             }
                         }
                     }
@@ -760,18 +804,19 @@ fun UnitInfoView(entries: List<UnitInfoEntry>, modifier: Modifier = Modifier) {
         if (valued.isNotEmpty()) {
             Column(Modifier.padding(top = if (flags.isEmpty()) 0.dp else 8.dp)) {
                 valued.forEach { entry ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+                    // label left, value right; a value too long for the rest of the line moves under
+                    // the label instead of squeezing it into a narrow column
+                    FlowRow(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
                             entry.label,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.padding(end = 12.dp),
                         )
                         Text(
                             entry.value.orEmpty(),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 12.dp),
                         )
                     }
                 }
@@ -855,22 +900,6 @@ fun MovesDialog(
     }
 }
 
-/** Facts about a political or user action: cost, chance, relationship changes, who must accept. */
-private fun actionFacts(action: AbstractUserActionAttachment): String {
-    val facts = ArrayList<String>()
-    val cost = action.costResources
-    if (!cost.isEmpty) facts += "Cost: " + cost.keySet().joinToString(", ") { "${cost.getInt(it)} ${it.name}" }
-    val sides = action.chanceDiceSides
-    val hit = action.chanceToHit
-    if (sides > 0 && hit < sides) facts += "Success chance: $hit in $sides"
-    if (action is PoliticalActionAttachment) {
-        action.relationshipChanges.forEach { facts += "${it.player1.name} ↔ ${it.player2.name}: ${it.relationshipType.name}" }
-    }
-    val accept = action.actionAccept
-    if (accept.isNotEmpty()) facts += "Must be accepted by " + accept.joinToString(", ") { it.name }
-    return facts.joinToString("\n")
-}
-
 @Composable
 private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
     title: String,
@@ -881,22 +910,44 @@ private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
     onDone: () -> kotlin.Unit,
     /** The X, back and a tap outside put the dialog away to look at the map; the phase stays open. */
     onShowMap: () -> kotlin.Unit,
+    /** Opens the current relations (the game info's diplomacy); no button when null. */
+    onShowRelations: (() -> kotlin.Unit)? = null,
 ) {
+    /** The action waiting for its confirmation, with the name it is shown under. */
+    var confirming by remember { mutableStateOf<Pair<T, String>?>(null) }
+    confirming?.let { (action, name) ->
+        // declaring war and the like cannot be undone: ask once more
+        AppDialog(
+            title = name,
+            subtitle = "This cannot be undone.",
+            onDismiss = { confirming = null },
+            buttons = {
+                TextButton(onClick = { confirming = null }) { Text("Cancel") }
+                ConfirmButton { confirming = null; onChoose(action) }
+            },
+        ) {}
+        return
+    }
     AppDialog(
         title = title,
         onDismiss = onShowMap,
-        buttons = { Button(onClick = onDone) { Text("Done") } },
+        buttons = {
+            if (onShowRelations != null) TextButton(onClick = onShowRelations) { Text("Current relations") }
+            Button(onClick = onDone) { Text("Done") }
+        },
     ) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(actions) { action ->
                 val label = runCatching { buttonText(action) }.getOrNull()?.takeIf { it.isNotBlank() }
                     ?: (action.name ?: "").removePrefix("politicalActionAttachment_").removePrefix("userActionAttachment_").replace('_', ' ')
-                val text = runCatching { description(action) }.getOrNull()?.let { GameController.stripHtml(it) } ?: ""
-                val facts = actionFacts(action)
+                val text = runCatching { description(action) }.getOrNull()?.let { GameController.stripHtml(it).trim() }.orEmpty()
+                // the description says what the action does ("Declare War on China"); the button
+                // text is often the same for many actions ("Declare War!")
+                val name = text.ifEmpty { label }
                 OptionRow(
-                    title = label,
-                    subtitle = listOf(text, facts).filter { it.isNotBlank() }.joinToString("\n").takeIf { it.isNotBlank() },
-                    onClick = { onChoose(action) },
+                    title = name,
+                    onClick = { confirming = action to name },
+                    trailing = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                 )
             }
         }
@@ -905,7 +956,7 @@ private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
 
 /** The politics phase: the desktop client's politics panel with the map's own texts. */
 @Composable
-fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession, onShowMap: () -> kotlin.Unit) {
+fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession, onShowRelations: (() -> kotlin.Unit)?, onShowMap: () -> kotlin.Unit) {
     val texts = remember(session) { runCatching { PoliticsText(session.resourceLoader) }.getOrNull() }
     ActionChoiceDialog(
         title = "Politics: ${request.player.name}",
@@ -915,6 +966,7 @@ fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession, onShowMa
         onChoose = { request.complete(Optional.of(it)) },
         onDone = { request.complete(Optional.empty()) },
         onShowMap = onShowMap,
+        onShowRelations = onShowRelations,
     )
 }
 

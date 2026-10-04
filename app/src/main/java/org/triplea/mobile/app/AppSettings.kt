@@ -10,9 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
-/** Phone layout (floating controls) or the desktop like layout with a permanent side panel. */
-enum class UiMode { AUTO, PHONE, DESKTOP }
-
 /** Let the game screen rotate, or lock it. */
 enum class OrientationMode { AUTO, LANDSCAPE, PORTRAIT }
 
@@ -50,7 +47,6 @@ data class Settings(
     val keepScreenOn: Boolean = true,
     /** Hide the Android status and navigation bars while playing; a swipe from the edge shows them briefly. */
     val fullscreenGame: Boolean = true,
-    val uiMode: UiMode = UiMode.AUTO,
     val orientation: OrientationMode = OrientationMode.AUTO,
     // feedback
     val vibrateOnBattle: Boolean = true,
@@ -101,7 +97,6 @@ object AppSettings {
             theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "") }.getOrDefault(defaults.theme),
             keepScreenOn = prefs.getBoolean("keepScreenOn", defaults.keepScreenOn),
             fullscreenGame = prefs.getBoolean("fullscreenGame", defaults.fullscreenGame),
-            uiMode = runCatching { UiMode.valueOf(prefs.getString("uiMode", null) ?: "") }.getOrDefault(defaults.uiMode),
             orientation = runCatching { OrientationMode.valueOf(prefs.getString("orientation", null) ?: "") }.getOrDefault(defaults.orientation),
             vibrateOnBattle = prefs.getBoolean("vibrateOnBattle", defaults.vibrateOnBattle),
             vibrateOnTurn = prefs.getBoolean("vibrateOnTurn", defaults.vibrateOnTurn),
@@ -151,7 +146,6 @@ object AppSettings {
             putString("theme", next.theme.name)
             putBoolean("keepScreenOn", next.keepScreenOn)
             putBoolean("fullscreenGame", next.fullscreenGame)
-            putString("uiMode", next.uiMode.name)
             putString("orientation", next.orientation.name)
             putBoolean("vibrateOnBattle", next.vibrateOnBattle)
             putBoolean("vibrateOnTurn", next.vibrateOnTurn)

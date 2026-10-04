@@ -19,6 +19,7 @@ import games.strategy.triplea.attachments.AbstractPlayerRulesAttachment
 import games.strategy.triplea.attachments.ICondition
 import games.strategy.triplea.attachments.RulesAttachment
 import games.strategy.triplea.attachments.TerritoryAttachment
+import games.strategy.triplea.attachments.TriggerAttachment
 import games.strategy.triplea.Constants
 import games.strategy.triplea.Properties
 import games.strategy.triplea.ui.ObjectiveDummyDelegateBridge
@@ -149,6 +150,7 @@ class MapSnapshot(
     val hasVictoryCities: Boolean,
     /** The most recent steps of the game history, in play order. */
     val history: List<HistoryBlock>,
+    /** Every pair of nations; empty when the map's relations never change (no politics, no relationship triggers). */
     val relationships: List<RelationshipLine>,
     /** Whether any nation has political actions (a diplomacy phase) in this game. */
     val hasPolitics: Boolean,
@@ -361,8 +363,11 @@ class MapSnapshot(
                             lines += RelationshipLine(players[i].name, players[j].name, type.name, attachment.isWar, attachment.isAllied)
                         }
                     }
-                    relationships = lines
                     hasPolitics = players.any { PoliticalActionAttachment.getPoliticalActionAttachments(it).isNotEmpty() }
+                    // relations matter when they can change: political actions or triggers with a relationshipChange
+                    val changing = hasPolitics ||
+                        TriggerAttachment.collectForAllTriggersMatching(players.toSet(), TriggerAttachment.relationshipChangeMatch()).isNotEmpty()
+                    if (changing) relationships = lines
                     hasUserActions = players.any { UserActionAttachment.getUserActionAttachments(it).isNotEmpty() }
                 }
             }

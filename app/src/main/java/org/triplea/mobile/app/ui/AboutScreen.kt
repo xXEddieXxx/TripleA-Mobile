@@ -59,12 +59,12 @@ private val TESTERS = listOf("Locke", "Gammer1", "MinotaurLP", "Karl582003")
 private fun appVersion(context: Context): String =
     runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
 
-/** Opens GitHub's new-issue page in the browser with version, device and map already filled in. */
-fun openBugReport(context: Context, map: String? = null) {
+/** Opens GitHub's new-issue page in the browser with version and device already filled in. */
+private fun openBugReport(context: Context) {
     val body = """
         **Version:** ${appVersion(context)}
         **Device:** ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}
-        **Map:** ${map.orEmpty()}
+        **Map:**
 
         **Steps:**
         1.

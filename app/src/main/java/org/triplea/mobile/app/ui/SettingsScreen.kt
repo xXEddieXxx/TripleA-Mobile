@@ -34,7 +34,6 @@ import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import org.triplea.mobile.app.AppSettings
 import org.triplea.mobile.app.ThemeMode
-import org.triplea.mobile.app.UiMode
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.MapQuality
 
@@ -262,21 +261,6 @@ private fun SettingsContent(modifier: Modifier = Modifier) {
                 FilterChip(
                     selected = settings.orientation == mode,
                     onClick = { AppSettings.update { it.copy(orientation = mode) } },
-                    label = { Text(mode.name.lowercase().replaceFirstChar { c -> c.uppercase() }) },
-                )
-            }
-        }
-        Text("Layout", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 4.dp))
-        Text(
-            "Desktop: permanent side panel with tabs like the desktop client, meant for tablets. Auto picks it on screens of 600dp and wider.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-            UiMode.values().forEach { mode ->
-                FilterChip(
-                    selected = settings.uiMode == mode,
-                    onClick = { AppSettings.update { it.copy(uiMode = mode) } },
                     label = { Text(mode.name.lowercase().replaceFirstChar { c -> c.uppercase() }) },
                 )
             }

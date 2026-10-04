@@ -21,10 +21,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.launch
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -49,6 +64,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
@@ -65,8 +81,8 @@ import org.triplea.mobile.app.game.TerritorySnapshot
 import org.triplea.mobile.app.render.ImageCache
 
 /*
- * The side panel content of the game screen: the phone's collapsible details panel and the
- * desktop like tabbed panel for tablets, plus the pieces both are built from.
+ * The side panel content of the game screen: the collapsible details panel and the pieces it is
+ * built from.
  */
 
 /** The units of the selected territory with icons, or a hint when nothing is selected. */
@@ -165,30 +181,211 @@ internal fun ObjectivesList(objectives: List<ObjectiveLine>, images: ImageCache,
     }
 }
 
-/** Relationships of every nation, grouped like the desktop client's politics tab. */
-@Composable
-internal fun DiplomacyList(relationships: List<RelationshipLine>) {
-    val players = remember(relationships) {
-        (relationships.map { it.player1 } + relationships.map { it.player2 }).distinct()
+/** From this many nations on the diplomacy shows the desktop's matrix instead of a tab per nation. */
+private const val MATRIX_FROM_NATIONS = 7
+private val MATRIX_NAME_WIDTH = 44.dp
+private val MATRIX_CELL = 34.dp
+
+private fun relationOrder(line: RelationshipLine) = if (line.war) 0 else if (line.allied) 1 else 2
+
+/** "Unfriendly_Neutral" -> "Unfriendly Neutral" */
+private fun relationName(type: String) = type.replace('_', ' ')
+
+/** A nation without a flag in the matrix: "Germans" -> "Ger", "Neutral_Allies" -> "NAl", "UK_Pacific" -> "UPa". */
+private fun shortName(name: String): String {
+    val parts = name.split('_', ' ').filter { it.isNotEmpty() }
+    return if (parts.size < 2) name.take(3) else parts.first().take(1) + parts.drop(1).joinToString("") { it.take(2) }
+}
+
+/**
+ * The matrix cell codes: the initials of each relation ("War" -> "W", "Friendly_Neutral" -> "FN"),
+ * or its first letters when another relation already has those ("Custodianship" "Cu", "Concordant" "Co").
+ */
+private fun relationCodes(types: List<String>): Map<String, String> {
+    val codes = LinkedHashMap<String, String>()
+    types.forEach { type ->
+        val initials = type.split('_', ' ').filter { it.isNotEmpty() }.joinToString("") { it.take(1) }.uppercase()
+        codes[type] = (listOf(initials) + (2..type.length).map { type.take(it) }).firstOrNull { it !in codes.values } ?: type
     }
-    players.forEach { player ->
-        val mine = relationships.filter { it.player1 == player || it.player2 == player }
-        val byType = mine.groupBy { it.type }
-        Text(player, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
-        byType.entries.sortedBy { (_, lines) -> if (lines.first().war) 0 else if (lines.first().allied) 1 else 2 }.forEach { (type, lines) ->
-            val others = lines.joinToString(", ") { if (it.player1 == player) it.player2 else it.player1 }
-            Text(
-                "$type: $others",
-                style = MaterialTheme.typography.bodySmall,
-                color = when {
-                    lines.first().war -> MaterialTheme.colorScheme.error
-                    lines.first().allied -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.padding(start = 8.dp),
-            )
+    return codes
+}
+
+/** A nation's flag fitted into a [size] box, when the map has one (the neutral pseudo nations usually have none). */
+@Composable
+internal fun NationFlag(images: ImageCache?, nation: String, size: Dp = 16.dp, modifier: Modifier = Modifier) {
+    val flag = remember(nation, images) { images?.getNow("flags/$nation.png", listOf("flags/$nation.png", "flags/${nation}_small.png")) }
+    if (flag != null) Image(flag.asImageBitmap(), contentDescription = displayName(nation), contentScale = ContentScale.Fit, modifier = modifier.size(size))
+}
+
+/**
+ * A matrix row or column head: only the nation's flag (the short name when it has none), the name
+ * as a tooltip on a tap or long press.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NationBadge(images: ImageCache?, nation: String) {
+    val tooltip = rememberTooltipState()
+    val scope = rememberCoroutineScope()
+    val flag = remember(nation, images) { images?.getNow("flags/$nation.png", listOf("flags/$nation.png", "flags/${nation}_small.png")) }
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Right),
+        tooltip = { PlainTooltip { Text(displayName(nation)) } },
+        state = tooltip,
+    ) {
+        Box(
+            Modifier
+                .size(MATRIX_CELL)
+                .clip(CircleShape)
+                .clickable { scope.launch { tooltip.show() } },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (flag != null) {
+                // a box, not only a height: with a free width the image keeps its own pixel width (32px)
+                Image(flag.asImageBitmap(), contentDescription = displayName(nation), contentScale = ContentScale.Fit, modifier = Modifier.size(26.dp))
+            } else {
+                Text(shortName(nation), style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
+}
+
+/** The relations of [nation] to every other nation, one slim row each, wars first then allies. */
+@Composable
+private fun NationRelations(relationships: List<RelationshipLine>, nation: String, images: ImageCache?) {
+    val rows = remember(relationships, nation) {
+        relationships.filter { it.player1 == nation || it.player2 == nation }.sortedBy { relationOrder(it) }
+    }
+    Column {
+        rows.forEach { line ->
+            val other = if (line.player1 == nation) line.player2 else line.player1
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(32.dp)) { NationFlag(images, other) }
+                Text(displayName(other), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(relationName(line.type), style = MaterialTheme.typography.labelLarge, color = relationColor(line))
+            }
+            HorizontalDivider()
+        }
+    }
+}
+
+/**
+ * Every relation of the game: a tab per nation with its relations when there are few nations,
+ * the desktop politics panel's matrix when there are many. [initialNation] (the one whose turn it
+ * is) is the selected tab.
+ */
+@Composable
+internal fun DiplomacyView(relationships: List<RelationshipLine>, initialNation: String, images: ImageCache?) {
+    val nations = remember(relationships) { (relationships.map { it.player1 } + relationships.map { it.player2 }).distinct() }
+    if (nations.size >= MATRIX_FROM_NATIONS) {
+        RelationMatrix(relationships, nations, images)
+        return
+    }
+    var selected by rememberSaveable { mutableIntStateOf(nations.indexOf(initialNation).coerceAtLeast(0)) }
+    val nation = nations[selected.coerceIn(nations.indices)]
+    Column {
+        NationTabs(nations, nations.indexOf(nation)) { selected = it }
+        NationRelations(relationships, nation, images)
+    }
+}
+
+/**
+ * Every nation against every other in coloured cells, with a legend of the relation codes. The
+ * name column stays in place while the cells scroll sideways, so every row keeps its nation.
+ */
+@Composable
+private fun RelationMatrix(relationships: List<RelationshipLine>, nations: List<String>, images: ImageCache?) {
+    val byPair = remember(relationships) {
+        relationships.flatMap { listOf((it.player1 to it.player2) to it, (it.player2 to it.player1) to it) }.toMap()
+    }
+    val types = remember(relationships) { relationships.distinctBy { it.type }.sortedBy { relationOrder(it) } }
+    val codes = remember(types) { relationCodes(types.map { it.type }) }
+    Column {
+        Row {
+            Column(Modifier.width(MATRIX_NAME_WIDTH)) {
+                Spacer(Modifier.height(MATRIX_CELL))
+                nations.forEach { row -> NationBadge(images, row) }
+            }
+            Column(Modifier.horizontalScroll(rememberScrollState())) {
+                // column heads: the same flag badges as the rows, in the same order
+                Row { nations.forEach { NationBadge(images, it) } }
+                nations.forEach { row ->
+                    Row {
+                        nations.forEach { column ->
+                            val line = byPair[row to column]
+                            Box(
+                                Modifier.size(MATRIX_CELL).padding(1.dp).background(line?.let { relationCellColor(it) } ?: Color.Transparent, MaterialTheme.shapes.extraSmall),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(line?.let { codes[it.type] } ?: "–", style = MaterialTheme.typography.labelSmall, color = line?.let { relationCellText(it) } ?: Color.Unspecified)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        RelationLegend(types, codes)
+    }
+}
+
+/** The legend of the matrix as its own card: every code on a chip in its cell colour, then its name, in two columns. */
+@Composable
+private fun RelationLegend(types: List<RelationshipLine>, codes: Map<String, String>) {
+    // collapsed: only the heading, a tap opens the codes
+    var open by rememberSaveable { mutableStateOf(false) }
+    Card(
+        onClick = { open = !open },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Legend", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                Icon(
+                    if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (open) "Hide legend" else "Show legend",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (open) types.chunked(2).forEach { pair ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    pair.forEach { line ->
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier.size(MATRIX_CELL, 26.dp).background(relationCellColor(line), MaterialTheme.shapes.extraSmall),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(codes[line.type].orEmpty(), style = MaterialTheme.typography.labelSmall, color = relationCellText(line))
+                            }
+                            Text(relationName(line.type), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp, end = 4.dp))
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun relationCellColor(line: RelationshipLine): Color = when {
+    line.war -> MaterialTheme.colorScheme.errorContainer
+    line.allied -> MaterialTheme.colorScheme.primaryContainer
+    else -> MaterialTheme.colorScheme.surfaceVariant
+}
+
+/** The text on a matrix cell: the "on" colour of its container, readable in light and dark theme. */
+@Composable
+private fun relationCellText(line: RelationshipLine): Color = when {
+    line.war -> MaterialTheme.colorScheme.onErrorContainer
+    line.allied -> MaterialTheme.colorScheme.onPrimaryContainer
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun relationColor(line: RelationshipLine): Color = when {
+    line.war -> MaterialTheme.colorScheme.error
+    line.allied -> MaterialTheme.colorScheme.primary
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 /** The tabs of the side panel; each shows one thing at a time. */
@@ -202,9 +399,9 @@ private enum class PanelTab(val label: String) {
 }
 
 /**
- * The side panel of every layout: one tab at a time. "Turn" is the nation whose turn it is with
- * round, phase and PUs plus the actions and moves of the phase; "Zone" the tapped territory and
- * the current selection; then statistics, the history and (when the map has it) diplomacy.
+ * The details panel, one tab at a time. "Turn" is the nation whose turn it is with round, phase
+ * and PUs plus the moves of the phase; "Zone" the tapped territory and the current selection;
+ * then statistics, the history and (when the map has it) diplomacy.
  */
 @Composable
 internal fun SidePanel(
@@ -213,7 +410,6 @@ internal fun SidePanel(
     resourceLine: String,
     images: ImageCache,
     playerColor: Color?,
-    hint: String,
     territory: TerritorySnapshot?,
     moveFrom: Territory?,
     moveUnits: List<Unit>,
@@ -222,12 +418,8 @@ internal fun SidePanel(
     showVictoryCities: Boolean,
     history: List<HistoryBlock>,
     relationships: List<RelationshipLine>,
-    menu: @Composable () -> kotlin.Unit,
     objectives: List<ObjectiveLine> = emptyList(),
-    actions: @Composable ColumnScope.() -> kotlin.Unit,
     movesThisPhase: @Composable ColumnScope.() -> kotlin.Unit = {},
-    /** True on the desktop layout, where the panel carries the flag row and the menu. */
-    showHeader: Boolean = true,
     onFlagTap: (() -> kotlin.Unit)? = null,
     /** A tap on a history event shows it on the map. */
     onShowEvent: ((HistoryEvent) -> kotlin.Unit)? = null,
@@ -243,14 +435,6 @@ internal fun SidePanel(
     if (tabIndex >= tabs.size) tabIndex = 0
     val tab = tabs[tabIndex]
     Column(Modifier.fillMaxSize()) {
-        if (showHeader) {
-            Row(Modifier.fillMaxWidth().padding(start = 10.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    PlayerHeader(status, gameName, resourceLine, images, playerColor, " · ", onFlagTap = onFlagTap)
-                }
-                menu()
-            }
-        }
         PrimaryTabRow(selectedTabIndex = tabIndex) {
             tabs.forEachIndexed { index, t ->
                 Tab(
@@ -263,14 +447,8 @@ internal fun SidePanel(
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 8.dp)) {
             when (tab) {
                 PanelTab.TURN -> {
-                    if (!showHeader) {
-                        PlayerHeader(status, gameName, resourceLine, images, playerColor, " · ", large = true, onFlagTap = onFlagTap)
-                        HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                    }
-                    if (hint.isNotBlank()) Text(hint, style = MaterialTheme.typography.bodySmall)
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        actions()
-                    }
+                    PlayerHeader(status, gameName, resourceLine, images, playerColor, " · ", large = true, onFlagTap = onFlagTap)
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
                     Column(Modifier.fillMaxWidth()) { movesThisPhase() }
                     if (battle != null && battle.log.isNotEmpty()) {
                         HorizontalDivider(Modifier.padding(vertical = 6.dp))
@@ -297,7 +475,7 @@ internal fun SidePanel(
                 PanelTab.STATS -> if (stats.isEmpty()) Text("No statistics yet.", style = MaterialTheme.typography.bodySmall) else StatsTable(stats, showVictoryCities, status.playerName)
                 PanelTab.HISTORY -> if (history.isEmpty()) Text("Nothing happened yet.", style = MaterialTheme.typography.bodySmall) else HistoryList(history, images, onShowEvent, onReplay)
                 PanelTab.GOALS -> ObjectivesList(objectives, images, status.playerName)
-                PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyList(relationships)
+                PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyView(relationships, status.playerName, images)
             }
         }
     }

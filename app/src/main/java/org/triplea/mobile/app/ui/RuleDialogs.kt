@@ -1,11 +1,16 @@
 package org.triplea.mobile.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -17,6 +22,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,14 +31,17 @@ import games.strategy.engine.data.Resource
 import games.strategy.engine.data.TechnologyFrontier
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
+import games.strategy.engine.data.UnitType
 import games.strategy.triplea.Constants
 import games.strategy.triplea.Properties
+import games.strategy.triplea.attachments.TechAbilityAttachment
 import games.strategy.triplea.delegate.TechAdvance
 import games.strategy.triplea.delegate.TechTracker
 import games.strategy.triplea.delegate.TechnologyDelegate
 import games.strategy.triplea.delegate.data.TechRoll
 import java.util.Optional
 import org.triplea.java.collections.IntegerMap
+import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.app.game.KamikazeRequest
 import org.triplea.mobile.app.game.PickTerritoryAndUnitsRequest
 import org.triplea.mobile.app.game.RepairItem
@@ -49,7 +58,7 @@ import org.triplea.util.Tuple
 
 /** A small heading between the groups of a dialog list. */
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
@@ -102,17 +111,17 @@ fun TechDialog(request: TechRequest) {
         request.complete(Optional.of(roll))
     }
 
+    // only the rules that differ between maps; the price is on the buy row
     val subtitle = when {
-        ww2v3 -> "Research tokens cost $cost PUs each and are kept until a discovery. Every token rolls one die; a $diceSides discovers a technology from the chosen field."
-        lowLuck -> "Each roll costs $cost PUs. Every $diceSides dice discover one technology; the rest is rolled for."
-        else -> "Each roll costs $cost PUs. A $diceSides discovers a technology."
+        ww2v3 -> "Research tokens are kept until a discovery."
+        lowLuck -> "Low luck: every $diceSides dice discover one technology."
+        else -> null
     }
     AppDialog(
         title = "Technology",
         subtitle = subtitle,
         onDismiss = null,
-        status = "$pus PUs" + (if (ww2v3) " · $tokens tokens" else "") + (if (count > 0) " · spend ${count * cost}" else ""),
-        statusColor = if (count > 0) MaterialTheme.colorScheme.primary else null,
+        status = "$pus PUs" + (if (ww2v3) " · $tokens tokens" else ""),
         buttons = {
             TextButton(onClick = { request.complete(Optional.empty()) }) { Text("No research") }
             ConfirmButton(enabled = ready) { finish() }
@@ -122,19 +131,21 @@ fun TechDialog(request: TechRequest) {
             item {
                 CountRow(
                     title = if (ww2v3) "Tokens to buy" else "Dice to roll",
-                    subtitle = if (maxBuy == 0) "Not enough PUs" else "up to $maxBuy for the PUs you have",
+                    // the price per token or die, and how many the PUs pay for
+                    subtitle = "$cost PUs each · " + if (maxBuy == 0) "not enough PUs" else "up to $maxBuy",
                     value = count,
                     max = maxBuy,
                     onChange = { count = it.coerceIn(0, maxBuy) },
                 )
             }
             when {
+                // names only: what a technology does is in the game info's Tech tab
                 ww2v3 -> {
                     item { SectionLabel("Field of research") }
                     items(categories) { c ->
                         OptionRow(
-                            title = c.name,
-                            subtitle = c.techs.filter { it in available }.joinToString(", ") { it.name },
+                            title = displayName(c.name),
+                            subtitle = c.techs.filter { it in available }.joinToString(", ") { displayName(it.name) },
                             emphasized = c == category,
                             onClick = { category = c },
                         )
@@ -143,11 +154,127 @@ fun TechDialog(request: TechRequest) {
                 selectable -> {
                     item { SectionLabel("Technology to research") }
                     items(available) { a ->
-                        OptionRow(title = a.name, emphasized = a == advance, onClick = { advance = a })
+                        OptionRow(title = displayName(a.name), emphasized = a == advance, onClick = { advance = a })
                     }
                 }
                 else -> {
-                    item { InfoNote("A hit discovers one of these at random: " + available.joinToString(", ") { it.name }) }
+                    item { InfoNote("A hit discovers one of these at random: " + available.joinToString(", ") { displayName(it.name) }) }
+                }
+            }
+        }
+    }
+}
+
+/** The predefined techs the engine gives no tech ability attachment: what they do in the classic rules. */
+private val CLASSIC_TECH_EFFECTS = mapOf(
+    TechAdvance.TECH_PROPERTY_IMPROVED_SHIPYARDS to "Sea units cost less.",
+    TechAdvance.TECH_PROPERTY_INDUSTRIAL_TECHNOLOGY to "Units cost less.",
+    TechAdvance.TECH_PROPERTY_IMPROVED_ARTILLERY_SUPPORT to "Each artillery supports two infantry.",
+    TechAdvance.TECH_PROPERTY_PARATROOPERS to "Bombers can carry infantry into combat.",
+    TechAdvance.TECH_PROPERTY_MECHANIZED_INFANTRY to "Infantry paired with armour moves and blitzes with it.",
+)
+
+/** "canBombard" -> "can bombard" */
+private fun readable(ability: String) = ability.replace(Regex("([A-Z])"), " $1").lowercase()
+
+private fun names(types: Collection<UnitType>) = types.joinToString(", ") { it.name }
+
+/**
+ * What a technology does, as the label/value rows of the purchase's unit details, read from its tech
+ * ability attachment (written by the map, or by the engine for the predefined techs); the
+ * predefined techs without one get their classic rule as a chip.
+ */
+internal fun techEffects(advance: TechAdvance): List<UnitInfoEntry> {
+    val entries = ArrayList<UnitInfoEntry>()
+    val single = listOf(advance)
+    TechAbilityAttachment.get(advance)?.let { taa ->
+        fun bonus(label: String, map: IntegerMap<UnitType>) =
+            map.keySet().groupBy { map.getInt(it) }.forEach { (n, types) ->
+                entries += UnitInfoEntry(label + if (n > 0) " +$n" else " $n", names(types))
+            }
+        bonus("Attack", taa.attackBonus)
+        bonus("Defense", taa.defenseBonus)
+        bonus("Movement", taa.movementBonus)
+        bonus("Attack dice", taa.attackRollsBonus)
+        bonus("Defense dice", taa.defenseRollsBonus)
+        bonus("Air battle attack", taa.airAttackBonus)
+        bonus("Air battle defense", taa.airDefenseBonus)
+        bonus("AA radar", taa.radarBonus)
+        bonus("Bombing damage", taa.bombingBonus)
+        val minValue = taa.minimumTerritoryValueForProductionBonus
+        bonus("Production" + if (minValue > 0) " (territories worth $minValue+)" else "", taa.productionBonus)
+        bonus("Rocket dice", taa.rocketDiceNumber)
+        if (taa.rocketDiceNumber.keySet().isNotEmpty()) entries += UnitInfoEntry("Rocket range", taa.rocketDistance.toString())
+        taa.unitAbilitiesGained.forEach { (type, abilities) -> entries += UnitInfoEntry("${type.name} gains", abilities.joinToString(", ") { readable(it) }) }
+    }
+    val repair = TechAbilityAttachment.getRepairDiscount(single)
+    if (repair < 1.0) entries += UnitInfoEntry("Repair discount", "${Math.round((1 - repair) * 100)}%")
+    val bondDice = TechAbilityAttachment.getWarBondDiceNumber(single)
+    if (bondDice > 0) entries += UnitInfoEntry("War bonds per turn", "$bondDice × d${TechAbilityAttachment.getWarBondDiceSides(single)} PUs")
+    if (TechAbilityAttachment.getAllowAirborneForces(single)) {
+        entries += UnitInfoEntry("Airborne forces", names(TechAbilityAttachment.getAirborneTypes(single)))
+        entries += UnitInfoEntry("Airborne from", names(TechAbilityAttachment.getAirborneBases(single)))
+        entries += UnitInfoEntry("Airborne range", TechAbilityAttachment.getAirborneDistance(single).toString())
+    }
+    val capacity = TechAbilityAttachment.getAirborneCapacity(single)
+    capacity.keySet().forEach { entries += UnitInfoEntry("Airborne capacity +${capacity.getInt(it)}", it.name) }
+    if (entries.isEmpty()) {
+        entries += UnitInfoEntry(CLASSIC_TECH_EFFECTS[advance.property]?.let { "$it (classic rules)" } ?: "Effect set by the map's rules, see the game notes", null)
+    }
+    return entries
+}
+
+/** One technology in the game info: its field of research (WW2V3 maps), what it does and who has it. */
+class TechInfo(val name: String, val field: String?, val effects: List<String>, val owners: List<String>)
+
+/**
+ * Every technology of the game in the map's order, with the nations that have researched it.
+ * Empty when the map has no technologies. Reads the game data under its lock.
+ */
+fun techInfos(session: LocalGameSession): List<TechInfo> {
+    val data = session.gameData
+    data.acquireReadLock().use {
+        val frontier = data.technologyFrontier
+        val players = data.playerList.players
+        val owned = players.associateWith { runCatching { TechTracker.getCurrentTechAdvances(it, frontier) }.getOrDefault(emptyList()) }
+        // the fields of research only mean something in the WW2V3 model; elsewhere they are per-nation lists
+        val fields = if (!Properties.getWW2V3TechModel(data.properties)) emptyMap()
+        else players.flatMap { TechAdvance.getPlayerTechCategories(it) }.flatMap { c -> c.techs.map { it to c.name } }.toMap()
+        return TechAdvance.getTechAdvances(frontier).map { advance ->
+            TechInfo(
+                name = advance.name,
+                field = fields[advance],
+                effects = runCatching { techEffects(advance) }.getOrDefault(emptyList()).map { listOfNotNull(it.label, it.value).joinToString(": ") },
+                owners = players.filter { advance in owned.getValue(it) }.map { it.name },
+            )
+        }
+    }
+}
+
+/**
+ * The technology overview of the game info page: one card per technology with its effect and the
+ * flags of the nations that have it, nothing to open; on maps with fields of research, one section per field.
+ */
+@Composable
+fun TechList(techs: List<TechInfo>, images: ImageCache?) {
+    val sections = remember(techs) { techs.groupBy { it.field }.entries.toList() }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+        sections.forEach { (field, list) ->
+            if (field != null) item(key = "field:$field") { SectionLabel(displayName(field)) }
+            items(list, key = { it.name }) { tech ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(displayName(tech.name), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            tech.owners.forEach { NationFlag(images, it, size = 22.dp, modifier = Modifier.padding(start = 4.dp)) }
+                        }
+                        tech.effects.forEach {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         }

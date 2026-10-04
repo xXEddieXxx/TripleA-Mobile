@@ -78,12 +78,10 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Handshake
-import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -100,7 +98,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarDuration
@@ -172,7 +170,6 @@ import org.triplea.mobile.HistoryView
 import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppSettings
-import org.triplea.mobile.app.UiMode
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.game.BattleRequest
 import org.triplea.mobile.app.game.BattleState
@@ -183,7 +180,6 @@ import org.triplea.mobile.app.game.CasualtyRequest
 import org.triplea.mobile.app.game.ConfirmRequest
 import org.triplea.mobile.app.game.EndTurnRequest
 import org.triplea.mobile.app.game.GameController
-import org.triplea.mobile.app.game.GameStatus
 import org.triplea.mobile.app.game.HistoryBlock
 import org.triplea.mobile.app.game.HistoryEvent
 import org.triplea.mobile.app.game.MadeMove
@@ -210,7 +206,6 @@ import org.triplea.mobile.app.game.UnitStack
 import org.triplea.mobile.app.render.ImageCache
 
 private val SIDE_PANEL_WIDTH = 260.dp
-private val DESKTOP_PANEL_WIDTH = 340.dp
 
 /**
  * The game screen. The map fills the screen; everything else floats on top of it: a status line at
@@ -240,11 +235,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val settings by AppSettings.state.collectAsState()
     mapState.maxScale = settings.mapMaxZoom
     val configuration = LocalConfiguration.current
-    val desktop = when (settings.uiMode) {
-        UiMode.DESKTOP -> true
-        UiMode.PHONE -> false
-        UiMode.AUTO -> configuration.smallestScreenWidthDp >= 600
-    }
 
     // keep the display awake while playing, if wanted
     val view = LocalView.current
@@ -326,12 +316,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var kamikazeConfirm by remember { mutableStateOf<MovePlan?>(null) }
     var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var showHowTo by remember { mutableStateOf(false) }
     var showCalc by remember { mutableStateOf(false) }
     /** The calculator waits for a tap on the map that chooses its territory. */
     var calcPicking by remember { mutableStateOf(false) }
     var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
+    /** The tab the game info page opens on; null for its default. */
+    var gameInfoTab by remember { mutableStateOf<String?>(null) }
     var showMoves by remember { mutableStateOf(false) }
     /** The purchase, politics and action screens can be put away to look at the map while the phase stays open. */
     var dialogHidden by remember(pending) { mutableStateOf(pending is PurchaseRequest) }
@@ -956,9 +947,23 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
     val optionalPhase = if (currentKind != null && (currentKind !in MAIN_PHASES || status.stepName.contains("bid", true))) status.stepDisplayName else ""
     val aiSeconds by GameController.aiThinkingSeconds.collectAsState()
-    val hint = phaseHint(session, pending, aiSeconds, status, gameOver, moveFrom, moveUnits, movePlan)
     val playerColor = remember(status.playerName, session) {
         runCatching { Color(session.mapData.getPlayerColor(status.playerName).rgb) }.getOrNull()
+    }
+
+    /** Opens the game info page (notes, units, diplomacy, tech), on [tab] when given. */
+    fun openGameInfo(tab: String? = null) {
+        scope.launch {
+            val notes = withContext(Dispatchers.IO) {
+                runCatching {
+                    val xml = GameController.gameXmlPath
+                        ?: MobileEngine.listInstalledGames().firstOrNull { it.gameName == session.gameData.gameName }?.xmlPath
+                    xml?.let { GameController.stripHtml(GameNotes.loadGameNotes(it)) }
+                }.getOrNull()
+            }
+            gameInfoTab = tab
+            gameNotes = notes.orEmpty()
+        }
     }
 
     val menu: @Composable () -> kotlin.Unit = {
@@ -971,35 +976,18 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 )
                 DropdownMenuItem(text = { Text("Save game") }, onClick = { showMenu = false; showSaveDialog = true })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { showMenu = false; showSettings = true })
-                DropdownMenuItem(
-                    text = { Text("Game notes & units") },
-                    onClick = {
-                        showMenu = false
-                        scope.launch {
-                            val notes = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val xml = GameController.gameXmlPath
-                                        ?: MobileEngine.listInstalledGames().firstOrNull { it.gameName == session.gameData.gameName }?.xmlPath
-                                    xml?.let { GameController.stripHtml(GameNotes.loadGameNotes(it)) }
-                                }.getOrNull()
-                            }
-                            gameNotes = notes.orEmpty()
-                        }
-                    },
-                )
+                DropdownMenuItem(text = { Text("Game info") }, onClick = { showMenu = false; openGameInfo() })
                 DropdownMenuItem(text = { Text("Battle calculator") }, onClick = { showMenu = false; showCalc = true })
-                DropdownMenuItem(text = { Text("How to play") }, onClick = { showMenu = false; showHowTo = true })
-                DropdownMenuItem(text = { Text("Report a bug") }, onClick = { showMenu = false; openBugReport(view.context, session.gameData.gameName) })
                 DropdownMenuItem(text = { Text("Quit to menu") }, onClick = { showMenu = false; showQuitDialog = true })
             }
         }
     }
 
     // keep floating elements away from rounded display corners and camera cutouts (fullscreen has no bar insets);
-    // the landscape and desktop map runs under visible system bars too, so there they count as well
+    // the landscape map runs under visible system bars too, so there they count as well
     val cornerInset = roundedCornerInset()
     val barsAndCutout = WindowInsets.systemBars.union(WindowInsets.displayCutout)
-    val edgeInsets = (if (desktop || landscape) barsAndCutout else WindowInsets.displayCutout).asPaddingValues()
+    val edgeInsets = (if (landscape) barsAndCutout else WindowInsets.displayCutout).asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val edgeStart = maxOf(edgeInsets.calculateStartPadding(layoutDirection), cornerInset, 8.dp)
     val edgeEnd = maxOf(edgeInsets.calculateEndPadding(layoutDirection), cornerInset, 8.dp)
@@ -1063,7 +1051,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         }
     }
 
-    /** Bottom left, where the thumb is; portrait and desktop give it a line of its own above the phase buttons. */
+    /** Bottom left, where the thumb is; portrait gives it a line of its own above the phase buttons. */
     val unitScroller: @Composable () -> kotlin.Unit = {
         UnitScrollerBar(
             left = unitsLeft,
@@ -1124,11 +1112,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     currentStep = currentTurnStep,
                     optional = optionalPhase,
                     suffix = if (!status.isHumanTurn && aiSeconds >= 5) "${aiSeconds}s" else "",
-                    // portrait phones have the app bar above the map; the other layouts reach the top edge
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = if (landscape || desktop) edgeTop else 0.dp),
+                    // portrait has the app bar above the map; landscape reaches the top edge
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = if (landscape) edgeTop else 0.dp),
                 )
             }
-            if (landscape && !desktop) {
+            if (landscape) {
                 OverlayChip(Modifier.align(Alignment.TopStart).padding(start = edgeStart, top = edgeTop)) {
                     PlayerHeader(
                         status = status,
@@ -1142,7 +1130,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     )
                 }
             }
-            if (landscape && !desktop) {
+            if (landscape) {
                 // nation (left), turn strip (middle), tapped territory and menu (right): one row
                 Row(
                     Modifier.align(Alignment.TopEnd).padding(top = edgeTop, end = edgeEnd),
@@ -1169,10 +1157,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 // the bottom, never more: on small screens its middle part scrolls instead. The
                 // action row only holds buttons in the move, place, purchase, politics, user action
                 // and end turn phases.
-                val actionsBelow = !desktop && (
-                    pending is MoveRequest || pending is PlaceRequest || pending is PurchaseRequest ||
-                        pending is PoliticsRequest || pending is UserActionRequest || pending is EndTurnRequest
-                    )
+                val actionsBelow = pending is MoveRequest || pending is PlaceRequest || pending is PurchaseRequest ||
+                    pending is PoliticsRequest || pending is UserActionRequest || pending is EndTurnRequest
                 BoxWithConstraints(
                     Modifier
                         .align(Alignment.TopCenter)
@@ -1187,7 +1173,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     BattleWindow(
                         battle = currentBattle,
                         images = images,
-                        compact = landscape && !desktop,
+                        compact = landscape,
                         notice = casualtyNotice,
                         casualtyRequest = casualtyRequest,
                         question = battleQuestion,
@@ -1262,8 +1248,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     )
                 }
                 // a line of its own in portrait: beside the phase buttons there is no room for it
-                if (showScroller && (desktop || !landscape)) Box(Modifier.padding(start = 12.dp, top = 6.dp)) { unitScroller() }
-                if (!desktop) Row(
+                if (showScroller && !landscape) Box(Modifier.padding(start = 12.dp, top = 6.dp)) { unitScroller() }
+                Row(
                     verticalAlignment = Alignment.Bottom,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
@@ -1299,15 +1285,14 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         }
     }
 
-    /** The side panel of every layout; the desktop layout adds the flag row with the menu and the action buttons. */
-    val sidePanel: @Composable (showHeader: Boolean) -> kotlin.Unit = { showHeader ->
+    /** The details panel: beside the map in landscape, below it in portrait. */
+    val sidePanel: @Composable () -> kotlin.Unit = {
         SidePanel(
             status = status,
             gameName = session.gameData.gameName,
             resourceLine = resourceLine,
             images = images,
             playerColor = playerColor,
-            hint = if (showHeader) hint else "",
             territory = selectedSnapshot,
             moveFrom = moveFrom,
             moveUnits = moveUnits,
@@ -1315,31 +1300,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             stats = shown?.stats ?: emptyList(),
             showVictoryCities = shown?.hasVictoryCities ?: false,
             history = snapshot?.history ?: emptyList(),
-            relationships = if (snapshot?.hasPolitics == true) snapshot?.relationships ?: emptyList() else emptyList(),
+            relationships = snapshot?.relationships ?: emptyList(),
             objectives = snapshot?.objectives ?: emptyList(),
-            menu = menu,
-            showHeader = showHeader,
             onFlagTap = ::jumpToCapital,
             onShowEvent = ::showHistoryEvent,
             onReplay = ::replayLastTurns,
-            actions = {
-                if (showHeader) {
-                    PhaseActions(
-                        session = session,
-                        pendingRequest = pending,
-                        onBackToGame = if (inHistory) ::closeReplay else null,
-                        gameOver = gameOver,
-                        hasSelection = moveFrom != null,
-                        onClearSelection = ::clearSelection,
-                        onUndo = { showMoves = true },
-                        onDone = { confirm -> if (settings.confirmPhaseEnd) phaseEndConfirm = confirm else confirm.proceed() },
-                        onQuit = onQuit,
-                        fullWidth = true,
-                        movesCount = madeMoves.size,
-                        onOpenDialog = { dialogHidden = false },
-                    )
-                }
-            },
             movesThisPhase = {
                 if (pending is MoveRequest || pending is PlaceRequest) {
                     Text(
@@ -1367,25 +1332,14 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         SnackbarHost(snackbarHostState, Modifier.windowInsetsPadding(barsAndCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)))
     }
     Box(Modifier.fillMaxSize()) {
-    if (desktop) {
-        // tablet layout like the desktop client: map plus a permanent tabbed panel on the right
-        Scaffold(snackbarHost = snackbarHost, contentWindowInsets = WindowInsets(0)) {
-            Row(Modifier.fillMaxSize()) {
-                mapArea(Modifier.weight(1f).fillMaxHeight())
-                VerticalDivider()
-                Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxHeight()) {
-                    Box(Modifier.windowInsetsPadding(panelInsets).width(DESKTOP_PANEL_WIDTH)) { sidePanel(true) }
-                }
-            }
-        }
-    } else if (landscape) {
+    if (landscape) {
         Scaffold(snackbarHost = snackbarHost, contentWindowInsets = WindowInsets(0)) {
             Row(Modifier.fillMaxSize()) {
                 mapArea(Modifier.weight(1f).fillMaxHeight())
                 if (showDetails) {
                     VerticalDivider()
                     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxHeight()) {
-                        Box(Modifier.windowInsetsPadding(panelInsets).width(SIDE_PANEL_WIDTH)) { sidePanel(false) }
+                        Box(Modifier.windowInsetsPadding(panelInsets).width(SIDE_PANEL_WIDTH)) { sidePanel() }
                     }
                 }
             }
@@ -1419,7 +1373,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     val windowHeight = LocalWindowInfo.current.containerSize.height
                     val panelHeight = with(LocalDensity.current) { (windowHeight * 0.42f).toDp() }
                     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().height(panelHeight)) {
-                        sidePanel(false)
+                        sidePanel()
                     }
                 }
             }
@@ -1429,7 +1383,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     // full screen pages over the game; plain composables, not dialog windows, so they survive
     // orientation, text size and layout changes made inside them
     if (showSettings) FullScreenPage(onBack = { showSettings = false }) { SettingsScreen(onBack = { showSettings = false }) }
-    if (showHowTo) FullScreenPage(onBack = { showHowTo = false }) { HowToPlayScreen(onBack = { showHowTo = false }) }
     if (showCalc) FullScreenPage(onBack = { showCalc = false }) {
         BattleCalcScreen(
             session = session,
@@ -1448,25 +1401,37 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     IconButton(onClick = { gameNotes = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back") }
                     Text(session.gameData.gameName, style = MaterialTheme.typography.titleMedium)
                 }
-                // like the desktop Help menu: the map's notes and the "Unit Help" table
-                var notesTab by rememberSaveable { mutableIntStateOf(if (notes.isBlank()) 1 else 0) }
-                PrimaryTabRow(selectedTabIndex = notesTab) {
-                    listOf("Notes", "Units").forEachIndexed { index, label ->
-                        Tab(selected = notesTab == index, onClick = { notesTab = index }, text = { Text(label) })
+                // like the desktop Help menu: the map's notes and the "Unit Help" table, plus the
+                // desktop "Show Politics Panel" on maps whose relations change and the technologies
+                // saved by name: a tab that is still loading (Tech) comes back once it is there
+                var notesTab by rememberSaveable { mutableStateOf(gameInfoTab ?: if (notes.isBlank()) "Units" else "Notes") }
+                val relations = snapshot?.relationships.orEmpty()
+                val techs by produceState(emptyList<TechInfo>(), session) { value = withContext(Dispatchers.Default) { techInfos(session) } }
+                val notesTabs = listOf("Notes", "Units") +
+                    (if (relations.isEmpty()) emptyList() else listOf("Diplomacy")) +
+                    (if (techs.isEmpty()) emptyList() else listOf("Tech"))
+                val shownTab = notesTab.takeIf { it in notesTabs } ?: notesTabs.first()
+                // scrollable, so four tabs in portrait keep "Diplomacy" on one line
+                PrimaryScrollableTabRow(selectedTabIndex = notesTabs.indexOf(shownTab), edgePadding = 0.dp) {
+                    notesTabs.forEach { label ->
+                        Tab(selected = shownTab == label, onClick = { notesTab = label }, text = { Text(label, maxLines = 1) })
                     }
                 }
-                if (notesTab == 0) {
-                    Text(
+                when (shownTab) {
+                    "Notes" -> Text(
                         notes.ifBlank { "This map has no game notes." },
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
                     )
-                } else {
-                    val units by produceState<Map<GamePlayer, List<UnitStatsEntry>>?>(null, session) {
-                        value = withContext(Dispatchers.Default) { unitStatsByPlayer(session) }
+                    "Diplomacy" -> Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) { DiplomacyView(relations, status.playerName, images) }
+                    "Tech" -> TechList(techs, images)
+                    else -> {
+                        val units by produceState<Map<GamePlayer, List<UnitStatsEntry>>?>(null, session) {
+                            value = withContext(Dispatchers.Default) { unitStatsByPlayer(session) }
+                        }
+                        units?.let { UnitStatsList(it, images, status.playerName) }
+                            ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     }
-                    units?.let { UnitStatsList(it, images, status.playerName) }
-                        ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 }
             }
         }
@@ -1486,7 +1451,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         is CasualtyRequest -> if (casualtyRequest == null) CasualtyDialog(request, images)
         is SelectTerritoryRequest -> TerritoryPickerDialog(request)
         is RetreatRequest -> if (battleQuestion == null) RetreatDialog(request)
-        is PoliticsRequest -> if (!dialogHidden) PoliticsDialog(request, session, onShowMap = { dialogHidden = true })
+        // hidden while the game info is open (its "Current relations" button opens it), back afterwards
+        is PoliticsRequest -> if (!dialogHidden && gameNotes == null) PoliticsDialog(
+            request,
+            session,
+            onShowRelations = if (snapshot?.relationships.isNullOrEmpty()) null else { { openGameInfo("Diplomacy") } },
+            onShowMap = { dialogHidden = true },
+        )
         is UserActionRequest -> if (!dialogHidden) UserActionDialog(request, session, onShowMap = { dialogHidden = true })
         is TechRequest -> TechDialog(request)
         is RepairRequest -> RepairDialog(request, images)
@@ -1661,52 +1632,6 @@ private fun PhaseBannerCard(banner: PhaseBanner, images: ImageCache, playerColor
             Box(Modifier.fillMaxWidth().height(4.dp).background(accent))
         }
     }
-}
-
-/** One line telling the player what to do in the current phase. */
-private fun phaseHint(
-    session: LocalGameSession,
-    pending: UiRequest<*>?,
-    aiSeconds: Int,
-    status: GameStatus,
-    gameOver: String?,
-    moveFrom: Territory?,
-    moveUnits: List<Unit>,
-    movePlan: MovePlan?,
-): String {
-    if (gameOver != null) return "Game over: $gameOver"
-    return when (pending) {
-        is MoveRequest -> when {
-            movePlan != null -> "Confirm move"
-            moveFrom != null && moveUnits.isNotEmpty() -> "${moveUnits.size} selected → tap target"
-            else -> "Tap units, then target"
-        }
-        is PlaceRequest -> {
-            val remaining = MoveHelper.unitsToPlace(session, pending.player)
-            if (remaining.isEmpty()) "All placed" else "${remaining.size} to place → tap territory"
-        }
-        is EndTurnRequest -> "End turn"
-        is PurchaseRequest -> "Purchase"
-        is PoliticsRequest -> "Politics"
-        is UserActionRequest -> "Actions"
-        is BattleRequest, is CasualtyRequest, is ConfirmRequest,
-        is SelectTerritoryRequest, is SelectUnitsRequest, is RetreatRequest,
-        is CasualtyNoticeRequest,
-        is TechRequest, is RepairRequest, is ScrambleRequest, is KamikazeRequest,
-        is PickTerritoryAndUnitsRequest -> ""
-        null -> if (status.isHumanTurn) "" else if (status.playerName.isBlank()) "Starting…"
-        else status.playerName + (if (aiSeconds >= 5) " · ${aiSeconds}s" else "") + " …"
-    }
-}
-
-/** The symbol next to the hint: what kind of action the phase wants. */
-private fun hintIcon(pending: UiRequest<*>?, hasPlan: Boolean, hasSelection: Boolean): androidx.compose.ui.graphics.vector.ImageVector = when (pending) {
-    is MoveRequest -> if (hasPlan) Icons.Filled.Check else if (hasSelection) Icons.AutoMirrored.Filled.ArrowForward else Icons.Filled.TouchApp
-    is PlaceRequest -> Icons.Filled.AddLocationAlt
-    is PurchaseRequest -> Icons.Filled.ShoppingCart
-    is EndTurnRequest -> Icons.Filled.Flag
-    null -> Icons.Filled.HourglassEmpty
-    else -> Icons.Filled.Info
 }
 
 /** The phases every turn has; the others are optional and fold into these on the indicator. */
@@ -1928,7 +1853,6 @@ private fun PhaseActions(
     onUndo: () -> kotlin.Unit,
     onDone: (PhaseEndConfirm) -> kotlin.Unit,
     onQuit: () -> kotlin.Unit,
-    fullWidth: Boolean = false,
     movesCount: Int = 0,
     /** Brings back a purchase, politics or action screen put away to look at the map. */
     onOpenDialog: () -> kotlin.Unit = {},
@@ -1938,7 +1862,7 @@ private fun PhaseActions(
     iconOnly: Boolean = false,
 ) {
     val compactPadding = PaddingValues(horizontal = 14.dp)
-    val buttonModifier = (if (fullWidth) Modifier.fillMaxWidth() else Modifier).heightIn(min = 46.dp)
+    val buttonModifier = Modifier.heightIn(min = 46.dp)
     if (onBackToGame != null) {
         Button(onClick = onBackToGame, contentPadding = compactPadding, modifier = buttonModifier) { ButtonLabel(Icons.Filled.Close, "Back to game") }
         return
