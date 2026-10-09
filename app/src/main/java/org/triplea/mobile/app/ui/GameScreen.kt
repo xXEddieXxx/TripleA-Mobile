@@ -519,7 +519,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         message = "",
                         units = plan.transportChoices,
                         max = plan.transportChoices.size,
-                        initialSelection = plan.transportChoices.groupBy { unitGroupKey(it) }.mapValues { it.value.size },
+                        initialSelection = plan.defaultTransports.groupBy { unitGroupKey(it) }.mapValues { it.value.size },
                         onConfirm = { chosen ->
                             unitPicker = null
                             if (chosen.isEmpty()) movePlan = plan else planMove(request, from, to, units, chosen)

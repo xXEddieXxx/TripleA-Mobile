@@ -34,6 +34,8 @@ class MovePlan(
     val lostAir: List<Unit> = emptyList(),
     /** For a sea load: the transports in the target zone with room, so the user may pick among them. */
     val transportChoices: List<Unit> = emptyList(),
+    /** For a sea load: the fewest of [transportChoices] that carry the units, the default pick. */
+    val defaultTransports: List<Unit> = emptyList(),
 )
 
 /** A move or placement made in the current phase, as listed in the desktop "undo" panel. */
@@ -194,6 +196,7 @@ object MoveHelper {
             // must not be mapped onto other transports in the target zone.
             val landUnits = movingUnits.filter { Matches.unitIsLand().test(it) }
             var transportChoices: List<Unit> = emptyList()
+            var defaultTransports: List<Unit> = emptyList()
             val transportMapping: Map<Unit, Unit> = if (route.isSeaLoad && landUnits.isNotEmpty()) {
                 val minCost = landUnits.minOf { it.unitAttachment.transportCost }
                 val withRoom = to.units.filter {
@@ -203,8 +206,16 @@ object MoveHelper {
                 }
                 if (withRoom.isEmpty()) throw IllegalArgumentException("No transport with room in ${to.name}")
                 transportChoices = withRoom
-                val chosen = transports?.filter { it in withRoom }?.takeIf { it.isNotEmpty() } ?: withRoom
-                val mapping = TransportUtils.mapTransports(route, movingUnits, chosen)
+                // Like the desktop: by default fill each transport before using the next one; the
+                // transports the player picks get the units spread evenly across them.
+                val minMapping = TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits, withRoom)
+                defaultTransports = withRoom.filter { it in minMapping.values }
+                val chosen = transports?.filter { it in withRoom }?.takeIf { it.isNotEmpty() }
+                val mapping = if (chosen == null || chosen.toSet() == defaultTransports.toSet()) {
+                    minMapping
+                } else {
+                    TransportUtils.mapTransports(route, movingUnits, chosen)
+                }
                 if (mapping.isEmpty()) throw IllegalArgumentException("The transports in ${to.name} cannot carry these units")
                 mapping
             } else {
@@ -226,6 +237,7 @@ object MoveHelper {
                 warning = result.warningOrErrorMessage?.orElse(null),
                 lostAir = lostAir,
                 transportChoices = transportChoices,
+                defaultTransports = defaultTransports,
             )
         }
     }

@@ -43,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Icon
@@ -225,9 +226,14 @@ fun UnitPickerDialog(spec: UnitPickerSpec, images: ImageCache?) {
 fun ConfirmDialog(request: ConfirmRequest) {
     AppDialog(
         title = request.title,
-        // the X answers no, the check yes
-        onDismiss = { request.complete(request.okOnly) },
-        buttons = { ConfirmButton { request.complete(true) } },
+        // a yes/no question gets an explicit X (no) next to the check instead of the close X
+        onDismiss = if (request.okOnly) ({ request.complete(true) }) else null,
+        buttons = {
+            if (!request.okOnly) {
+                IconButton(onClick = { request.complete(false) }) { Icon(Icons.Filled.Close, contentDescription = "no") }
+            }
+            ConfirmButton { request.complete(true) }
+        },
     ) {
         Text(request.question, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.verticalScroll(rememberScrollState()))
     }
