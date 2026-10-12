@@ -1423,7 +1423,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
                     )
-                    "Diplomacy" -> Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) { DiplomacyView(relations, status.playerName, images) }
+                    "Diplomacy" -> Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) { DiplomacyView(relations, images) }
                     "Tech" -> TechList(techs, images)
                     else -> {
                         val units by produceState<Map<GamePlayer, List<UnitStatsEntry>>?>(null, session) {

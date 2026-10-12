@@ -181,8 +181,6 @@ internal fun ObjectivesList(objectives: List<ObjectiveLine>, images: ImageCache,
     }
 }
 
-/** From this many nations on the diplomacy shows the desktop's matrix instead of a tab per nation. */
-private const val MATRIX_FROM_NATIONS = 7
 private val MATRIX_NAME_WIDTH = 44.dp
 private val MATRIX_CELL = 34.dp
 
@@ -249,43 +247,11 @@ private fun NationBadge(images: ImageCache?, nation: String) {
     }
 }
 
-/** The relations of [nation] to every other nation, one slim row each, wars first then allies. */
+/** Every relation of the game as the desktop politics panel's matrix. */
 @Composable
-private fun NationRelations(relationships: List<RelationshipLine>, nation: String, images: ImageCache?) {
-    val rows = remember(relationships, nation) {
-        relationships.filter { it.player1 == nation || it.player2 == nation }.sortedBy { relationOrder(it) }
-    }
-    Column {
-        rows.forEach { line ->
-            val other = if (line.player1 == nation) line.player2 else line.player1
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.width(32.dp)) { NationFlag(images, other) }
-                Text(displayName(other), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                Text(relationName(line.type), style = MaterialTheme.typography.labelLarge, color = relationColor(line))
-            }
-            HorizontalDivider()
-        }
-    }
-}
-
-/**
- * Every relation of the game: a tab per nation with its relations when there are few nations,
- * the desktop politics panel's matrix when there are many. [initialNation] (the one whose turn it
- * is) is the selected tab.
- */
-@Composable
-internal fun DiplomacyView(relationships: List<RelationshipLine>, initialNation: String, images: ImageCache?) {
+internal fun DiplomacyView(relationships: List<RelationshipLine>, images: ImageCache?) {
     val nations = remember(relationships) { (relationships.map { it.player1 } + relationships.map { it.player2 }).distinct() }
-    if (nations.size >= MATRIX_FROM_NATIONS) {
-        RelationMatrix(relationships, nations, images)
-        return
-    }
-    var selected by rememberSaveable { mutableIntStateOf(nations.indexOf(initialNation).coerceAtLeast(0)) }
-    val nation = nations[selected.coerceIn(nations.indices)]
-    Column {
-        NationTabs(nations, nations.indexOf(nation)) { selected = it }
-        NationRelations(relationships, nation, images)
-    }
+    RelationMatrix(relationships, nations, images)
 }
 
 /**
@@ -475,7 +441,7 @@ internal fun SidePanel(
                 PanelTab.STATS -> if (stats.isEmpty()) Text("No statistics yet.", style = MaterialTheme.typography.bodySmall) else StatsTable(stats, showVictoryCities, status.playerName)
                 PanelTab.HISTORY -> if (history.isEmpty()) Text("Nothing happened yet.", style = MaterialTheme.typography.bodySmall) else HistoryList(history, images, onShowEvent, onReplay)
                 PanelTab.GOALS -> ObjectivesList(objectives, images, status.playerName)
-                PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyView(relationships, status.playerName, images)
+                PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyView(relationships, images)
             }
         }
     }
