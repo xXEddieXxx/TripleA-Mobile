@@ -24,16 +24,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
 import java.nio.file.Path
 import org.triplea.mobile.app.ui.GameScreen
 import org.triplea.mobile.app.ui.AboutScreen
+import org.triplea.mobile.app.ui.DirectChatScreen
 import org.triplea.mobile.app.ui.HomeScreen
 import org.triplea.mobile.app.ui.HowToPlayScreen
 import org.triplea.mobile.app.ui.LoadGameScreen
 import org.triplea.mobile.app.ui.MapBrowserScreen
+import org.triplea.mobile.app.ui.OnlineScreen
+import org.triplea.mobile.app.ui.AccountScreen
+import org.triplea.mobile.app.ui.ForgotPasswordScreen
+import org.triplea.mobile.app.ui.PrivacyScreen
+import org.triplea.mobile.app.ui.OnlineSetupScreen
+import org.triplea.mobile.app.ui.ProfileScreen
 import org.triplea.mobile.app.ui.SettingsScreen
 import org.triplea.mobile.app.ui.SetupScreen
 
@@ -125,6 +134,48 @@ private fun AppNavigation() {
                 onSettings = { navController.navigate("settings") },
                 onHowToPlay = { navController.navigate("howto") },
                 onAbout = { navController.navigate("about") },
+                onOnline = { navController.navigate("online") },
+            )
+        }
+        composable("online") {
+            OnlineScreen(
+                onBack = { navController.popBackStack() },
+                onOpenGame = { navController.navigate("game") },
+                onOpenSetup = { id -> navController.navigate("onlineSetup" + (id?.let { "?game=$it" } ?: "")) },
+                onOpenChat = { username -> navController.navigate("chat/$username") { launchSingleTop = true } },
+                onOpenAccount = { sentTo -> navController.navigate("account" + (sentTo?.let { "?sentTo=" + Uri.encode(it) } ?: "")) },
+                onOpenPrivacy = { navController.navigate("privacy") },
+                onForgotPassword = { navController.navigate("forgotPassword") },
+                onOpenProfile = { username -> navController.navigate("profile/" + Uri.encode(username)) },
+            )
+        }
+        composable("account?sentTo={sentTo}", arguments = listOf(navArgument("sentTo") { type = NavType.StringType; nullable = true })) { entry ->
+            AccountScreen(onBack = { navController.popBackStack() }, mailedTo = entry.arguments?.getString("sentTo"))
+        }
+        composable("profile/{username}") { entry ->
+            ProfileScreen(
+                username = entry.arguments?.getString("username").orEmpty(),
+                onBack = { navController.popBackStack() },
+                onOpenGame = { navController.navigate("game") },
+            )
+        }
+        composable("privacy") {
+            PrivacyScreen(onBack = { navController.popBackStack() })
+        }
+        composable("forgotPassword") {
+            // logged in: back to the online lists, which read the new tokens
+            ForgotPasswordScreen(onBack = { navController.popBackStack() }, onLoggedIn = { navController.popBackStack() })
+        }
+        composable("chat/{username}") { entry ->
+            DirectChatScreen(username = entry.arguments?.getString("username").orEmpty(), onBack = { navController.popBackStack() })
+        }
+        composable("onlineSetup?game={game}", arguments = listOf(navArgument("game") { type = NavType.StringType; nullable = true })) { entry ->
+            OnlineSetupScreen(
+                gameId = entry.arguments?.getString("game"),
+                onBack = { navController.popBackStack() },
+                onOpenProfile = { username -> navController.navigate("profile/" + Uri.encode(username)) },
+                // the game's quit goes back to the online lists, not to this setup
+                onOpenGame = { navController.navigate("game") { popUpTo("online") } },
             )
         }
         composable("about") {
@@ -162,7 +213,11 @@ private fun AppNavigation() {
         composable("game") {
             GameScreen(
                 onQuit = {
-                    navController.navigate("home") {
+                    // a replay goes back to its profile, an online game to its list (only online games sit on top
+                    // of it); the screen calls this again once the session is gone, so act only while it is shown
+                    val shown = navController.currentDestination?.route == "game"
+                    val back = shown && (navController.popBackStack("profile/{username}", inclusive = false) || navController.popBackStack("online", inclusive = false))
+                    if (shown && !back) navController.navigate("home") {
                         popUpTo("home") { inclusive = true }
                     }
                 },

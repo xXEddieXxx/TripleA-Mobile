@@ -91,6 +91,35 @@ class LocalGameSmokeTest {
     session.stop();
   }
 
+  @Test
+  void desktopSaveLoadsAndPlaysOn() throws Exception {
+    // written by the desktop engine at the base tag, see engine/upstream/generate-desktop-save.sh
+    final Path save =
+        Path.of(
+            LocalGameSmokeTest.class
+                .getResource("/saves/desktop-2026-10.16.15815.tsvg")
+                .toURI());
+    final GameData gameData = MobileEngine.loadSaveGame(save).orElseThrow();
+    final int round = gameData.getSequence().getRound();
+    final String step = gameData.getSequence().getStep().getName();
+    assertThat(round).isEqualTo(2);
+
+    final LocalGameSession session =
+        LocalGameSession.create(gameData, Map.of(), new NoInputUi(), new NoOpEvents());
+    session.setUpForSteps();
+    assertThat(gameData.getSequence().getStep().getName())
+        .as("resumes at the saved step")
+        .isEqualTo(step);
+    int steps = 0;
+    while (gameData.getSequence().getRound() == round && steps < 200 && !session.isGameOver()) {
+      session.runNextStep();
+      steps++;
+    }
+    assertThat(steps).as("continued from step %s", step).isPositive();
+    assertThat(gameData.getSequence().getRound() > round || session.isGameOver()).isTrue();
+    session.stop();
+  }
+
   /** Units per territory, the fingerprint of a game state. */
   private static Map<String, Integer> unitCounts(final GameData data) {
     try (GameData.Unlocker ignored = data.acquireReadLock()) {

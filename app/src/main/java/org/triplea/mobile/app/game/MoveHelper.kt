@@ -17,7 +17,6 @@ import games.strategy.triplea.delegate.TransportTracker
 import games.strategy.triplea.delegate.UnitComparator
 import games.strategy.triplea.util.TransportUtils
 import games.strategy.triplea.UnitUtils
-import org.triplea.mobile.LocalGameSession
 
 /** A move the user is about to confirm. */
 class MovePlan(
@@ -54,9 +53,9 @@ class MadeMove(
 object MoveHelper {
 
     /** The moves of the current move phase, oldest first. */
-    fun movesMade(session: LocalGameSession): List<MadeMove> = runCatching {
+    fun movesMade(session: GameSession): List<MadeMove> = runCatching {
         session.gameData.acquireReadLock().use {
-            session.getCurrentRemoteDelegate(IMoveDelegate::class.java).movesMade.mapIndexed { index, move ->
+            session.currentDelegate(IMoveDelegate::class.java).movesMade.mapIndexed { index, move ->
                 val canUndo = move.canUndo
                 MadeMove(
                     index = index,
@@ -71,9 +70,9 @@ object MoveHelper {
     }.getOrDefault(emptyList())
 
     /** The placements of the current placement phase, oldest first. */
-    fun placementsMade(session: LocalGameSession): List<MadeMove> = runCatching {
+    fun placementsMade(session: GameSession): List<MadeMove> = runCatching {
         session.gameData.acquireReadLock().use {
-            session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java).movesMade.mapIndexed { index, placement ->
+            session.currentDelegate(IAbstractPlaceDelegate::class.java).movesMade.mapIndexed { index, placement ->
                 val canUndo = placement.canUndo
                 MadeMove(
                     index = index,
@@ -88,15 +87,15 @@ object MoveHelper {
     }.getOrDefault(emptyList())
 
     /** Undoes the move with the given index of [movesMade]; returns an error text or null. */
-    fun undoMoveAt(session: LocalGameSession, index: Int): String? = runCatching {
-        session.getCurrentRemoteDelegate(IMoveDelegate::class.java).undoMove(index)
+    fun undoMoveAt(session: GameSession, index: Int): String? = runCatching {
+        session.currentDelegate(IMoveDelegate::class.java).undoMove(index)
     }.getOrElse { it.message }
 
-    fun undoPlacementAt(session: LocalGameSession, index: Int): String? = runCatching {
-        session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java).undoMove(index)
+    fun undoPlacementAt(session: GameSession, index: Int): String? = runCatching {
+        session.currentDelegate(IAbstractPlaceDelegate::class.java).undoMove(index)
     }.getOrElse { it.message }
 
-    fun territory(session: LocalGameSession, name: String): Territory? =
+    fun territory(session: GameSession, name: String): Territory? =
         session.gameData.map.getTerritoryOrNull(name)
 
     /**
@@ -105,7 +104,7 @@ object MoveHelper {
      * lets cargo unload regardless of its own movement (the transport carries it), so it stays
      * selectable for an unload or amphibious assault in the same turn.
      */
-    fun movableUnits(session: LocalGameSession, player: GamePlayer, territory: Territory): List<Unit> {
+    fun movableUnits(session: GameSession, player: GamePlayer, territory: Territory): List<Unit> {
         session.gameData.acquireReadLock().use {
             return territory.units.filter {
                 it.owner == player &&
@@ -119,7 +118,7 @@ object MoveHelper {
      * The units with each type kept together in its first-seen order and the most movement left first
      * within a type, like a desktop click: taking "one fighter" takes the one that reaches farthest.
      */
-    fun mostMovementFirst(session: LocalGameSession, units: List<Unit>): List<Unit> {
+    fun mostMovementFirst(session: GameSession, units: List<Unit>): List<Unit> {
         val mostFirst = UnitComparator.getHighestToLowestMovementComparator()
         session.gameData.acquireReadLock().use {
             return units.groupBy { it.type }.values.flatMap { it.sortedWith(mostFirst) }
@@ -132,7 +131,7 @@ object MoveHelper {
      * transport, so its own spent movement would read as "cannot move" and is left out; fighters on an
      * allied carrier also count as transported but fly on their own movement.
      */
-    fun movesLeftLabels(session: LocalGameSession, units: List<Unit>): Map<Unit, String> {
+    fun movesLeftLabels(session: GameSession, units: List<Unit>): Map<Unit, String> {
         val landCargo = Matches.unitIsLand().and(Matches.unitIsBeingTransported())
         session.gameData.acquireReadLock().use {
             // unmoved units with the standard movement of their type get no label, so they stay one plain row
@@ -147,7 +146,7 @@ object MoveHelper {
      * still move in this phase. The desktop stops once per territory; a type at a time suits a small
      * screen, where the next tap is the destination.
      */
-    fun scrollerStops(session: LocalGameSession, player: GamePlayer, nonCombat: Boolean): List<Pair<Territory, List<Unit>>> {
+    fun scrollerStops(session: GameSession, player: GamePlayer, nonCombat: Boolean): List<Pair<Territory, List<Unit>>> {
         val combatMove = Matches.unitCanMoveDuringCombatMove()
         session.gameData.acquireReadLock().use {
             return session.gameData.map.territories.flatMap { territory ->
@@ -161,7 +160,7 @@ object MoveHelper {
 
     /** Validates a move and reduces the units to those that can actually make it. */
     fun plan(
-        session: LocalGameSession,
+        session: GameSession,
         player: GamePlayer,
         nonCombat: Boolean,
         from: Territory,
@@ -171,7 +170,7 @@ object MoveHelper {
         transports: List<Unit>? = null,
     ): Result<MovePlan> = runCatching {
         val gameData = session.gameData
-        val movesMade = session.getCurrentRemoteDelegate(IMoveDelegate::class.java).movesMade
+        val movesMade = session.currentDelegate(IMoveDelegate::class.java).movesMade
         gameData.acquireReadLock().use {
             val route = MoveValidator.getBestRoute(from, to, gameData, player, units, false).orElse(null)
                 ?: throw IllegalArgumentException("No route from ${from.name} to ${to.name}")
@@ -242,21 +241,11 @@ object MoveHelper {
         }
     }
 
-    fun movesMadeCount(session: LocalGameSession): Int = runCatching {
-        session.getCurrentRemoteDelegate(IMoveDelegate::class.java).movesMade.size
-    }.getOrDefault(0)
-
-    fun undoLastMove(session: LocalGameSession): String? = runCatching {
-        val delegate = session.getCurrentRemoteDelegate(IMoveDelegate::class.java)
-        val count = delegate.movesMade.size
-        if (count == 0) "Nothing to undo" else delegate.undoMove(count - 1)
-    }.getOrElse { it.message }
-
     /**
      * How many units the player can place this turn with the factories they own, or null when the
      * rules allow placement anywhere (unlimited). Mirrors the estimate the AI uses for purchases.
      */
-    fun placementCapacity(session: LocalGameSession, player: GamePlayer): Int? = runCatching {
+    fun placementCapacity(session: GameSession, player: GamePlayer): Int? = runCatching {
         val gameData = session.gameData
         gameData.acquireReadLock().use {
             val rules = player.rulesAttachment
@@ -273,21 +262,15 @@ object MoveHelper {
     }.getOrNull()
 
     /** Units the player has bought and not placed yet. */
-    fun unitsToPlace(session: LocalGameSession, player: GamePlayer): List<Unit> {
+    fun unitsToPlace(session: GameSession, player: GamePlayer): List<Unit> {
         session.gameData.acquireReadLock().use {
             return player.unitCollection.units.toList()
         }
     }
 
-    fun placeableUnits(session: LocalGameSession, player: GamePlayer, territory: Territory): Result<PlaceableUnits> =
+    fun placeableUnits(session: GameSession, player: GamePlayer, territory: Territory): Result<PlaceableUnits> =
         runCatching {
             val units = unitsToPlace(session, player)
-            session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java).getPlaceableUnits(units, territory)
+            session.currentDelegate(IAbstractPlaceDelegate::class.java).getPlaceableUnits(units, territory)
         }
-
-    fun undoLastPlacement(session: LocalGameSession): String? = runCatching {
-        val delegate = session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java)
-        val count = delegate.placementsMade
-        if (count == 0) "Nothing to undo" else delegate.undoMove(count - 1)
-    }.getOrElse { it.message }
 }

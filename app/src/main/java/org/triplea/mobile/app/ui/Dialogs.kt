@@ -75,8 +75,8 @@ import games.strategy.triplea.attachments.UnitAttachment
 import games.strategy.triplea.util.TuvUtils
 import games.strategy.triplea.ui.PoliticsText
 import games.strategy.triplea.ui.UserActionText
-import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.game.GameSession
 import org.triplea.mobile.app.game.MadeMove
 import org.triplea.mobile.app.game.PoliticsRequest
 import org.triplea.mobile.app.game.UserActionRequest
@@ -591,7 +591,7 @@ class UnitStatsEntry(val type: UnitType, val cost: String?)
  * The unit types of every nation like the desktop "Unit Help": what it can build plus what it owns
  * on the map; nations without units are left out.
  */
-fun unitStatsByPlayer(session: LocalGameSession): Map<GamePlayer, List<UnitStatsEntry>> {
+fun unitStatsByPlayer(session: GameSession): Map<GamePlayer, List<UnitStatsEntry>> {
     val data = session.gameData
     data.acquireReadLock().use {
         val costs = runCatching { TuvUtils.getResourceCostsForTuv(data, true) }.getOrDefault(emptyMap())
@@ -892,14 +892,15 @@ fun MovesDialog(
     images: ImageCache?,
     onShowRoute: (MadeMove) -> kotlin.Unit,
     onUndo: (MadeMove) -> kotlin.Unit,
-    onUndoAll: () -> kotlin.Unit,
+    /** Null hides "Undo all" (online, where moves are undone one at a time). */
+    onUndoAll: (() -> kotlin.Unit)?,
     onClose: () -> kotlin.Unit,
 ) {
     AppDialog(
         title = title,
         onDismiss = onClose,
         buttons = {
-            if (moves.any { it.canUndo }) TextButton(onClick = onUndoAll) { Text("Undo all") }
+            if (onUndoAll != null && moves.any { it.canUndo }) TextButton(onClick = onUndoAll) { Text("Undo all") }
         },
     ) {
         LazyColumn { item { MovesList(moves, images, onShowRoute, onUndo) } }
@@ -962,7 +963,7 @@ private fun <T : AbstractUserActionAttachment> ActionChoiceDialog(
 
 /** The politics phase: the desktop client's politics panel with the map's own texts. */
 @Composable
-fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession, onShowRelations: (() -> kotlin.Unit)?, onShowMap: () -> kotlin.Unit) {
+fun PoliticsDialog(request: PoliticsRequest, session: GameSession, onShowRelations: (() -> kotlin.Unit)?, onShowMap: () -> kotlin.Unit) {
     val texts = remember(session) { runCatching { PoliticsText(session.resourceLoader) }.getOrNull() }
     ActionChoiceDialog(
         title = "Politics: ${request.player.name}",
@@ -978,7 +979,7 @@ fun PoliticsDialog(request: PoliticsRequest, session: LocalGameSession, onShowRe
 
 /** The user actions phase (map specific actions such as lend-lease or mobilisation). */
 @Composable
-fun UserActionDialog(request: UserActionRequest, session: LocalGameSession, onShowMap: () -> kotlin.Unit) {
+fun UserActionDialog(request: UserActionRequest, session: GameSession, onShowMap: () -> kotlin.Unit) {
     val texts = remember(session) { runCatching { UserActionText(session.resourceLoader) }.getOrNull() }
     ActionChoiceDialog(
         title = "Actions: ${request.player.name}",

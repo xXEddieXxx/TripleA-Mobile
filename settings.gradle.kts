@@ -20,4 +20,7 @@ dependencyResolutionManagement {
 rootProject.name = "triplea-mobile"
 
 include(":engine")
+include(":protocol")
+include(":online")
+include(":online-client")
 include(":app")

@@ -8,6 +8,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -47,8 +49,11 @@ class ImageCache(private val loader: ResourceLoader) {
 
     private fun cacheKey(key: String, sampleSize: Int) = if (sampleSize <= 1) key else "$key@$sampleSize"
 
-    /** True once a decode attempt found no file for [key]; such tiles are simply not drawn. */
-    fun isMissing(key: String): Boolean = missing.contains(key)
+    /**
+     * True once decode attempts found none of [candidates]; such tiles are simply not drawn. Kept per path,
+     * so a caller with other fallbacks for the same key (a flag's `_large`) still finds its image.
+     */
+    fun isMissing(key: String, candidates: List<String> = listOf(key)): Boolean = candidates.all { it in missing }
 
     /**
      * Returns the image if it is already decoded, otherwise starts decoding and returns null.
@@ -66,15 +71,12 @@ class ImageCache(private val loader: ResourceLoader) {
     fun getDecoded(key: String, candidates: List<String> = listOf(key), sampleSize: Int = 1): Decoded? {
         val wanted = cacheKey(key, sampleSize)
         cache.get(wanted)?.let { return Decoded(it, sampleSize) }
-        if (missing.contains(key)) return null
+        if (isMissing(key, candidates)) return null
         if (loading.add(wanted)) {
             executor.execute {
                 try {
-                    val bitmap = decode(candidates, sampleSize)
-                    if (bitmap == null) {
-                        missing.add(key)
-                    } else {
-                        cache.put(wanted, bitmap)
+                    decode(candidates, sampleSize)?.let {
+                        cache.put(wanted, it)
                         markDirty()
                     }
                 } finally {
@@ -92,18 +94,26 @@ class ImageCache(private val loader: ResourceLoader) {
     /** Decodes synchronously; use for small icons shown in dialogs. */
     fun getNow(key: String, candidates: List<String> = listOf(key)): Bitmap? {
         cache.get(key)?.let { return it }
-        if (missing.contains(key)) return null
-        val bitmap = decode(candidates)
-        if (bitmap == null) missing.add(key) else cache.put(key, bitmap)
-        return bitmap
+        if (isMissing(key, candidates)) return null
+        return decode(candidates)?.also { cache.put(key, it) }
     }
 
+    /** The full size image if it is already decoded; never starts a decode. */
+    fun getCachedOrNull(key: String): Bitmap? = cache.get(key)
+
+    /** Like [getNow], but decodes on [Dispatchers.IO]; null when no candidate exists. */
+    suspend fun load(key: String, candidates: List<String> = listOf(key)): Bitmap? =
+        getCachedOrNull(key) ?: if (isMissing(key, candidates)) null else withContext(Dispatchers.IO) { getNow(key, candidates) }
+
+    /** The first candidate that decodes; every one tried before it is remembered as missing. */
     private fun decode(candidates: List<String>, sampleSize: Int = 1): Bitmap? {
         val options = BitmapFactory.Options().apply { inSampleSize = sampleSize.coerceAtLeast(1) }
         for (candidate in candidates) {
-            val path = loader.optionalResource(candidate).orElse(null) ?: continue
-            val bitmap = BitmapFactory.decodeFile(path.toString(), options) ?: continue
-            return bitmap
+            if (candidate in missing) continue
+            val path = loader.optionalResource(candidate).orElse(null)
+            val bitmap = path?.let { BitmapFactory.decodeFile(it.toString(), options) }
+            if (bitmap != null) return bitmap
+            missing.add(candidate)
         }
         return null
     }

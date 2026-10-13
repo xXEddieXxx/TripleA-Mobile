@@ -34,7 +34,6 @@ import games.strategy.triplea.util.TuvCostsCalculator
 import games.strategy.triplea.util.TuvUtils
 import games.strategy.triplea.util.UnitSeparator
 import org.triplea.geom.Polygon
-import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.UnitImageNames
 import org.triplea.util.FileNameUtils
 import java.lang.ref.SoftReference
@@ -225,9 +224,9 @@ class MapSnapshot(
         /**
          * Builds a snapshot under the game data read lock. [gameData] defaults to the live game; a
          * `HistoryView` clone gives the map as it was at a point of the history (its history list and
-         * objectives are left out: the live ones apply, and the objective cache is bound to the session).
+         * objectives are left out: the live ones apply, and the objective cache is bound to the live data).
          */
-        fun build(session: LocalGameSession, version: Int, gameData: GameData = session.gameData): MapSnapshot {
+        fun build(session: GameSession, version: Int, gameData: GameData = session.gameData): MapSnapshot {
             val live = gameData === session.gameData
             val mapData: MapData = session.mapData
             val unitWidth = (mapData.defaultUnitWidth * mapData.defaultUnitScale).toInt().coerceAtLeast(8)
@@ -382,12 +381,12 @@ class MapSnapshot(
          * engine's own condition code (the same the end turn phase uses to pay them out). The text
          * comes from the map's objectives.properties when it has one, else from the rule itself.
          */
-        private fun readObjectives(session: LocalGameSession): List<ObjectiveLine> = runCatching {
+        private fun readObjectives(session: GameSession): List<ObjectiveLine> = runCatching {
             val data = session.gameData
             if (!Properties.getNationalObjectives(data.properties)) return@runCatching emptyList()
-            // the file and the conditions it names do not change during a game: parse once per session
-            val parsed = objectiveCache?.get()?.takeIf { it.session === session }
-                ?: loadObjectiveTexts(session).let { ParsedObjectives(session, it, listedObjectives(data, it)) }
+            // the conditions belong to one GameData (an online copy is replaced on every save): parse once per copy
+            val parsed = objectiveCache?.get()?.takeIf { it.data === data }
+                ?: loadObjectiveTexts(session).let { ParsedObjectives(data, it, listedObjectives(data, it)) }
                     .also { objectiveCache = SoftReference(it) }
             val bridge = ObjectiveDummyDelegateBridge(data)
             if (parsed.listed.isNotEmpty()) testObjectives(parsed, bridge) else ruleObjectives(data, parsed.texts, bridge)
@@ -397,7 +396,7 @@ class MapSnapshot(
         private class Listed(val player: String, val owner: String, val name: String, val condition: ICondition, val text: String)
 
         /** objectives.properties of one game, parsed once; `all` is the condition graph the listed ones depend on. */
-        private class ParsedObjectives(val session: LocalGameSession, val texts: Map<String, String>, val listed: List<Listed>) {
+        private class ParsedObjectives(val data: GameData, val texts: Map<String, String>, val listed: List<Listed>) {
             val all: Set<ICondition> = AbstractConditionsAttachment.getAllConditionsRecursive(listed.mapTo(HashSet()) { it.condition }, null)
         }
 
@@ -474,7 +473,7 @@ class MapSnapshot(
         }
 
         /** objectives.properties of the map: "Player.objectiveName=text" lines, HTML stripped. */
-        private fun loadObjectiveTexts(session: LocalGameSession): Map<String, String> = runCatching {
+        private fun loadObjectiveTexts(session: GameSession): Map<String, String> = runCatching {
             val file = session.resourceLoader.optionalResource("objectives.properties").orElse(null) ?: return@runCatching emptyMap()
             val props = java.util.Properties()
             java.io.InputStreamReader(java.nio.file.Files.newInputStream(file), Charsets.UTF_8).use { props.load(it) }

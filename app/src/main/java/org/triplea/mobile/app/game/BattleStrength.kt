@@ -6,7 +6,6 @@ import games.strategy.triplea.Properties
 import games.strategy.triplea.delegate.TerritoryEffectHelper
 import games.strategy.triplea.delegate.power.calculator.CombatValueBuilder
 import games.strategy.triplea.delegate.power.calculator.PowerStrengthAndRolls
-import org.triplea.mobile.LocalGameSession
 
 /** Strength (the number a die must roll at or below) and dice per unit of one side of a battle. */
 class SideStrength(
@@ -31,7 +30,7 @@ class BattleStrengths(val attackers: SideStrength, val defenders: SideStrength)
  * the dice will use them.
  */
 object BattleStrength {
-    fun compute(session: LocalGameSession, attacking: List<Unit>, defending: List<Unit>, territoryName: String): BattleStrengths? =
+    fun compute(session: GameSession, attacking: List<Unit>, defending: List<Unit>, territoryName: String): BattleStrengths? =
         runCatching {
             val data = session.gameData
             data.acquireReadLock().use {

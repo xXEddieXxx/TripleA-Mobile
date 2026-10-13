@@ -7,6 +7,8 @@ import games.strategy.triplea.settings.ClientSetting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.triplea.mobile.online.client.TokenStore
+import org.triplea.mobile.protocol.TokensDto
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
@@ -65,6 +67,8 @@ data class Settings(
     val soundOther: Boolean = true,
     /** Sound era folder override ("" = what the map or the engine default says). */
     val soundTheme: String = "",
+    /** The game server for online play; only debug builds show and use it. */
+    val serverUrl: String = "http://10.0.2.2:8080",
 )
 
 /** Holds the current [Settings], persists them and pushes the engine relevant ones into [ClientSetting]. */
@@ -77,6 +81,7 @@ object AppSettings {
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        tokens = PrefsTokenStore(context)
         val defaults = Settings()
         _state.value = Settings(
             confirmPhaseEnd = prefs.getBoolean("confirmPhaseEnd", defaults.confirmPhaseEnd),
@@ -111,6 +116,7 @@ object AppSettings {
             soundPlacement = prefs.getBoolean("soundPlacement", defaults.soundPlacement),
             soundOther = prefs.getBoolean("soundOther", defaults.soundOther),
             soundTheme = prefs.getString("soundTheme", defaults.soundTheme) ?: defaults.soundTheme,
+            serverUrl = prefs.getString("serverUrl", defaults.serverUrl) ?: defaults.serverUrl,
         )
         // builds before the map followed AI moves stored 0 for everyone: switch those to the new
         // default once; a 0 set on purpose afterwards is kept
@@ -124,8 +130,14 @@ object AppSettings {
         applyToEngine(_state.value)
     }
 
+    /** The online login, kept apart from the settings. */
+    lateinit var tokens: PrefsTokenStore
+        private set
+
     fun update(change: (Settings) -> Settings) {
         val next = change(_state.value)
+        // the login belongs to the old server: its tokens must never go to another host
+        if (next.serverUrl != _state.value.serverUrl) tokens.clear()
         _state.value = next
         prefs.edit {
             putBoolean("confirmPhaseEnd", next.confirmPhaseEnd)
@@ -160,6 +172,7 @@ object AppSettings {
             putBoolean("soundPlacement", next.soundPlacement)
             putBoolean("soundOther", next.soundOther)
             putString("soundTheme", next.soundTheme)
+            putString("serverUrl", next.serverUrl)
         }
         applyToEngine(next)
     }
@@ -170,4 +183,27 @@ object AppSettings {
         ClientSetting.aiMovePauseDuration.setValue(settings.aiMovePauseMillis)
         ClientSetting.aiCombatStepPauseDuration.setValue(settings.aiCombatStepPauseMillis)
     }
+}
+
+/** The online login, in its own private preferences file "online"; tokens never go to logs. */
+class PrefsTokenStore(context: Context) : TokenStore {
+    private val prefs = context.getSharedPreferences("online", Context.MODE_PRIVATE)
+
+    override var tokens: TokensDto?
+        get() {
+            val access = prefs.getString("accessToken", null) ?: return null
+            val refresh = prefs.getString("refreshToken", null) ?: return null
+            return TokensDto(access, refresh, prefs.getLong("expiresInSeconds", 0), prefs.getString("username", null).orEmpty())
+        }
+        set(value) {
+            if (value == null) return clear()
+            prefs.edit {
+                putString("accessToken", value.accessToken)
+                putString("refreshToken", value.refreshToken)
+                putLong("expiresInSeconds", value.expiresInSeconds)
+                putString("username", value.username)
+            }
+        }
+
+    override fun clear() = prefs.edit { clear() }
 }

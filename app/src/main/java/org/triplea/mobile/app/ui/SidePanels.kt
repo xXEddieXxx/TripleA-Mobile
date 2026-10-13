@@ -40,6 +40,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.launch
+import android.graphics.Bitmap
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -208,11 +211,32 @@ private fun relationCodes(types: List<String>): Map<String, String> {
     return codes
 }
 
-/** A nation's flag fitted into a [size] box, when the map has one (the neutral pseudo nations usually have none). */
+/**
+ * A nation's flag fitted into a [size] box, when the map has one (the neutral pseudo nations usually have none).
+ * Decoded off the main thread into [images]' cache; the box keeps its size while loading, so rows do not shift
+ * then. A nation known to have no flag gets no box at all.
+ */
 @Composable
 internal fun NationFlag(images: ImageCache?, nation: String, size: Dp = 16.dp, modifier: Modifier = Modifier) {
-    val flag = remember(nation, images) { images?.getNow("flags/$nation.png", listOf("flags/$nation.png", "flags/${nation}_small.png")) }
-    if (flag != null) Image(flag.asImageBitmap(), contentDescription = displayName(nation), contentScale = ContentScale.Fit, modifier = modifier.size(size))
+    val (flag, missing) = rememberFlag(images, nation)
+    if (flag == null && missing) return
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        flag?.let { Image(it.asImageBitmap(), contentDescription = displayName(nation), contentScale = ContentScale.Fit, modifier = Modifier.size(size)) }
+    }
+}
+
+/** The nation's flag, decoded off the main thread, and whether it is known to be missing (the flag is null while loading too). */
+@Composable
+private fun rememberFlag(images: ImageCache?, nation: String): Pair<Bitmap?, Boolean> {
+    val path = "flags/$nation.png"
+    val candidates = listOf(path, "flags/${nation}_small.png")
+    // key(nation): a new nation starts from its own cached flag, never the previous nation's
+    val flag by key(nation, images) {
+        produceState(images?.getCachedOrNull(path) to (images == null || images.isMissing(path, candidates)), nation, images) {
+            value = images?.load(path, candidates).let { it to (it == null) }
+        }
+    }
+    return flag
 }
 
 /**
@@ -224,7 +248,7 @@ internal fun NationFlag(images: ImageCache?, nation: String, size: Dp = 16.dp, m
 private fun NationBadge(images: ImageCache?, nation: String) {
     val tooltip = rememberTooltipState()
     val scope = rememberCoroutineScope()
-    val flag = remember(nation, images) { images?.getNow("flags/$nation.png", listOf("flags/$nation.png", "flags/${nation}_small.png")) }
+    val (flag) = rememberFlag(images, nation)
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Right),
         tooltip = { PlainTooltip { Text(displayName(nation)) } },

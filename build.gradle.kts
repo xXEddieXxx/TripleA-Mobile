@@ -1,10 +1,12 @@
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.compose) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.sonarqube)
 }
 
-// SonarQube Cloud analysis of both modules (`./gradlew sonar`, see docs/DEVELOPMENT.md).
+// SonarQube Cloud analysis of the five modules (`./gradlew sonar`, see docs/DEVELOPMENT.md).
 // The token comes from the SONAR_TOKEN environment variable, never from the repository.
 sonar {
     properties {

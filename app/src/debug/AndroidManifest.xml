@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: permissions for a local game server; cleartext comes from res/xml/network_security_config.xml. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 17 blocks private addresses (10.0.2.2, a LAN server) without it; asked on the Online screen -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- the online games' turn notifications (TurnCheckWorker); asked on the Online screen -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+</manifest>

@@ -12,13 +12,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import org.triplea.mobile.app.AppServices
 import androidx.compose.material3.CircularProgressIndicator
@@ -178,26 +175,12 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                         }
                     }
                 items(players, key = { it.name }) { player ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        NationFlag(player.name)
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            player.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(8.dp))
+                    NationRow(player.name) {
                         PlayerKindPicker(
                             kind = kinds[player.name] ?: PlayerKind.AI_HARD,
                             onChange = { kinds[player.name] = it },
                         )
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
                 }
             }
@@ -248,47 +231,62 @@ private fun QuickPick(label: String, onPick: (PlayerKind) -> Unit) {
 
 private val PICKER_WIDTH = 104.dp
 
-/** The nation's flag from the engine assets or the map, or a blank placeholder. */
+/** One nation of a setup list: flag, name and its [picker], with a divider below (single player and online). */
 @Composable
-private fun NationFlag(name: String) {
-    val bitmap = remember(name) {
-        runCatching {
-            val candidates = listOf(
-                AppServices.engineAssetsDir.resolve("flags").resolve("$name.png"),
-                AppServices.engineAssetsDir.resolve("flags").resolve("${name}_small.png"),
-            )
-            candidates.firstOrNull { java.nio.file.Files.exists(it) }?.let { android.graphics.BitmapFactory.decodeFile(it.toString()) }
-        }.getOrNull()
+internal fun NationRow(name: String, picker: @Composable () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NationFlag(AppServices.engineImages, name, size = 32.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            name,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        picker()
     }
-    if (bitmap != null) {
-        androidx.compose.foundation.Image(bitmap.asImageBitmap(), contentDescription = name, modifier = Modifier.height(20.dp).widthIn(max = 34.dp))
-    } else {
-        Spacer(Modifier.width(24.dp))
-    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
 /** Human or one of the AIs, as a fixed width dropdown so long nation names never push it away. */
 @Composable
 private fun PlayerKindPicker(kind: PlayerKind, onChange: (PlayerKind) -> Unit) {
+    PickerButton(
+        kind.label.removeSuffix(" (AI)"),
+        PlayerKind.values().map { option -> option.label to { onChange(option) } },
+        color = if (kind == PlayerKind.HUMAN) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+/**
+ * The fixed width dropdown of a nation row: shows [label], offers [options] (text and action).
+ * Disabled when there are no options.
+ */
+@Composable
+internal fun PickerButton(label: String, options: List<Pair<String, () -> Unit>>, color: androidx.compose.ui.graphics.Color, width: androidx.compose.ui.unit.Dp = PICKER_WIDTH) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(
             onClick = { expanded = true },
-            modifier = Modifier.width(PICKER_WIDTH),
+            enabled = options.isNotEmpty(),
+            modifier = Modifier.width(width),
             contentPadding = PaddingValues(horizontal = 8.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = if (kind == PlayerKind.HUMAN) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            ),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = color, disabledContentColor = color),
         ) {
-            Text(kind.label.removeSuffix(" (AI)"), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            PlayerKind.values().forEach { option ->
+            options.forEach { (text, action) ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = { Text(text) },
                     onClick = {
                         expanded = false
-                        onChange(option)
+                        action()
                     },
                 )
             }

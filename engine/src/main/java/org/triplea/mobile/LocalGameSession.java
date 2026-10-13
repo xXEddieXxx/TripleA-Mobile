@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -64,7 +65,21 @@ public final class LocalGameSession {
       final Map<String, PlayerKind> playerKinds,
       final HumanPlayerUi humanUi,
       final GameEventListener listener) {
-    final PlayerTypes.Type humanType = PlayerKind.humanType(humanUi);
+    return create(gameData, playerKinds, nation -> humanUi, listener);
+  }
+
+  /**
+   * Like {@link #create(GameData, Map, HumanPlayerUi, GameEventListener)}, but every human nation
+   * gets its own UI: online play asks each seat through its own connection.
+   *
+   * @param humanUiFor The UI bridge for a human nation, by nation name.
+   */
+  public static LocalGameSession create(
+      final GameData gameData,
+      final Map<String, PlayerKind> playerKinds,
+      final Function<String, HumanPlayerUi> humanUiFor,
+      final GameEventListener listener) {
+    final PlayerTypes.Type humanType = PlayerKind.humanType(humanUiFor);
     final MobileLaunchAction launchAction = new MobileLaunchAction(listener, humanType);
     final PlayerTypes playerTypes = new PlayerTypes(launchAction.getPlayerTypes());
 
@@ -77,7 +92,7 @@ public final class LocalGameSession {
             gamePlayer -> {
               final PlayerKind kind =
                   playerKinds.getOrDefault(gamePlayer.getName(), PlayerKind.AI_FAST);
-              typeByPlayer.put(gamePlayer.getName(), kind.toPlayerType(humanUi));
+              typeByPlayer.put(gamePlayer.getName(), kind.toPlayerType(humanUiFor));
               enabledByPlayer.put(gamePlayer.getName(), true);
             });
 

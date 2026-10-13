@@ -1,0 +1,73 @@
+{"type":"update_required","protocolVersion":1,"engineBaseTag":"2026-10.16.15815"}
+{"type":"game_version","gameId":"g1","version":7}
+{"type":"rejected","questionId":3,"reason":"unknown territory nowhere"}
+{"type":"placeable_result","questionId":4,"territory":"red capitol","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"maxUnits":3}
+{"type":"placeable_result","questionId":5,"territory":"red north 1","units":[],"maxUnits":0,"error":"No factory"}
+{"type":"question","id":1,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"purchase","player":"Russians","bid":false,"keepCurrentPurchase":false},"deadline":1800000000000}
+{"type":"question","id":2,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"repair","player":"Russians","bid":false,"allowedPlayers":["Russians"]}}
+{"type":"question","id":3,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"tech","player":"Russians"}}
+{"type":"question","id":4,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"move","player":"Russians","nonCombat":false,"step":"russianCombatMove"}}
+{"type":"question","id":5,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"air_cant_land","player":"Russians","territories":["sea zone 1"],"movePhase":true}}
+{"type":"question","id":6,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"units_cant_fight","territories":["blue north 2"]}}
+{"type":"question","id":7,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"battle","player":"Russians","battles":{"NORMAL":["blue north 2"]}}}
+{"type":"question","id":8,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"place","player":"Russians","bid":false}}
+{"type":"question","id":9,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"end_turn","player":"Russians"}}
+{"type":"question","id":10,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"politics","player":"Russians","firstRun":true,"actions":["politicalActionAttachment_Russians_toWar"]}}
+{"type":"question","id":11,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"user_action","player":"Russians","firstRun":true,"actions":["userActionAttachment_Russians_bribe"]}}
+{"type":"question","id":12,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"confirm","title":"Attack submarines","question":"Attack submarines in sea zone 1?","territory":"sea zone 1"}}
+{"type":"question","id":13,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"select_units","candidates":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10","7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"],"title":"Bombing target","message":"Select the unit to bomb","max":1}}
+{"type":"question","id":14,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"casualties","selectFrom":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10","7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"],"count":1,"message":"Russians select casualties","dice":{"dice":[{"value":0,"rolledAt":2,"kind":"HIT"},{"value":4,"rolledAt":2,"kind":"MISS"}],"hits":1,"expectedHits":0.66,"player":"Russians"},"hit":"Russians","defaultKilled":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"defaultDamaged":[],"battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","allowMultipleHitsPerUnit":false}}
+{"type":"question","id":15,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"select_territory","candidates":["sea zone 1"],"title":"Rocket attack","message":"Where should rockets attack?","noneAllowed":true}}
+{"type":"question","id":16,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"retreat","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","submerge":false,"battleTerritory":"blue north 2","possible":["red north 2"],"message":"Retreat?"}}
+{"type":"question","id":17,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"scramble","player":"Italians","scrambleTo":"sea zone 2","options":{"blue north 1":{"airbases":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"units":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"]}}}}
+{"type":"question","id":18,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"confirm_casualties","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","message":"Russians lose 1 infantry"}}
+{"type":"question","id":19,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"accept_action","from":"Italians","question":"Accept peace?","politics":true}}
+{"type":"question","id":20,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"kamikaze","player":"Italians","targets":{"sea zone 2":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"]},"resource":"suicideAttackTokens","max":2}}
+{"type":"question","id":21,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"pick_territory_and_units","player":"Russians","territories":["red capitol"],"units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"unitsPerPick":1}}
+{"type":"notice","gameId":"g1","seat":"Russians","version":7,"note":{"type":"phase_started","player":"Russians","step":"russianPurchase"}}
+{"type":"notice","gameId":"g1","seat":"Russians","version":7,"note":{"type":"error","text":"Not enough PUs"}}
+{"type":"notice","gameId":"g1","seat":"Russians","version":7,"note":{"type":"message","title":"Victory","text":"Russians win"}}
+{"type":"notice","gameId":"g1","seat":"Russians","version":7,"note":{"type":"tech_results","rolls":[0,5],"hits":1,"remainder":0,"advances":["heavyBomber"]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"message","title":"Battle","text":"Russians attack"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"game_ended","message":"Russians win"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"step_changed","step":"russianPurchase","displayName":"Purchase","player":"Russians","round":1}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"battle_started","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","territory":"blue north 2","title":"Russians attack Italians","attackingUnits":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"defendingUnits":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"],"attacker":"Russians","defender":"Italians","battleType":"NORMAL"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"battle_steps","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","steps":["Russians fire","Italians fire"]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"battle_step","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","step":"Russians fire"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"battle_ended","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","message":"Russians win"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"dice_rolled","dice":{"dice":[{"value":0,"rolledAt":2,"kind":"HIT"},{"value":4,"rolledAt":2,"kind":"MISS"}],"hits":1,"expectedHits":0.66,"player":"Russians"},"step":"Russians fire"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"casualties","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","step":"Italians select casualties","dice":{"dice":[{"value":0,"rolledAt":2,"kind":"HIT"},{"value":4,"rolledAt":2,"kind":"MISS"}],"hits":1,"expectedHits":0.66,"player":"Russians"},"player":"Italians","killed":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"],"damaged":[]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"units_died","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","player":"Italians","dead":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"units_changed","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","player":"Russians","removed":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"added":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"bombing_results","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","dice":[{"value":3,"rolledAt":0,"kind":"IGNORED"}],"cost":4}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"retreat","shortMessage":"retreats","message":"Russians retreat","step":"Russians retreat","player":"Russians"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"units_retreated","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"units_moved","player":"Russians","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"route":["red north 2","blue north 2"]}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"play_sound","clip":"battle_land","player":"Russians"}}
+{"type":"hello","protocolVersion":1,"engineBaseTag":"2026-10.16.15815"}
+{"type":"placeable_query","questionId":4,"territory":"red capitol","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"]}
+{"type":"answer","questionId":1,"reply":{"type":"done"}}
+{"type":"answer","questionId":2,"reply":{"type":"yes_no","yes":true}}
+{"type":"answer","questionId":3,"reply":{"type":"purchase","rules":{"buyInfantry":2}}}
+{"type":"answer","questionId":4,"reply":{"type":"repair","units":{"2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10":{"repairFactory":1}}}}
+{"type":"answer","questionId":5,"reply":{"type":"tech","category":null,"advances":["heavyBomber"],"rolls":1,"newTokens":0,"whoPays":{"Russians":5}}}
+{"type":"answer","questionId":6,"reply":{"type":"move","move":{"units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"route":["red north 2","blue north 2"],"seaTransports":{"2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"}}}}
+{"type":"answer","questionId":7,"reply":{"type":"undo","index":0}}
+{"type":"answer","questionId":8,"reply":{"type":"battle","territory":"blue north 2","bombingRaid":false,"battleType":"NORMAL"}}
+{"type":"answer","questionId":9,"reply":{"type":"place","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"territory":"red capitol"}}
+{"type":"answer","questionId":10,"reply":{"type":"choice","name":"politicalActionAttachment_Russians_toWar"}}
+{"type":"answer","questionId":11,"reply":{"type":"units","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"]}}
+{"type":"answer","questionId":12,"reply":{"type":"casualties","killed":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"damaged":[],"autoCalculated":false}}
+{"type":"answer","questionId":13,"reply":{"type":"territory","territory":"red north 2"}}
+{"type":"answer","questionId":14,"reply":{"type":"scramble","units":{"blue north 1":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"]}}}
+{"type":"answer","questionId":15,"reply":{"type":"kamikaze","attacks":{"sea zone 2":{"2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10":1}}}}
+{"type":"answer","questionId":16,"reply":{"type":"pick","territory":"red capitol","units":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"]}}
+{"username":"alice","password":"password123"}
+{"username":"alice","password":"password123"}
+{"refreshToken":"r3fr3sh"}
+{"accessToken":"acc3ss","refreshToken":"r3fr3sh","expiresInSeconds":900,"username":"alice"}
+{"mapName":"minimap","gameName":"Minimap","nations":["Russians","Germans"]}
+{"nation":"Russians","kind":"HUMAN","username":"alice"}
+{"mapName":"minimap","gameName":"Minimap","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice"},{"nation":"Germans","kind":"FAST_AI"}]}
+{"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","status":"finished","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice"},{"nation":"Germans","kind":"FAST_AI"}],"version":12,"round":3,"step":"russianPurchase","currentPlayer":"Russians","winners":["Russians"]}
+{"error":"Unknown game"}

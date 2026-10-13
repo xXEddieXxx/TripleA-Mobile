@@ -41,7 +41,7 @@ import games.strategy.triplea.delegate.TechnologyDelegate
 import games.strategy.triplea.delegate.data.TechRoll
 import java.util.Optional
 import org.triplea.java.collections.IntegerMap
-import org.triplea.mobile.LocalGameSession
+import org.triplea.mobile.app.game.GameSession
 import org.triplea.mobile.app.game.KamikazeRequest
 import org.triplea.mobile.app.game.PickTerritoryAndUnitsRequest
 import org.triplea.mobile.app.game.RepairItem
@@ -231,7 +231,7 @@ class TechInfo(val name: String, val field: String?, val effects: List<String>, 
  * Every technology of the game in the map's order, with the nations that have researched it.
  * Empty when the map has no technologies. Reads the game data under its lock.
  */
-fun techInfos(session: LocalGameSession): List<TechInfo> {
+fun techInfos(session: GameSession): List<TechInfo> {
     val data = session.gameData
     data.acquireReadLock().use {
         val frontier = data.technologyFrontier

@@ -7,6 +7,7 @@ import games.strategy.triplea.ai.pro.ProAi;
 import games.strategy.triplea.ai.weak.WeakAi;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.function.Function;
 import org.triplea.ai.does.nothing.DoesNothingAi;
 
 /** Who controls a nation in a local game. */
@@ -52,10 +53,13 @@ public enum PlayerKind {
             .orElse(AI_HARD));
   }
 
-  /** Creates the engine player type for this kind; humans are backed by the given UI bridge. */
-  public PlayerTypes.Type toPlayerType(final HumanPlayerUi humanUi) {
+  /**
+   * Creates the engine player type for this kind; human nations get the UI {@code humanUiFor}
+   * returns.
+   */
+  public PlayerTypes.Type toPlayerType(final Function<String, HumanPlayerUi> humanUiFor) {
     return switch (this) {
-      case HUMAN -> humanType(humanUi);
+      case HUMAN -> humanType(humanUiFor);
       case AI_EASY -> PlayerTypes.WEAK_AI;
       case AI_FAST -> PlayerTypes.FAST_AI;
       case AI_HARD -> PlayerTypes.PRO_AI;
@@ -72,11 +76,12 @@ public enum PlayerKind {
         }
       };
 
-  public static PlayerTypes.Type humanType(final HumanPlayerUi humanUi) {
+  /** Human player type; each nation is asked through the UI {@code humanUiFor} returns for it. */
+  public static PlayerTypes.Type humanType(final Function<String, HumanPlayerUi> humanUiFor) {
     return new PlayerTypes.Type(HUMAN.label) {
       @Override
       public Player newPlayerWithName(final String name) {
-        return new MobilePlayer(name, getLabel(), humanUi);
+        return new MobilePlayer(name, getLabel(), humanUiFor.apply(name));
       }
     };
   }

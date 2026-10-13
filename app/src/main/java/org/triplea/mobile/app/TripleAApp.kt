@@ -6,6 +6,8 @@ import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.triplea.mobile.MobileEngine
+import org.triplea.mobile.app.render.ImageCache
+import games.strategy.triplea.ResourceLoader
 
 class TripleAApp : Application() {
     override fun onCreate() {
@@ -21,6 +23,9 @@ object AppServices {
 
     val rootDir: Path get() = appContext.filesDir.toPath().resolve("triplea")
     val engineAssetsDir: Path get() = rootDir.resolve("engineAssets")
+
+    /** The engine's flags and icons outside a game (the setup screens); a game has its own cache with the map first. */
+    val engineImages by lazy { ImageCache(ResourceLoader(engineAssetsDir)) }
 
     @Volatile
     var contentInstalled: Boolean = false

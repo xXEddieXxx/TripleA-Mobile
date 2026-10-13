@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -73,6 +74,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
@@ -85,6 +88,8 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Card
@@ -114,6 +119,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -133,6 +139,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -167,9 +174,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.triplea.mobile.HistoryView
-import org.triplea.mobile.LocalGameSession
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppSettings
+import org.triplea.mobile.app.online.OnlineSession
+import org.triplea.mobile.app.online.Social
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.game.BattleRequest
 import org.triplea.mobile.app.game.BattleState
@@ -180,6 +188,7 @@ import org.triplea.mobile.app.game.CasualtyRequest
 import org.triplea.mobile.app.game.ConfirmRequest
 import org.triplea.mobile.app.game.EndTurnRequest
 import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.game.GameSession
 import org.triplea.mobile.app.game.HistoryBlock
 import org.triplea.mobile.app.game.HistoryEvent
 import org.triplea.mobile.app.game.MadeMove
@@ -192,6 +201,7 @@ import org.triplea.mobile.app.game.PoliticsRequest
 import org.triplea.mobile.app.game.UserActionRequest
 import org.triplea.mobile.app.game.PurchaseRequest
 import org.triplea.mobile.app.game.RetreatRequest
+import org.triplea.mobile.app.game.ReplaySession
 import org.triplea.mobile.app.game.SelectTerritoryRequest
 import org.triplea.mobile.app.game.SelectUnitsRequest
 import org.triplea.mobile.app.game.TechRequest
@@ -216,7 +226,7 @@ private val SIDE_PANEL_WIDTH = 260.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GameScreen(onQuit: () -> kotlin.Unit) {
-    val session: LocalGameSession = GameController.session ?: run {
+    val session: GameSession = GameController.session ?: run {
         LaunchedEffect(Unit) { onQuit() }
         return
     }
@@ -225,6 +235,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val pending by GameController.pending.collectAsState()
     val battle by GameController.battle.collectAsState()
     val gameOver by GameController.gameOver.collectAsState()
+    val onlineState by GameController.onlineState.collectAsState()
     val images = remember(session) { ImageCache(session.resourceLoader) }
     DisposableEffect(session) { onDispose { images.close() } }
     val mapState = remember(session) {
@@ -317,6 +328,22 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showCalc by remember { mutableStateOf(false) }
+    var showChat by remember { mutableStateOf(false) }
+    var showOrders by remember { mutableStateOf(false) }
+    var showVacation by remember { mutableStateOf(false) }
+    val me = AppSettings.tokens.tokens?.username.orEmpty()
+    // a spectator has no seat: no game info, clocks, orders or vacation, and its own chat channel
+    val spectating = (session as? OnlineSession)?.spectating == true
+    val onlineInfo = (session as? OnlineSession)?.takeUnless { spectating }?.let { rememberGameInfo(it) }
+    val clocks by Social.clocks.collectAsState()
+    // the AI plays a seat of mine whose clock ran out, until I am back
+    val aiSeats = onlineInfo?.seats?.filter { it.username == me && it.kind != "HUMAN" }.orEmpty()
+    val takenOver = aiSeats.isNotEmpty()
+    // a resignation is for good: no "I'm back"
+    val resigned = takenOver && aiSeats.all { it.resigned }
+    var backSent by remember(session, takenOver) { mutableStateOf(false) }
+    /** Height of the connection chip and clock bar at the top of the map; the battle window starts below them. */
+    var topOverlayHeight by remember { mutableStateOf(0.dp) }
     /** The calculator waits for a tap on the map that chooses its territory. */
     var calcPicking by remember { mutableStateOf(false) }
     var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
@@ -379,6 +406,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
 
     // autosave once per round, at the first question of a human turn (the game thread is blocked then)
     LaunchedEffect(pending) {
+        // the server keeps an online game; its copy must not overwrite the local autosave
+        if (session is OnlineSession) return@LaunchedEffect
         val request = pending
         val firstHumanQuestion = request is PurchaseRequest || request is MoveRequest || request is PlaceRequest
         if (!settings.autosaveEachRound || !firstHumanQuestion || status.round <= lastAutosaveRound) return@LaunchedEffect
@@ -435,13 +464,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
 
     // the unit scroller (a setting): arrows to the units that can still move, as on the desktop
     /** Units the scroller passes over until they move or are woken, while this game screen is open (not saved). */
-    var sleepingUnits by remember(session) { mutableStateOf<Set<Unit>>(emptySet()) }
-
-    /** The sleepers of the nation moving now; in a hot-seat game the others keep theirs. */
-    fun ownSleepers(): List<Unit> {
-        val player = (pending as? MoveRequest)?.player ?: return emptyList()
-        return session.gameData.acquireReadLock().use { sleepingUnits.filter { it.owner == player } }
-    }
+    // ids, not Units: an online session loads a new copy (new Unit objects) with every save
+    var sleepingUnits by remember(session) { mutableStateOf<Set<UUID>>(emptySet()) }
 
     /** The stop the scroller showed or moved from last, by territory and unit type; a new phase starts over. */
     var scrollerKey by remember(session) { mutableStateOf<Pair<String, String>?>(null) }
@@ -483,7 +507,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             }
         }
         val (index, units) = stops.indices.asSequence().map { (start + it * step).mod(stops.size) }.firstNotNullOfOrNull { i ->
-            stops[i].second.filter { it !in sleepingUnits }.takeIf { it.isNotEmpty() }?.let { i to it }
+            stops[i].second.filter { it.id !in sleepingUnits }.takeIf { it.isNotEmpty() }?.let { i to it }
         } ?: return
         val territory = stops[index].first
         scrollerKey = territory.name to units.first().type.name
@@ -498,12 +522,22 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
 
     /** Puts the selected units to sleep, or wakes them when they already sleep; the selection stays. */
     fun toggleSleep() {
-        val units = moveUnits.toSet()
+        val units = moveUnits.mapTo(HashSet()) { it.id }
         sleepingUnits = if (units.all { it in sleepingUnits }) sleepingUnits - units else sleepingUnits + units
     }
 
+    /** Wakes the sleepers of the nation moving now; in a hot-seat game the others keep theirs. */
     fun wakeAllUnits() {
-        sleepingUnits = sleepingUnits - ownSleepers().toSet()
+        val player = (pending as? MoveRequest)?.player ?: return
+        val asleep = sleepingUnits
+        scope.launch {
+            // the read lock waits for the game thread: never on the main thread
+            val own = withContext(Dispatchers.Default) {
+                val data = session.gameData
+                data.acquireReadLock().use { asleep.filterTo(HashSet()) { data.units[it]?.owner == player } }
+            }
+            sleepingUnits = sleepingUnits - own
+        }
     }
 
     fun planMove(request: MoveRequest, from: Territory, to: Territory, units: List<Unit>, transports: List<Unit>? = null) {
@@ -599,7 +633,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             is PlaceRequest -> {
                 selectedTerritory = name
                 scope.launch {
-                    val result = withContext(Dispatchers.Default) {
+                    // online this waits for the server: IO, never the main thread
+                    val result = withContext(Dispatchers.IO) {
                         MoveHelper.placeableUnits(session, request.player, territory)
                     }
                     result.onFailure { toast(it.message ?: "Cannot place here") }
@@ -779,10 +814,12 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         } else showReplay(items, start)
     }
 
-    // a loaded save starts with the replay of the other players' turns, if the setting is on
+    // a loaded save starts with the replay of the other players' turns, if the setting is on; a finished
+    // online game's replay always does, from its first event
     var autoReplayDone by remember(session) { mutableStateOf(false) }
     LaunchedEffect(session, snapshot == null) {
-        if (autoReplayDone || snapshot == null || !GameController.startedFromSave || !settings.replayOnLoad) return@LaunchedEffect
+        val wanted = session is ReplaySession || (GameController.startedFromSave && settings.replayOnLoad)
+        if (autoReplayDone || snapshot == null || !wanted) return@LaunchedEffect
         autoReplayDone = true
         delay(600) // let the map settle at its start position first
         replayLastTurns(quiet = true)
@@ -808,7 +845,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         val request = pending as? MoveRequest
         if (request != null) {
             request.complete(Optional.of(plan.description))
-            sleepingUnits = sleepingUnits - moved.toSet()
+            sleepingUnits = sleepingUnits - moved.mapTo(HashSet()) { it.id }
             moved.firstOrNull()?.let { scrollerKey = plan.from.name to it.type.name }
             scrollerResume = true
         }
@@ -966,7 +1003,16 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         }
     }
 
+    val chatChannel = (session as? OnlineSession)?.let { (if (spectating) "spectate:" else "game:") + it.gameId }
+    val chatUnread = chatChannel?.let { rememberUnread(it, me, showChat) } ?: 0
     val menu: @Composable () -> kotlin.Unit = {
+        if (chatChannel != null) {
+            IconButton(onClick = { showChat = true }) {
+                BadgedBox(badge = { if (chatUnread > 0) Badge { Text("$chatUnread") } }) {
+                    Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = if (chatUnread > 0) "chat, $chatUnread unread" else "chat")
+                }
+            }
+        }
         Box {
             IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "menu") }
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -977,6 +1023,12 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 DropdownMenuItem(text = { Text("Save game") }, onClick = { showMenu = false; showSaveDialog = true })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { showMenu = false; showSettings = true })
                 DropdownMenuItem(text = { Text("Game info") }, onClick = { showMenu = false; openGameInfo() })
+                if (session is OnlineSession && !spectating) {
+                    DropdownMenuItem(text = { Text("Standing orders") }, onClick = { showMenu = false; showOrders = true })
+                    if (onlineInfo?.timeControl?.type == "correspondence") {
+                        DropdownMenuItem(text = { Text("Vacation") }, onClick = { showMenu = false; showVacation = true })
+                    }
+                }
                 DropdownMenuItem(text = { Text("Battle calculator") }, onClick = { showMenu = false; showCalc = true })
                 DropdownMenuItem(text = { Text("Quit to menu") }, onClick = { showMenu = false; showQuitDialog = true })
             }
@@ -1046,7 +1098,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         val request = pending as? MoveRequest
         value = if (!showScroller || !landscape || request == null) null else withContext(Dispatchers.Default) {
             runCatching {
-                MoveHelper.scrollerStops(session, request.player, request.nonCombat).sumOf { (_, units) -> units.count { it !in sleepingUnits } }
+                MoveHelper.scrollerStops(session, request.player, request.nonCombat).sumOf { (_, units) -> units.count { it.id !in sleepingUnits } }
             }.getOrNull()
         }
     }
@@ -1055,7 +1107,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val unitScroller: @Composable () -> kotlin.Unit = {
         UnitScrollerBar(
             left = unitsLeft,
-            sleeping = moveUnits.isNotEmpty() && moveUnits.all { it in sleepingUnits },
+            sleeping = moveUnits.isNotEmpty() && moveUnits.all { it.id in sleepingUnits },
             onPrevious = { scrollUnits(forward = false) },
             onNext = { scrollUnits(forward = true) },
             onSleep = ::toggleSleep,
@@ -1106,6 +1158,16 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     }
                 }
             }
+            // at the bottom, where a player's phase panel would be: battle panels cover the top
+            if (session is OnlineSession && spectating) {
+                val copyVersion by GameController.dataVersion.collectAsState()
+                // read with dataVersion, which bumps on every new copy
+                key(copyVersion) {
+                    OverlayChip(Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp)) {
+                        Text("Watching · save ${session.connection.version} (a few saves behind)", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
             if (turnSteps.isNotEmpty()) {
                 TurnStepStrip(
                     steps = turnSteps,
@@ -1141,15 +1203,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     menu()
                 }
             }
-            AnimatedVisibility(
-                visible = bannerVisible && banner != null,
-                enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 }),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = edgeTop + if (landscape) 52.dp else 8.dp, start = edgeStart, end = edgeEnd),
-            ) {
-                banner?.let { PhaseBannerCard(it, images, playerColor) }
-            }
-
             // turn progress: one symbol per step of this nation's turn, the current one lit
             // the battle window
             if (currentBattle != null && battleVisible) {
@@ -1164,7 +1217,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         .align(Alignment.TopCenter)
                         .fillMaxSize()
                         .padding(
-                            top = edgeTop + if (landscape) 30.dp else 48.dp,
+                            top = edgeTop + (if (landscape) 30.dp else 48.dp) + topOverlayHeight,
                             start = edgeStart,
                             end = edgeEnd,
                             bottom = edgeBottom + if (actionsBelow) 60.dp else 8.dp,
@@ -1185,6 +1238,34 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         modifier = Modifier.align(Alignment.TopCenter).heightIn(max = maxHeight),
                     )
                 }
+            }
+            // after the battle window, so drawn over it: the clock, the AI takeover and a lost connection stay in sight
+            // (the window also starts below them, see topOverlayHeight)
+            val density = LocalDensity.current
+            Column(
+                Modifier.align(Alignment.TopCenter).padding(top = edgeTop + if (landscape) 30.dp else 48.dp)
+                    .onSizeChanged { topOverlayHeight = with(density) { it.height.toDp() } },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                onlineState?.let { state ->
+                    OverlayChip { Text(state, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error) }
+                }
+                if (session is OnlineSession && !spectating) {
+                    ClockBar(clocks[session.gameId], me, takenOver, resigned, backSent) {
+                        backSent = true
+                        scope.launch { withContext(Dispatchers.IO) { runCatching { session.api.back(session.gameId) } }.onFailure { backSent = false } }
+                    }
+                }
+            }
+            // the phase banner shows for a moment over everything, the clock bar included
+            AnimatedVisibility(
+                visible = bannerVisible && banner != null,
+                enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 }),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = edgeTop + if (landscape) 52.dp else 8.dp, start = edgeStart, end = edgeEnd),
+            ) {
+                banner?.let { PhaseBannerCard(it, images, playerColor) }
             }
 
             // bottom: move confirmation, phase actions (right) and the territory status line
@@ -1382,6 +1463,19 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
 
     // full screen pages over the game; plain composables, not dialog windows, so they survive
     // orientation, text size and layout changes made inside them
+    if (showChat && chatChannel != null) {
+        ModalBottomSheet(onDismissRequest = { showChat = false }) {
+            ChatPanel(
+                channel = chatChannel,
+                me = me,
+                // the game runs fullscreen, so no bar insets reach the sheet: a fixed margin clears the gesture handle
+                modifier = Modifier.fillMaxWidth().imePadding().height(400.dp).padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                quick = listOf("Good luck", "Well played", "Thanks", "One moment"),
+            )
+        }
+    }
+    if (showOrders && session is OnlineSession) StandingOrdersSheet(session) { showOrders = false }
+    if (showVacation && session is OnlineSession) VacationDialog(session) { showVacation = false }
     if (showSettings) FullScreenPage(onBack = { showSettings = false }) { SettingsScreen(onBack = { showSettings = false }) }
     if (showCalc) FullScreenPage(onBack = { showCalc = false }) {
         BattleCalcScreen(
@@ -1494,7 +1588,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 snapshot?.byName?.get(move.routeTerritories.last())?.let { mapState.centerOn(it.centerX.toFloat(), it.centerY.toFloat()) }
             },
             onUndo = ::undoMove,
-            onUndoAll = ::undoAllMoves,
+            // online each undo waits for the server's next question: one move at a time
+            onUndoAll = if (session is OnlineSession) null else ::undoAllMoves,
             onClose = { showMoves = false },
         )
     }
@@ -1533,7 +1628,14 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     if (showQuitDialog) {
         // remembered: a request made anew on every recomposition (an AI battle redraws the
         // screen constantly) would never see its answer
-        val quit = remember { ConfirmRequest("Quit game?", "Unsaved progress is lost.") }
+        val quit = remember {
+            when {
+                spectating -> ConfirmRequest("Stop watching?", "The game goes on on the server.")
+                session is OnlineSession -> ConfirmRequest("Leave game?", "The game goes on on the server: open it again from your games list.")
+                session is ReplaySession -> ConfirmRequest("Leave replay?", "")
+                else -> ConfirmRequest("Quit game?", "Unsaved progress is lost.")
+            }
+        }
         LaunchedEffect(quit) {
             val yes = withContext(Dispatchers.IO) { runCatching { quit.result.get() }.getOrDefault(false) }
             showQuitDialog = false
@@ -1747,7 +1849,7 @@ private fun UnitScrollerBar(
 
 /** Small translucent box for text floating on the map. */
 @Composable
-private fun OverlayChip(modifier: Modifier = Modifier, content: @Composable () -> kotlin.Unit) {
+internal fun OverlayChip(modifier: Modifier = Modifier, content: @Composable () -> kotlin.Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
         shape = MaterialTheme.shapes.small,
@@ -1845,7 +1947,7 @@ class PhaseEndConfirm(val title: String, val message: String, val button: String
 /** The buttons that advance the game, bottom right of the map. */
 @Composable
 private fun PhaseActions(
-    session: LocalGameSession,
+    session: GameSession,
     pendingRequest: UiRequest<*>?,
     gameOver: String?,
     hasSelection: Boolean,

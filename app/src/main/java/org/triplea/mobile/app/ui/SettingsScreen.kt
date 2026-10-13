@@ -32,7 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
+import androidx.compose.material3.OutlinedTextField
 import org.triplea.mobile.app.AppSettings
+import org.triplea.mobile.app.BuildConfig
 import org.triplea.mobile.app.ThemeMode
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.MapQuality
@@ -286,6 +288,16 @@ private fun SettingsContent(modifier: Modifier = Modifier) {
             "Prevents the display from sleeping while the game screen is open.",
             settings.keepScreenOn,
         ) { v -> AppSettings.update { it.copy(keepScreenOn = v) } }
+        if (BuildConfig.DEBUG) {
+            Section("Online (debug builds)")
+            OutlinedTextField(
+                value = settings.serverUrl,
+                onValueChange = { v -> AppSettings.update { it.copy(serverUrl = v.trim()) } },
+                label = { Text("Server URL") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+        }
     }
 }
 

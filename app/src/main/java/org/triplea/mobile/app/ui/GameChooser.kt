@@ -230,7 +230,7 @@ private fun MapCard(map: MapChoice, open: Boolean, onToggle: () -> Unit, onPick:
 }
 
 @Composable
-private fun PreviewImage(bitmap: Bitmap?, modifier: Modifier) {
+internal fun PreviewImage(bitmap: Bitmap?, modifier: Modifier) {
     val shape = RoundedCornerShape(8.dp)
     if (bitmap != null) {
         Image(bitmap.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier.clip(shape))
@@ -243,7 +243,7 @@ private fun PreviewImage(bitmap: Bitmap?, modifier: Modifier) {
 
 /** Decodes the preview down to roughly [targetWidth] pixels, off the main thread. */
 @Composable
-private fun rememberPreview(file: Path?, targetWidth: Int): Bitmap? {
+internal fun rememberPreview(file: Path?, targetWidth: Int): Bitmap? {
     var bitmap by remember(file, targetWidth) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(file, targetWidth) {
         if (file == null) return@LaunchedEffect

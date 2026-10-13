@@ -100,8 +100,10 @@ public final class GameDataManager {
       final String className = (String) input.readObject();
       final IDelegate instance;
       try {
+        // mobile: initialize = false, so a crafted save cannot run a static initializer of a
+        // non-delegate class before asSubclass rejects it
         instance =
-            Class.forName(className)
+            Class.forName(className, false, GameDataManager.class.getClassLoader())
                 .asSubclass(IDelegate.class)
                 .getDeclaredConstructor()
                 .newInstance();

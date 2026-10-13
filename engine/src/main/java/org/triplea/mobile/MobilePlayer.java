@@ -177,27 +177,25 @@ public class MobilePlayer extends AbstractBasePlayer {
   }
 
   private void move(final boolean nonCombat, final String stepName) {
-    if (getPlayerBridge().isGameOver()) {
-      return;
-    }
-    final IMoveDelegate moveDel = remoteDelegate(IMoveDelegate.class);
-    final GamePlayer gamePlayer = getGamePlayer();
-    // getMove blocks until a move is made or the phase is finished. We loop until the UI signals
-    // that the phase is done and the engine accepts that (all air can land etc).
-    final MoveDescription moveDescription = ui.getMove(gamePlayer, nonCombat, stepName).orElse(null);
-    if (moveDescription == null) {
-      if (GameStepPropertiesHelper.isRemoveAirThatCanNotLand(getGameData())
-          && !canAirLand(true, gamePlayer)) {
-        move(nonCombat, stepName);
-        return;
+    // a loop, not recursion: a player who keeps moving or refusing must not overflow the stack
+    while (!getPlayerBridge().isGameOver()) {
+      final IMoveDelegate moveDel = remoteDelegate(IMoveDelegate.class);
+      final GamePlayer gamePlayer = getGamePlayer();
+      // getMove blocks until a move is made or the phase is finished. We loop until the UI signals
+      // that the phase is done and the engine accepts that (all air can land etc).
+      final MoveDescription moveDescription =
+          ui.getMove(gamePlayer, nonCombat, stepName).orElse(null);
+      if (moveDescription == null) {
+        final boolean airMustLand =
+            GameStepPropertiesHelper.isRemoveAirThatCanNotLand(getGameData())
+                && !canAirLand(true, gamePlayer);
+        if (!airMustLand && (nonCombat || !canUnitsFight())) {
+          return;
+        }
+      } else {
+        moveDel.performMove(moveDescription).ifPresent(ui::notifyError);
       }
-      if (!nonCombat && canUnitsFight()) {
-        move(false, stepName);
-      }
-      return;
     }
-    moveDel.performMove(moveDescription).ifPresent(ui::notifyError);
-    move(nonCombat, stepName);
   }
 
   private boolean canAirLand(final boolean movePhase, final GamePlayer player) {

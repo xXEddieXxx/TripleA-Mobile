@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import org.triplea.mobile.app.BuildConfig
 import org.triplea.mobile.app.R
 import java.nio.file.Path
 import java.time.Instant
@@ -48,6 +49,7 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onHowToPlay: () -> Unit,
     onAbout: () -> Unit,
+    onOnline: () -> Unit,
 ) {
     var ready by remember { mutableStateOf(AppServices.contentInstalled) }
     var saves by remember { mutableStateOf<List<Path>>(emptyList()) }
@@ -86,6 +88,11 @@ fun HomeScreen(
                 Text(if (saves.isEmpty()) "Load game" else "Load game (${saves.size})")
             }
             Spacer(Modifier.height(12.dp))
+            if (BuildConfig.DEBUG) {
+                // online play stays in debug builds until a public server exists
+                OutlinedButton(onClick = onOnline, modifier = Modifier.fillMaxWidth()) { Text("Online") }
+                Spacer(Modifier.height(12.dp))
+            }
             OutlinedButton(onClick = onMapBrowser, modifier = Modifier.fillMaxWidth()) { Text("Map browser") }
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Text("Settings") }

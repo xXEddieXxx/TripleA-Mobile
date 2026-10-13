@@ -22,6 +22,11 @@ public interface GameEventListener {
 
   default void gameEnded(final String message) {}
 
+  /** The game stopped without a result (an online game aborted on the server). */
+  default void gameAborted(final String message) {
+    gameEnded(message);
+  }
+
   default void gameStepChanged(
       final String stepName, final String displayName, final GamePlayer player, final int round) {}
 

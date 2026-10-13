@@ -11,7 +11,8 @@ import java.util.List;
  * An {@link ObjectInputStream} that only resolves classes of the game engine, the JDK and Guava.
  * Save games are Java serialized object graphs; a crafted file could otherwise instantiate any
  * class on the class path ("deserialization gadgets"). Android has no {@code ObjectInputFilter},
- * so the allow list is enforced in {@link #resolveClass}.
+ * so the allow list is enforced in {@link #resolveClass}. {@code java.awt} is not allowed: Android
+ * has no AWT, so tests on the JVM must fail where the phone would.
  */
 public class SafeObjectInputStream extends ObjectInputStream {
   private static final List<String> ALLOWED_PREFIXES =
@@ -23,7 +24,6 @@ public class SafeObjectInputStream extends ObjectInputStream {
           "java.math.",
           "java.time.",
           "java.io.Serializable",
-          "java.awt.",
           "com.google.common.collect.",
           "com.google.common.base.");
 
@@ -41,6 +41,11 @@ public class SafeObjectInputStream extends ObjectInputStream {
     return super.resolveClass(desc);
   }
 
+  @Override
+  protected Class<?> resolveProxyClass(final String[] interfaces) throws IOException {
+    throw new InvalidClassException("proxy", "proxy classes not allowed in a save game");
+  }
+
   static boolean isAllowed(final String className) {
     // arrays: "[Lgames.strategy.Foo;" / "[I"
     String name = className;
@@ -52,6 +57,10 @@ public class SafeObjectInputStream extends ObjectInputStream {
     }
     if (name.startsWith("L") && name.endsWith(";")) {
       name = name.substring(1, name.length() - 1);
+    }
+    // the java.lang. prefix would otherwise admit SerializedLambda and reflection gadgets
+    if (name.startsWith("java.lang.invoke.") || name.startsWith("java.lang.reflect.")) {
+      return false;
     }
     for (final String prefix : ALLOWED_PREFIXES) {
       if (name.startsWith(prefix)) {

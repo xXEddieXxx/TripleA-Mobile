@@ -38,7 +38,14 @@ import java.nio.file.Path
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import org.triplea.mobile.app.online.OnlineSession
+import org.triplea.mobile.online.client.GameConnection
+import org.triplea.mobile.online.client.ServerApi
+import org.triplea.mobile.protocol.GameInfoDto
 import kotlin.concurrent.thread
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +55,7 @@ import org.triplea.java.collections.IntegerMap
 import org.triplea.mobile.GameEventListener
 import org.triplea.mobile.HumanPlayerUiAdapter
 import org.triplea.mobile.LocalGameSession
+import org.triplea.mobile.online.UndoRequest
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.PlayerKind
 import kotlinx.coroutines.CoroutineScope
@@ -137,7 +145,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     private const val TAG = "GameController"
 
     @Volatile
-    var session: LocalGameSession? = null
+    var session: GameSession? = null
         private set
 
     val gameData: GameData? get() = session?.gameData
@@ -182,7 +190,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     var gameXmlPath: Path? = null
         private set
 
-    fun startNewGame(gameXml: Path, kinds: Map<String, PlayerKind>): LocalGameSession {
+    fun startNewGame(gameXml: Path, kinds: Map<String, PlayerKind>): GameSession {
         gameXmlPath = gameXml
         val data = MobileEngine.parseGame(gameXml).orElseThrow {
             IllegalStateException("Could not parse game: $gameXml")
@@ -191,7 +199,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     }
 
     /** Loads a save game and continues it. Call from a background thread. */
-    fun loadGame(saveFile: Path, kinds: Map<String, PlayerKind>): LocalGameSession {
+    fun loadGame(saveFile: Path, kinds: Map<String, PlayerKind>): GameSession {
         val data = MobileEngine.loadSaveGame(saveFile).orElseThrow {
             IllegalStateException("Could not load save game: $saveFile")
         }
@@ -203,26 +211,126 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     var startedFromSave: Boolean = false
         private set
 
-    fun startSession(data: GameData, kinds: Map<String, PlayerKind>, fromSave: Boolean = false): LocalGameSession {
+    /** Stops the running game and clears the per-game state; every start path calls it first. */
+    private fun resetForNewGame(fromSave: Boolean, humans: Collection<String>) {
         quit()
         startedFromSave = fromSave
         humanPlayers.clear()
-        humanPlayers += kinds.filterValues { it == PlayerKind.HUMAN }.keys
+        humanPlayers += humans
         _gameOver.value = null
         _battle.value = null
         _status.value = GameStatus()
+        lastPhaseSoundPlayer = null
+    }
+
+    fun startSession(data: GameData, kinds: Map<String, PlayerKind>, fromSave: Boolean = false): GameSession {
+        resetForNewGame(fromSave, kinds.filterValues { it == PlayerKind.HUMAN }.keys)
         val newSession = LocalGameSession.create(data, kinds, this, this)
         newSession.addChangeListener { _dataVersion.value = _dataVersion.value + 1 }
-        session = newSession
-        lastPhaseSoundPlayer = null
+        val wrapped = LocalSession(newSession)
+        session = wrapped
         updateStatus(data)
         newSession.start()
         startWatchdog()
         SoundPlayer.play(SoundPath.CLIP_GAME_START, null, newSession.resourceLoader)
-        return newSession
+        return wrapped
     }
 
+    /**
+     * Shows [data], the final save of a finished online game, read-only: the game screen opens its history
+     * replay from the start. Call from a background thread; throws when the map is not installed.
+     */
+    fun startReplay(data: GameData) {
+        // as a save with no human here: the screen's auto replay then starts at the first event
+        resetForNewGame(true, emptyList())
+        val replay = ReplaySession(data)
+        session = replay
+        updateStatus(data)
+        _gameOver.value = "Replay of a finished game"
+        _dataVersion.value = _dataVersion.value + 1
+    }
+
+    /** Why the online game is not connected right now (shown as a banner); null when connected or local. */
+    private val _onlineState = MutableStateFlow<String?>(null)
+    val onlineState = _onlineState.asStateFlow()
+
+    /**
+     * Joins the server's game [game] as the seats of user [me]. Call from a background thread: it
+     * waits until the first copy of the game is loaded and throws when that fails. With [spectate] the
+     * game is watched read-only: the server sends no questions, so [pending] stays empty.
+     */
+    fun startOnline(api: ServerApi, game: GameInfoDto, me: String, spectate: Boolean = false): OnlineSession {
+        resetForNewGame(false, game.seats.filter { it.username == me }.map { it.nation })
+        val firstCopy = CompletableFuture<GameData>()
+        lateinit var online: OnlineSession
+        online = OnlineSession(api, game.id, this, this, object : GameConnection.Listener {
+            override fun copyChanged(data: GameData, version: Long) {
+                if (session !== online) return
+                _dataVersion.value = _dataVersion.value + 1
+                updateStatus(data)
+                firstCopy.complete(data)
+            }
+
+            // may come with nothing pending and more than once per drop: then a no-op. Until the next
+            // CONNECTED no question is shown, so only a question of the dropped socket can be cancelled
+            override fun questionCancelled() {
+                synchronized(pendingLock) {
+                    if (session !== online) return
+                    questionsPaused = true
+                    _pending.value?.cancel()
+                }
+            }
+
+            // the server answered it (standing order or clock): close the dialog, unlike a drop the next question follows
+            override fun questionExpired() {
+                synchronized(pendingLock) {
+                    if (session === online) _pending.value?.cancel()
+                }
+            }
+
+            override fun connectionState(state: GameConnection.State, detail: String?) {
+                if (session !== online) {
+                    // replaced by a newer start (its quit closed this connection): end this start now
+                    firstCopy.completeExceptionally(IllegalStateException("replaced by a newer start"))
+                    return
+                }
+                if (state == GameConnection.State.CONNECTED) questionsPaused = false
+                val text = when (state) {
+                    GameConnection.State.CONNECTED -> null
+                    GameConnection.State.CONNECTING -> "Connecting..."
+                    GameConnection.State.RECONNECTING -> "Reconnecting" + (detail?.let { ": $it" } ?: "...")
+                    GameConnection.State.UPDATE_REQUIRED -> "Please update the app"
+                    GameConnection.State.CLOSED -> "Disconnected" + (detail?.let { ": $it" } ?: "")
+                }
+                _onlineState.value = text
+                // before the first copy any trouble ends the start: the online screen shows it, no endless spinner
+                if (text != null && state != GameConnection.State.CONNECTING) firstCopy.completeExceptionally(IllegalStateException(text))
+            }
+        }, spectating = spectate)
+        session = online
+        online.connection.open()
+        try {
+            firstCopy.get(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            online.mapData // fails here when the map is not installed
+        } catch (e: Exception) {
+            // a start replaced by a newer one (double tap) must not stop the game that replaced it
+            if (session === online) quit() else online.stop()
+            val cause = (e as? ExecutionException)?.cause ?: e
+            throw IllegalStateException(if (e is TimeoutException) "The server did not send the game" else cause.message ?: cause.javaClass.simpleName, cause)
+        }
+        return online
+    }
+
+    private const val START_TIMEOUT_SECONDS = 60L
+
+    /** Online: set from a connection drop until the next CONNECTED; questions of the dropped socket are refused meanwhile. */
+    @Volatile
+    private var questionsPaused = false
+    private val pendingLock = Any()
+
     fun quit() {
+        _onlineState.value = null
+        questionsPaused = false
         watchdogJob?.cancel()
         _aiThinkingSeconds.value = 0
         gameXmlPath = null
@@ -231,6 +339,12 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         session = null
         _pending.value?.cancel()
         _pending.value = null
+        // online close() does not block and must bump the generation before a new session starts:
+        // a runner mid-download of the old game would otherwise reach the new session
+        if (current is OnlineSession) {
+            runCatching { current.stop() }
+            return
+        }
         // stopping waits for the game thread; that must never happen on the UI thread
         thread(name = "game-stop", isDaemon = true) { runCatching { current.stop() } }
     }
@@ -272,10 +386,15 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         if (session?.isGameOver != false) {
             throw GameOverException("game is over")
         }
-        _pending.value = request
+        synchronized(pendingLock) {
+            if (questionsPaused) throw GameOverException("connection dropped")
+            _pending.value = request
+        }
         try {
             return request.result.get()
         } catch (e: ExecutionException) {
+            // online undo: the UI fails the pending move/placement with UndoRequest for the client to send
+            (e.cause as? UndoRequest)?.let { throw it }
             throw GameOverException("game stopped while waiting for user input", e)
         } catch (e: CancellationException) {
             throw GameOverException("game stopped while waiting for user input", e)
@@ -599,7 +718,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
                 // every 30 s of one AI turn: where is the engine? (visible with adb logcat -s GameWatchdog)
                 if (now - aiSince >= 30_000 && now - lastDump >= 30_000) {
                     lastDump = now
-                    val thread = current.gameThread
+                    val thread = (current as? LocalSession)?.local?.gameThread
                     val trace = thread?.stackTrace?.take(25)?.joinToString("\n    at ") ?: "no game thread"
                     Log.w("GameWatchdog", "AI turn of ${_status.value.playerName} running ${_aiThinkingSeconds.value}s, step ${_status.value.stepName}; thread ${thread?.state}:\n    at $trace")
                 }
@@ -613,8 +732,18 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         _messages.tryEmit(UiMessage(stripHtml(title), stripHtml(message)))
     }
 
-    override fun gameEnded(message: String) {
-        session?.resourceLoader?.let { SoundPlayer.play(SoundPath.CLIP_GAME_WON, null, it) }
+    override fun gameEnded(message: String) = gameOver(message, aborted = false)
+
+    override fun gameAborted(message: String) = gameOver(message, aborted = true)
+
+    private fun gameOver(message: String, aborted: Boolean) {
+        // the server re-sends GameEnded on every reconnect of an ended game
+        if (_gameOver.value != null) return
+        // an open question was already cancelled by GameConnection: this runs on its question runner
+        (session as? OnlineSession)?.gameEnded()
+        if (!aborted) {
+            session?.resourceLoader?.let { SoundPlayer.play(SoundPath.CLIP_GAME_WON, null, it) }
+        }
         _gameOver.value = message
         _messages.tryEmit(UiMessage("Game over", message))
     }

@@ -142,7 +142,7 @@ public class MobileDisplay implements IDisplay {
     listener.battleStep(battleId, step);
   }
 
-  @Override
+  // not in the desktop IDisplay; the server compiles this file against it
   public void unitsMoved(final GamePlayer player, final Collection<Unit> units, final Route route) {
     listener.unitsMoved(player, units, route.getAllTerritories());
   }

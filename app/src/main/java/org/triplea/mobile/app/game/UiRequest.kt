@@ -33,6 +33,10 @@ sealed class UiRequest<T> {
         result.complete(value)
     }
 
+    fun fail(error: Throwable) {
+        result.completeExceptionally(error)
+    }
+
     fun cancel() {
         result.completeExceptionally(InterruptedException("request cancelled"))
     }

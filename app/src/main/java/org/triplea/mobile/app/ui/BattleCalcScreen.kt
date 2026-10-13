@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -65,7 +66,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.triplea.mobile.LocalGameSession
+import org.triplea.mobile.app.game.GameSession
 import org.triplea.mobile.app.render.ImageCache
 
 /** A unit type of one nation, the key of the count tables. */
@@ -93,7 +94,7 @@ private class CalcOutcome(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BattleCalcScreen(
-    session: LocalGameSession,
+    session: GameSession,
     images: ImageCache,
     territoryName: String?,
     attackerName: String,
@@ -257,10 +258,10 @@ fun BattleCalcScreen(
                 }
             } else {
                 // one block per defending nation; several nations defend together, like in the game
-                defenders.forEach { nation ->
+                defenders.forEach { nation -> key(nation.name) {
                     val own = defending.filterKeys { it.owner == nation }.values.sum()
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        NationFlagSmall(nation.name, images)
+                        NationFlag(images, nation.name, size = 28.dp)
                         Spacer(Modifier.width(8.dp))
                         Text(nation.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                         TextButton(onClick = { types.forEach { defending.remove(Side(nation, it)) } }, enabled = own > 0) { Text("None") }
@@ -272,7 +273,7 @@ fun BattleCalcScreen(
                             }
                         }
                     }
-                }
+                } }
                 TextButton(onClick = { pickDefenders = true }, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)) { Text("+ nation") }
             }
         }
@@ -285,7 +286,7 @@ fun BattleCalcScreen(
                     OptionRow(
                         title = p.name,
                         emphasized = p == attacker,
-                        leading = { NationFlagSmall(p.name, images) },
+                        leading = { NationFlag(images, p.name, size = 28.dp) },
                         onClick = { attacker = p; outcome = null; pickAttacker = false },
                     )
                 }
@@ -302,7 +303,7 @@ fun BattleCalcScreen(
                         title = p.name,
                         subtitle = if (included) "defends" else null,
                         emphasized = included,
-                        leading = { NationFlagSmall(p.name, images) },
+                        leading = { NationFlag(images, p.name, size = 28.dp) },
                         onClick = {
                             if (included) {
                                 defenders.remove(p)
@@ -331,16 +332,6 @@ private fun UnitCountRow(type: UnitType, owner: GamePlayer, attack: Boolean, val
         onChange = { onChange(it.coerceIn(0, 99)) },
         leading = { UnitIcon(images, type, owner, size = 30) },
     )
-}
-
-@Composable
-private fun NationFlagSmall(name: String, images: ImageCache) {
-    val flag = remember(name, images) { images.getNow("flags/$name.png", listOf("flags/$name.png", "flags/${name}_small.png")) }
-    if (flag != null) {
-        Image(flag.asImageBitmap(), contentDescription = name, modifier = Modifier.height(18.dp))
-    } else {
-        Spacer(Modifier.width(1.dp))
-    }
 }
 
 /** Win chances as a bar, what is left on average, rounds and the value swing. */
