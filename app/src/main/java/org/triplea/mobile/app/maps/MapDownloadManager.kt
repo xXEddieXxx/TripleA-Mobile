@@ -163,7 +163,8 @@ object MapDownloadManager {
                 version = map["version"]?.toString()?.trim()?.toIntOrNull() ?: 0,
                 description = htmlToText(map["description"]?.toString().orEmpty()),
             )
-        }.sortedWith(compareBy({ categoryRank(it.category) }, { it.name.lowercase(Locale.ROOT) }))
+        }.distinctBy { it.normalizedName } // the listing has duplicates; the browser list keys rows by name
+            .sortedWith(compareBy({ categoryRank(it.category) }, { it.name.lowercase(Locale.ROOT) }))
     }
 
     fun categoryRank(category: String): Int = when (category.uppercase(Locale.ROOT)) {
