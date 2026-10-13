@@ -54,7 +54,7 @@ const val SOURCE_URL = "https://github.com/xXEddieXxx/TripleA-Mobile"
 private const val UPSTREAM_URL = "https://github.com/triplea-game/triplea"
 private const val GPL_URL = "https://www.gnu.org/licenses/gpl-3.0.html"
 
-private val TESTERS = listOf("Locke", "Gammer1", "MinotaurLP", "Karl582003")
+private val TESTERS = listOf("Locke", "Gammer1", "MinotaurLP", "Karl582003", "Panella")
 
 private fun appVersion(context: Context): String =
     runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"

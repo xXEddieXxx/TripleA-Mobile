@@ -1469,14 +1469,18 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             if (currentBattle == null) LaunchedEffect(request) { request.complete(true) }
         }
         is SelectUnitsRequest -> if (battleQuestion == null) UnitPickerDialog(
-            UnitPickerSpec(
-                title = request.title,
-                message = request.message,
-                units = request.candidates,
-                max = request.max,
-                onConfirm = { request.complete(it) },
-                onCancel = { request.complete(emptyList()) },
-            ),
+            // one spec per request: the picker keeps its counts in remember(spec), and the battle
+            // marker pulse recomposes this screen every frame while a battle is on the map
+            remember(request) {
+                UnitPickerSpec(
+                    title = request.title,
+                    message = request.message,
+                    units = request.candidates,
+                    max = request.max,
+                    onConfirm = { request.complete(it) },
+                    onCancel = { request.complete(emptyList()) },
+                )
+            },
             images,
         )
         else -> {}

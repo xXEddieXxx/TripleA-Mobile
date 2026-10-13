@@ -55,8 +55,11 @@ object MoveHelper {
 
     /** The moves of the current move phase, oldest first. */
     fun movesMade(session: LocalGameSession): List<MadeMove> = runCatching {
+        // ask the delegate before taking the data lock: a save holds the delegate lock while it
+        // waits for the data lock, so the other order deadlocks
+        val moves = session.getCurrentRemoteDelegate(IMoveDelegate::class.java).movesMade
         session.gameData.acquireReadLock().use {
-            session.getCurrentRemoteDelegate(IMoveDelegate::class.java).movesMade.mapIndexed { index, move ->
+            moves.mapIndexed { index, move ->
                 val canUndo = move.canUndo
                 MadeMove(
                     index = index,
@@ -72,8 +75,9 @@ object MoveHelper {
 
     /** The placements of the current placement phase, oldest first. */
     fun placementsMade(session: LocalGameSession): List<MadeMove> = runCatching {
+        val placements = session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java).movesMade // before the lock, see movesMade
         session.gameData.acquireReadLock().use {
-            session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java).movesMade.mapIndexed { index, placement ->
+            placements.mapIndexed { index, placement ->
                 val canUndo = placement.canUndo
                 MadeMove(
                     index = index,
