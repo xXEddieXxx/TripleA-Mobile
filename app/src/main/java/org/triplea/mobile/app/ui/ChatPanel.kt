@@ -1,7 +1,13 @@
 package org.triplea.mobile.app.ui
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -10,7 +16,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -87,15 +92,10 @@ fun ChatPanel(
 
     Column(modifier) {
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-            items(messages, key = { it.id }) { message ->
-                Text(
-                    "${message.username}: ${message.text}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .combinedClickable(onClick = {}, onLongClick = { if (message.username != me && message.username != DELETED_USER) chosen = message })
-                        .padding(vertical = 3.dp),
-                )
+            itemsIndexed(messages, key = { _, it -> it.id }) { index, message ->
+                ChatBubble(message, mine = message.username == me, first = index == 0 || messages[index - 1].username != message.username) {
+                    if (message.username != me && message.username != DELETED_USER) chosen = message
+                }
             }
         }
         // a refused send belongs to its own channel; channel "" means the chat socket stopped
@@ -174,6 +174,44 @@ internal fun rememberUnread(channel: String, me: String, open: Boolean): Int {
     }
     LaunchedEffect(open, last) { if (open) readUpTo = last ?: 0L }
     return readUpTo?.let { read -> messages.count { it.id > read && it.username != me } } ?: 0
+}
+
+/**
+ * One message as a bubble: the user's own on the right, others' on the left with their initial and name on the [first]
+ * of a run from the same sender. A long press runs [onLongPress].
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChatBubble(message: ChatMessage, mine: Boolean, first: Boolean, onLongPress: () -> kotlin.Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = if (first) 6.dp else 2.dp),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        if (!mine) {
+            if (first) Initial(message.username, 24.dp) else Spacer(Modifier.width(24.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Column(Modifier.fillMaxWidth(0.8f), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+            if (first && !mine) {
+                Text(message.username, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+            }
+            Surface(
+                color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = onLongPress),
+            ) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), horizontalAlignment = Alignment.End) {
+                    Text(message.text, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        DateFormat.format("HH:mm", message.sentAt).toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
 }
 
 private const val MAX_CHAT_CHARS = 500

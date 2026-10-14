@@ -189,7 +189,9 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
 
 ## Security notes
 
-- Network: only HTTPS to GitHub (map list and map archives); cleartext traffic is refused by the
+- Network: only HTTPS, to the TripleA server (the map list from
+  `prod.triplea-game.org/support/maps/listing`, as the desktop client loads it) and to GitHub
+  (map archives and previews); cleartext traffic is refused by the
   network security config (and `usesCleartextTraffic="false"` in the manifest) and by the
   download code, also after redirects.
 - Map archives are unpacked with path traversal checks and size/entry limits.
@@ -370,6 +372,13 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
     (green online, amber in a running game, grey offline), a status line (`activity`, "online" or
     "last seen …"), the unread badge, a chat button and a ⋮ menu (Remove friend, Block, Report; Remove and Block ask first). A
     floating "Add friend" button asks for the username.
+  - **Look of the online screens** (`OnlineComponents.kt`): built from the friends list. Icons, pills
+    and nation tiles replace sentences: the games list has the sections Your turn (least time first),
+    Waiting, Setting up and Finished (folded), each card a map thumbnail, a status pill and a row of
+    `SeatTile`s (flag with the player's initial, a robot for an AI, a green + for a free seat; nations
+    without an engine flag show two initials); tabs carry count badges (my turns; friend requests plus
+    unread messages). Chat messages are bubbles, profile stats are tiles, and explanations moved
+    behind (i) buttons (`InfoButton`); destructive consequences stay visible.
   - **Private chat** (`DirectChatScreen`, route `chat/{username}`, milestone 3c): `ChatPanel` on the
     friend's `dm:<a>:<b>` channel (`FriendDto.channel`). While the screen is resumed it marks the
     newest message read (`POST /chat/{channel}/read`). `Social.unread` holds the counts per channel:
@@ -386,7 +395,10 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
     of messages that came since the screen opened, unfolds in place). The creator's dropdown: own
     name, Free, "Invite friend…" (accepted friends), the AIs, Does nothing (`PUT
     /games/{id}/seats/{nation}`, one seat, so a join that happened meanwhile is kept); options go through `PATCH /games/{id}`. Others take a free seat ("Take
-    seat"), give their own back ("Free") and toggle Ready. While `mapReady` is false it shows "Map
+    seat"), give their own back ("Free") and toggle Ready. Ready also needs the map installed on this
+    device (the game is played with the local map files, so a start without them left the player
+    stuck on "map not installed"): the map banner then shows "Not installed · Get map", which opens
+    the map browser, and the installed maps are read again on resume. While `mapReady` is false it shows "Map
     is loading on the server…" and Ready is disabled (the server answers 409); an aborted game
     shows its `error`. The screen reloads on every `LobbyUpdate` and on resume (the start arrives as a
     running game's `LobbyUpdate` and replaces the shown game directly); seat holders of a
@@ -433,9 +445,9 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
 - **Milestone 3d** (profiles, history, AI limits; spec
   `docs/superpowers/specs/2026-10-13-profiles-history-ai-limits-design.md`, protocol v3 extended):
   - **Chess clocks in the lists:** `GameInfoDto.turn` (nation, username, ai), `turnRemainingMs`,
-    `turnDeadline` and `turnSince` for running games. `TurnLine` in `OnlineScreen.kt` shows "Your turn ·
-    4:12", "Waiting for bob · Italians · 2:03", "AI moving (Germans)" or, without a clock, "Waiting for
-    bob · since 2 h". The game's latest `Clock` (`Social.clocks`) wins over the card: it says whose clock
+    `turnDeadline` and `turnSince` for running games. `TurnPill` in `OnlineScreen.kt` shows "Your turn ·
+    4:12", "bob · 2:03" or "AI" with a timer icon, or, without a clock, how long the turn has lasted with an
+    hourglass icon ("bob · 2 h"). The game's latest `Clock` (`Social.clocks`) wins over the card: it says whose clock
     runs (also a defender in a battle) and until when, so a Clock never reloads a list.
   - **Turn push:** when the turn passes to another nation the server sends `LobbyUpdate` (the full
     `GameInfoDto`) to the seat holders, and the spectators' view to those who may watch (also for the
@@ -455,6 +467,14 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
     offline") while fewer than 2 distinct humans hold or may take seats (HUMAN holders plus OPEN seats).
     The setup screen counts the same way, shows the hint and disables Ready; running games are not
     affected.
+  - **Teams, giving up and games against the AI:** at the start the server stores each seat's team (its
+    alliance, `SeatDto.team`) and marks the game `vsAi` when all humans share one team. A player leaves by
+    "Give up" in the game menu (`POST /games/{id}/resign`, `ResignDialog` in `OnlinePanels.kt` says what
+    happens to the team first), by missing too many turns in a row, or by deleting the account; the AI then
+    plays their nations for good (a clock that runs out once is only a stand-in until "I'm back"). No game
+    goes on with AI players only: once one team has players left it wins, once none is left the game
+    ends without a winner. Games against the AI count in `ProfileDto.aiStats` ("Versus AI" on the
+    profile) and not in the win rate ("Versus players"), so wins against the AI cannot be farmed.
   - **Profiles** (`ProfileScreen.kt`, route `profile/{username}`; `GET /users/{u}/profile`,
     `PUT /account/profile`): an icon, a status (trimmed, no control or format characters, at most 60
     code points) and stats from finished games (played, won, lost, draws, resigned, abandoned, win rate,

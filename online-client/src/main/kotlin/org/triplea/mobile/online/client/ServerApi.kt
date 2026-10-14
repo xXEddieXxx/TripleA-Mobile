@@ -143,6 +143,12 @@ class ServerApi(baseUrl: String, private val tokens: TokenStore, internal val cl
     /** "I'm back": the seat the AI plays since the user's clock ran out goes back to them. */
     fun back(id: String) = done { Request.Builder().url(url("/games/$id/back")).post(ByteArray(0).toRequestBody()) }
 
+    /**
+     * Gives up a running game: the AI keeps all of the user's seats for good. Once no team but one has a player left,
+     * that team wins; once no player is left in a game against the AI, it ends without a winner.
+     */
+    fun resign(id: String) = done { Request.Builder().url(url("/games/$id/resign")).post(ByteArray(0).toRequestBody()) }
+
     fun friends(): List<FriendDto> = authed(ListSerializer(FriendDto.serializer())) { get("/friends") }
 
     /** Asks [username] to be friends; asking back accepts their request. */

@@ -176,6 +176,7 @@ private fun AppNavigation() {
                 onOpenProfile = { username -> navController.navigate("profile/" + Uri.encode(username)) },
                 // the game's quit goes back to the online lists, not to this setup
                 onOpenGame = { navController.navigate("game") { popUpTo("online") } },
+                onOpenMaps = { navController.navigate("maps") },
             )
         }
         composable("about") {

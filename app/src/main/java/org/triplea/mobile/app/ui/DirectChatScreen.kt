@@ -1,6 +1,14 @@
 package org.triplea.mobile.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.material.icons.filled.PersonOff
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -96,7 +104,18 @@ fun DirectChatScreen(username: String, onBack: () -> kotlin.Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(username) },
+                title = {
+                    val presence by Social.presence.collectAsState()
+                    val dot = presence[username]?.let { if (it) ONLINE_DOT else OFFLINE_DOT }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // not Avatar: this screen has no profile route, so the picture must not look tappable
+                        Box(Modifier.size(36.dp)) {
+                            Initial(username, 36.dp)
+                            if (dot != null) Box(Modifier.align(Alignment.BottomEnd).size(11.dp).background(dot, CircleShape))
+                        }
+                        Text(username, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp))
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "back") }
                 },
@@ -107,7 +126,8 @@ fun DirectChatScreen(username: String, onBack: () -> kotlin.Unit) {
         if (channel == null) {
             val error = friends.error
             if (error != null) LoadFailed(error, friends.retry, modifier)
-            else Text(if (channels == null) "Loading…" else "$username is not your friend.", modifier)
+            else if (channels == null) Text("Loading…", modifier)
+            else EmptyState(Icons.Filled.PersonOff, "$username is not your friend", modifier)
         } else {
             ChatPanel(channel, AppSettings.tokens.tokens?.username.orEmpty(), modifier)
         }

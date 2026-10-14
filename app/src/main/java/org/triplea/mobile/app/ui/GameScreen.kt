@@ -87,6 +87,8 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -105,6 +107,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -331,6 +335,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var showChat by remember { mutableStateOf(false) }
     var showOrders by remember { mutableStateOf(false) }
     var showVacation by remember { mutableStateOf(false) }
+    var showResign by remember { mutableStateOf(false) }
     val me = AppSettings.tokens.tokens?.username.orEmpty()
     // a spectator has no seat: no game info, clocks, orders or vacation, and its own chat channel
     val spectating = (session as? OnlineSession)?.spectating == true
@@ -1028,6 +1033,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     if (onlineInfo?.timeControl?.type == "correspondence") {
                         DropdownMenuItem(text = { Text("Vacation") }, onClick = { showMenu = false; showVacation = true })
                     }
+                    // needs the seats and teams: the dialog tells what giving up does to the team
+                    if (onlineInfo != null && !resigned) DropdownMenuItem(text = { Text("Give up") }, onClick = { showMenu = false; showResign = true })
                 }
                 DropdownMenuItem(text = { Text("Battle calculator") }, onClick = { showMenu = false; showCalc = true })
                 DropdownMenuItem(text = { Text("Quit to menu") }, onClick = { showMenu = false; showQuitDialog = true })
@@ -1163,9 +1170,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 val copyVersion by GameController.dataVersion.collectAsState()
                 // read with dataVersion, which bumps on every new copy
                 key(copyVersion) {
-                    OverlayChip(Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp)) {
-                        Text("Watching · save ${session.connection.version} (a few saves behind)", style = MaterialTheme.typography.labelLarge)
-                    }
+                    val save = session.connection.version
+                    StatusPill(
+                        "Watching · $save",
+                        Icons.Filled.Visibility,
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp)
+                            .clearAndSetSemantics { contentDescription = "Watching, save $save, a few saves behind" },
+                    )
                 }
             }
             if (turnSteps.isNotEmpty()) {
@@ -1381,7 +1392,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             stats = shown?.stats ?: emptyList(),
             showVictoryCities = shown?.hasVictoryCities ?: false,
             history = snapshot?.history ?: emptyList(),
-            relationships = snapshot?.relationships ?: emptyList(),
             objectives = snapshot?.objectives ?: emptyList(),
             onFlagTap = ::jumpToCapital,
             onShowEvent = ::showHistoryEvent,
@@ -1410,7 +1420,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     // controls keep their own distance (edgeStart ...), the panels pad themselves.
     val panelInsets = barsAndCutout.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)
     val snackbarHost: @Composable () -> kotlin.Unit = {
-        SnackbarHost(snackbarHostState, Modifier.windowInsetsPadding(barsAndCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)))
+        SnackbarHost(snackbarHostState, Modifier.windowInsetsPadding(barsAndCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))) { DismissableSnackbar(it) }
     }
     Box(Modifier.fillMaxSize()) {
     if (landscape) {
@@ -1445,7 +1455,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     actions = { menu() },
                 )
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { SnackbarHost(snackbarHostState) { DismissableSnackbar(it) } },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 mapArea(Modifier.weight(1f).fillMaxWidth())
@@ -1476,6 +1486,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
     if (showOrders && session is OnlineSession) StandingOrdersSheet(session) { showOrders = false }
     if (showVacation && session is OnlineSession) VacationDialog(session) { showVacation = false }
+    if (showResign && session is OnlineSession) {
+        ResignDialog(session, onlineInfo, me, onDismiss = { showResign = false }) {
+            showResign = false
+            GameController.quit()
+            onQuit()
+        }
+    }
     if (showSettings) FullScreenPage(onBack = { showSettings = false }) { SettingsScreen(onBack = { showSettings = false }) }
     if (showCalc) FullScreenPage(onBack = { showCalc = false }) {
         BattleCalcScreen(
@@ -1563,14 +1580,18 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             if (currentBattle == null) LaunchedEffect(request) { request.complete(true) }
         }
         is SelectUnitsRequest -> if (battleQuestion == null) UnitPickerDialog(
-            UnitPickerSpec(
-                title = request.title,
-                message = request.message,
-                units = request.candidates,
-                max = request.max,
-                onConfirm = { request.complete(it) },
-                onCancel = { request.complete(emptyList()) },
-            ),
+            // one spec per request: the picker keeps its counts in remember(spec), and the battle
+            // marker pulse recomposes this screen every frame while a battle is on the map
+            remember(request) {
+                UnitPickerSpec(
+                    title = request.title,
+                    message = request.message,
+                    units = request.candidates,
+                    max = request.max,
+                    onConfirm = { request.complete(it) },
+                    onCancel = { request.complete(emptyList()) },
+                )
+            },
             images,
         )
         else -> {}
@@ -1630,8 +1651,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         // screen constantly) would never see its answer
         val quit = remember {
             when {
-                spectating -> ConfirmRequest("Stop watching?", "The game goes on on the server.")
-                session is OnlineSession -> ConfirmRequest("Leave game?", "The game goes on on the server: open it again from your games list.")
+                spectating -> ConfirmRequest("Stop watching?", "It continues on the server.")
+                session is OnlineSession -> ConfirmRequest("Leave game?", "It continues on the server.")
                 session is ReplaySession -> ConfirmRequest("Leave replay?", "")
                 else -> ConfirmRequest("Quit game?", "Unsaved progress is lost.")
             }
@@ -1770,6 +1791,12 @@ internal fun summarizeUnits(units: Collection<Unit>): String =
 
 /** How long a hint or error stays on screen; the stock snackbar durations (4 s, 10 s) felt too long. */
 private const val BRIEF_MESSAGE_MILLIS = 2000L
+
+/** A tap takes the snackbar away at once: it sits over the move card and would block its X until it times out. */
+@Composable
+private fun DismissableSnackbar(data: SnackbarData) {
+    Snackbar(data, Modifier.clickable(onClickLabel = "dismiss") { data.dismiss() })
+}
 
 /** Shows a snackbar for [BRIEF_MESSAGE_MILLIS] and takes it away again. */
 private suspend fun showBriefly(host: SnackbarHostState, text: String) {

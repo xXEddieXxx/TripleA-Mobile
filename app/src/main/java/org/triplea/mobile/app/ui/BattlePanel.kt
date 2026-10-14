@@ -384,9 +384,11 @@ private fun QuestionFooter(request: ConfirmRequest) {
     }
 }
 
-/** The target of a bombing raid: tap a unit; the X takes the first one (default). */
+/** The target of a bombing raid: tap a unit to choose it (the default is preselected), the check confirms. */
 @Composable
 private fun TargetFooter(request: SelectUnitsRequest, images: ImageCache?) {
+    val groups = remember(request) { request.candidates.groupBy { it.type to it.owner } }
+    var chosen by remember(request) { mutableStateOf(groups.keys.firstOrNull()) }
     Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -394,11 +396,14 @@ private fun TargetFooter(request: SelectUnitsRequest, images: ImageCache?) {
         Text(request.title, style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.width(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-            request.candidates.groupBy { it.type to it.owner }.forEach { (key, units) ->
+            groups.forEach { (key, units) ->
                 Box(
                     Modifier
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp))
-                        .clickable { request.complete(units.take(request.max.coerceAtLeast(1))) }
+                        .background(
+                            if (key == chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            RoundedCornerShape(6.dp),
+                        )
+                        .clickable { chosen = key }
                         .padding(2.dp),
                 ) {
                     UnitIcon(images, key.first, key.second, size = 30)
@@ -408,8 +413,8 @@ private fun TargetFooter(request: SelectUnitsRequest, images: ImageCache?) {
                 }
             }
         }
-        FilledIconButton(onClick = { request.complete(emptyList()) }) {
-            Icon(Icons.Filled.Close, contentDescription = "default target")
+        FilledIconButton(onClick = { request.complete(groups[chosen].orEmpty().take(request.max.coerceAtLeast(1))) }) {
+            Icon(Icons.Filled.Check, contentDescription = "confirm target")
         }
     }
 }

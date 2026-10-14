@@ -57,6 +57,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.text.DateFormat
+import java.util.Date
 import java.util.Locale
 import org.triplea.mobile.app.maps.DownloadState
 import org.triplea.mobile.app.maps.InstalledMap
@@ -72,7 +74,6 @@ fun MapBrowserScreen(onBack: () -> Unit) {
     val installed by MapDownloadManager.installed.collectAsState()
     val downloads by MapDownloadManager.downloads.collectAsState()
     var query by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf<String?>(null) }
     var installedOnly by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<MapEntry?>(null) }
     val context = LocalContext.current
@@ -136,10 +137,6 @@ fun MapBrowserScreen(onBack: () -> Unit) {
                     }
                 }
                 is ListingState.Loaded -> {
-                    val categories = remember(state.maps) {
-                        state.maps.map { it.category.uppercase(Locale.ROOT) }.distinct()
-                            .sortedBy { MapDownloadManager.categoryRank(it) }
-                    }
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
@@ -156,17 +153,9 @@ fun MapBrowserScreen(onBack: () -> Unit) {
                             onClick = { installedOnly = !installedOnly },
                             label = { Text("Installed") },
                         )
-                        categories.forEach { name ->
-                            FilterChip(
-                                selected = category == name,
-                                onClick = { category = if (category == name) null else name },
-                                label = { Text(name.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() }) },
-                            )
-                        }
                     }
                     val filtered = state.maps.filter { entry ->
                         (query.isBlank() || entry.name.contains(query, ignoreCase = true) || entry.description.contains(query, ignoreCase = true)) &&
-                            (category == null || entry.category.equals(category, ignoreCase = true)) &&
                             (!installedOnly || installed.containsKey(entry.normalizedName))
                     }
                     Text(
@@ -211,7 +200,8 @@ private fun MapRow(entry: MapEntry, installed: InstalledMap?, download: Download
                 Column(Modifier.weight(1f)) {
                     Text(entry.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
-                        entry.category.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() } + "  ·  version ${entry.version}",
+                        "Updated " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(entry.lastCommitMillis)) +
+                            (entry.sizeBytes?.let { String.format(Locale.ROOT, "  ·  %.0f MB", it / 1_048_576.0) } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
                     )
                     Text(statusText(entry, installed, download), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
@@ -265,7 +255,7 @@ private fun MapRow(entry: MapEntry, installed: InstalledMap?, download: Download
                         if (!installed.bundled) {
                             OutlinedButton(onClick = onDelete, contentPadding = compact) { Text("Delete") }
                         }
-                        val outdated = installed.downloadVersion != null && installed.downloadVersion < entry.version
+                        val outdated = installed.downloadVersion != null && installed.downloadVersion < entry.lastCommitMillis
                         if (outdated) {
                             Button(onClick = { MapDownloadManager.download(entry) }, contentPadding = compact) { Text("Update") }
                         } else if (!installed.bundled) {
@@ -289,7 +279,7 @@ private fun statusText(entry: MapEntry, installed: InstalledMap?, download: Down
     installed == null -> "Not installed"
     installed.bundled -> "Installed (bundled with the app)"
     installed.downloadVersion == null -> "Installed"
-    installed.downloadVersion < entry.version -> "Installed version ${installed.downloadVersion}, update available"
+    installed.downloadVersion < entry.lastCommitMillis -> "Installed, update available"
     else -> "Installed, up to date"
 }
 

@@ -2,6 +2,7 @@ package org.triplea.mobile.app.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,34 +14,58 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TimerOff
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +73,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -63,12 +89,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.material.icons.filled.Download
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -93,23 +129,27 @@ private const val RELOAD_DELAY_MS = 300L
 /** A LobbyUpdate reloads at once; this poll covers a dropped social socket, so nobody waits here for a start they missed. */
 private const val POLL_MS = 10_000L
 
-/** The mockup's colour of a free seat (readable on the light and the dark theme). */
-private val FREE_SEAT_GREEN = Color(0xFF2E9E5B)
-
-private val SEAT_PICKER_WIDTH = 128.dp
+private val SEAT_PICKER_WIDTH = 148.dp
+private val MAP_HERO_HEIGHT = 132.dp
 
 /** Who may see and join an online game: the server's visibility value and its label. */
 private val visibilities = listOf("link" to "Invite code", "friends" to "Friends", "public" to "Public")
 
 internal fun visibilityLabel(game: GameInfoDto) = visibilities.firstOrNull { it.first == game.visibility }?.second ?: game.visibility
 
+private fun visibilityIcon(value: String) = when (value) {
+    "link" -> Icons.Filled.Key
+    "friends" -> Icons.Filled.Group
+    else -> Icons.Filled.Public
+}
+
 /** A time control: its choices of base time (in [unitMs]) and of increment seconds; the server's limits. */
-private class TimeControlChoice(val type: String, val label: String, val bases: List<Int>, val unit: String, val unitMs: Long, val increments: List<Int>)
+private class TimeControlChoice(val type: String, val label: String, val icon: ImageVector, val bases: List<Int>, val unit: String, val unitMs: Long, val increments: List<Int>)
 
 private val timeControls = listOf(
-    TimeControlChoice("blitz", "Blitz", listOf(3, 5, 10), "min", 60_000, listOf(0, 2, 5, 10, 30)),
-    TimeControlChoice("rapid", "Rapid", listOf(15, 30, 60), "min", 60_000, listOf(0, 10, 30, 60)),
-    TimeControlChoice("correspondence", "Correspondence", listOf(1, 2, 3, 5, 7, 14), "days per turn", 86_400_000, emptyList()),
+    TimeControlChoice("blitz", "Blitz", Icons.Filled.Bolt, listOf(3, 5, 10), "Minutes", 60_000, listOf(0, 2, 5, 10, 30)),
+    TimeControlChoice("rapid", "Rapid", Icons.Filled.Timer, listOf(15, 30, 60), "Minutes", 60_000, listOf(0, 10, 30, 60)),
+    TimeControlChoice("correspondence", "Daily", Icons.Filled.CalendarMonth, listOf(1, 2, 3, 5, 7, 14), "Days per turn", 86_400_000, emptyList()),
 )
 
 /** The computer seats of the dropdown: server kind and label. */
@@ -126,9 +166,11 @@ internal fun seatLabel(seat: SeatDto): String =
 private fun clockLabel(control: TimeControlDto?): String =
     when {
         control == null -> "No clock"
-        control.type == "correspondence" -> "Correspondence ${control.baseMs / 86_400_000} d"
+        control.type == "correspondence" -> "${control.baseMs / 86_400_000} d/turn"
         else -> control.type.replaceFirstChar { it.uppercase() } + " ${control.baseMs / 60_000}+${control.incrementMs / 1000}"
     }
+
+private fun clockIcon(control: TimeControlDto?) = control?.let { c -> timeControls.firstOrNull { it.type == c.type }?.icon } ?: Icons.Filled.TimerOff
 
 /** Game [id] as the caller may see it: one of their games, else a lobby game they may join; null once it is gone. */
 private fun fetch(server: ServerApi, id: String): GameInfoDto? =
@@ -146,7 +188,14 @@ private fun fetch(server: ServerApi, id: String): GameInfoDto? =
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile: (String) -> kotlin.Unit, onOpenGame: () -> kotlin.Unit) {
+fun OnlineSetupScreen(
+    gameId: String?,
+    onBack: () -> kotlin.Unit,
+    onOpenProfile: (String) -> kotlin.Unit,
+    onOpenGame: () -> kotlin.Unit,
+    /** The map browser, to get a map this device lacks. */
+    onOpenMaps: () -> kotlin.Unit,
+) {
     val settings by AppSettings.state.collectAsState()
     val api = remember(settings.serverUrl) { runCatching { OnlineApi.forUrl(settings.serverUrl) } }
     val me = remember { AppSettings.tokens.tokens?.username.orEmpty() }
@@ -167,7 +216,7 @@ fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile:
     var inviteFor by remember { mutableStateOf<String?>(null) }
     var showClock by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
-    // the "Settings changed – press Ready again" note: my Ready was reset by someone else's change
+    // the "Ready again" pill: my Ready was reset by someone else's change
     var wasReady by remember { mutableStateOf(false) }
     var unreadied by remember { mutableStateOf(false) }
     var readyReset by remember { mutableStateOf(false) }
@@ -230,7 +279,10 @@ fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile:
 
     fun patch(current: GameInfoDto, update: UpdateGameRequest) = run { it.patchGame(current.id, update) }
 
-    LaunchedEffect(Unit) {
+    // read again on every return: the map browser may have just installed the game's map
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resumes++ }
+    LaunchedEffect(resumes) {
         val list = withContext(Dispatchers.IO) { runCatching { MobileEngine.listInstalledGames() } }
         installed = list.getOrElse { problem = "Could not read the installed maps: ${it.message}"; emptyList() }
     }
@@ -304,42 +356,57 @@ fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile:
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
             (problem ?: loadProblem)?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp)) }
             if (current == null) {
-                if (gone) Text("This game is gone or no longer open to you.") else CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                if (gone) EmptyState(Icons.Filled.SearchOff, "Game no longer available", action = "Back", onAction = onBack)
+                else CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
                 return@Column
             }
             val creator = current.creator == me
             val lobby = current.status == "lobby"
             val editable = creator && lobby && !busy
-            MapCard(current, installed, canChange = editable && current.seats.none { it.username != null && it.username != me }) { choosing = true }
+            MapHero(current, installed, canChange = editable && current.seats.none { it.username != null && it.username != me }, onGetMap = onOpenMaps) { choosing = true }
             when {
                 lobby && !current.mapReady -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Text("Map is loading on the server…", modifier = Modifier.padding(start = 8.dp))
+                    Text("Loading map…", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
                 }
-                current.status == "aborted" -> Text(current.error ?: "The game was aborted.", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 6.dp))
-                current.status == "running" && mine.isEmpty() -> Text("The game has started.", modifier = Modifier.padding(vertical = 6.dp))
-                current.status == "running" && starting -> Text("Opening the game…", modifier = Modifier.padding(vertical = 6.dp))
-                current.status == "running" -> Button(onClick = { open(current) }) { Text("Open game") }
-                !lobby -> Text(current.status.replaceFirstChar { it.uppercase() }, modifier = Modifier.padding(vertical = 6.dp))
+                current.status == "aborted" -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                    Icon(Icons.Filled.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                    Text(current.error ?: "Aborted", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 8.dp))
+                }
+                current.status == "running" && mine.isEmpty() -> StatusPill("Started", Icons.Filled.PlayArrow, Modifier.padding(vertical = 6.dp))
+                current.status == "running" && starting -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text("Opening…", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
+                }
+                current.status == "running" -> Button(onClick = { open(current) }, modifier = Modifier.padding(vertical = 4.dp)) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Text("Open game", modifier = Modifier.padding(start = 8.dp))
+                }
+                !lobby -> StatusPill(current.status.replaceFirstChar { it.uppercase() }, null, Modifier.padding(vertical = 6.dp))
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.Center, modifier = Modifier.padding(top = 4.dp)) {
                 var visibilityMenu by remember { mutableStateOf(false) }
                 Box {
-                    OptionChip(visibilityLabel(current), Icons.Filled.Public, editable) { visibilityMenu = true }
+                    OptionChip(visibilityLabel(current), visibilityIcon(current.visibility), editable) { visibilityMenu = true }
                     DropdownMenu(expanded = visibilityMenu, onDismissRequest = { visibilityMenu = false }) {
                         visibilities.forEach { (value, label) ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = {
-                                visibilityMenu = false
-                                if (value != current.visibility) patch(current, UpdateGameRequest(visibility = value))
-                            })
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                leadingIcon = { Icon(visibilityIcon(value), contentDescription = null) },
+                                onClick = {
+                                    visibilityMenu = false
+                                    if (value != current.visibility) patch(current, UpdateGameRequest(visibility = value))
+                                },
+                            )
                         }
                     }
                 }
-                OptionChip(clockLabel(current.timeControl), Icons.Filled.Timer, editable) { showClock = true }
-                if (creator) OptionChip("More", Icons.Filled.Settings, editable) { showMore = true }
+                OptionChip(clockLabel(current.timeControl), clockIcon(current.timeControl), editable) { showClock = true }
+                if (creator) OptionChip("More", Icons.Filled.Tune, editable) { showMore = true }
             }
             current.inviteCode?.let { code -> InviteCodeRow("${current.id}:$code") }
-            Text("Nations", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp))
+            val taken = current.seats.count { it.kind != "OPEN" }
+            Heading("Nations · $taken/${current.seats.size} taken")
             LazyColumn(Modifier.weight(1f)) {
                 items(current.seats, key = { it.nation }) { seat ->
                     val profile = listOfNotNull(seat.username?.takeIf { !busy }?.let { name -> "Profile of $name" to { onOpenProfile(name) } })
@@ -354,18 +421,7 @@ fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile:
                         seat.username == me -> listOf("Free" to { run { server -> server.leave(current.id, seat.nation); fetch(server, current.id) } })
                         else -> emptyList()
                     }
-                    NationRow(seat.nation) {
-                        PickerButton(
-                            seatLabel(seat),
-                            options,
-                            color = when {
-                                seat.username == me -> MaterialTheme.colorScheme.primary
-                                seat.kind == "OPEN" -> FREE_SEAT_GREEN
-                                else -> MaterialTheme.colorScheme.onSurface
-                            },
-                            width = SEAT_PICKER_WIDTH,
-                        )
-                    }
+                    NationRow(seat.nation) { SeatPicker(seat, me, showReady = lobby, options) }
                 }
             }
             val ready = mine.isNotEmpty() && mine.all { it.ready }
@@ -378,28 +434,47 @@ fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile:
                 wasReady = ready
                 unreadied = false
             }
-            if (tooFewHumans && !ready) Text("At least 2 human players needed – play against the AI offline", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 6.dp))
-            else if (lobby && readyReset) Text("Settings changed – press Ready again", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp))
+            if (tooFewHumans && !ready) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill("Needs 2 players", Icons.Filled.Groups, warning = true)
+                    InfoButton("Players", "At least 2 human players are needed: free a seat or invite a friend. To play against the AI only, start an offline game.")
+                }
+            } else if (lobby && readyReset) {
+                StatusPill("Ready again", Icons.Filled.Refresh, Modifier.padding(top = 6.dp), warning = true)
+            }
             if (lobby) {
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (creator) {
-                        OutlinedButton(onClick = { run(done = onBack) { it.deleteGame(current.id); null } }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Delete") }
+                        OutlinedButton(onClick = { run(done = onBack) { it.deleteGame(current.id); null } }, enabled = !busy) {
+                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                            Text("Delete", modifier = Modifier.padding(start = 6.dp))
+                        }
                     } else if (mine.isNotEmpty()) {
-                        OutlinedButton(
-                            onClick = { run(done = onBack) { server -> mine.forEach { server.leave(current.id, it.nation) }; null } },
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("Leave") }
+                        OutlinedButton(onClick = { run(done = onBack) { server -> mine.forEach { server.leave(current.id, it.nation) }; null } }, enabled = !busy) {
+                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                            Text("Leave", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
-                    Button(
-                        onClick = {
-                            unreadied = ready
-                            run { it.ready(current.id, !ready) }
-                        },
-                        // un-ready always works
-                        enabled = !busy && mine.isNotEmpty() && current.mapReady && (ready || !tooFewHumans),
-                        modifier = Modifier.weight(1f),
-                    ) { Text(if (ready) "Not ready" else "Ready") }
+                    val onReady = {
+                        unreadied = ready
+                        run { it.ready(current.id, !ready) }
+                    }
+                    // un-ready always works
+                    // the game is played with this device's map files: without them the start would leave me stuck
+                    val mapHere = installed?.any { sameMap(it.mapName, current.mapName) } == true
+                    val canReady = !busy && mine.isNotEmpty() && current.mapReady && (ready || (!tooFewHumans && mapHere))
+                    if (ready) {
+                        // ticked while ready; a tap takes it back
+                        FilledTonalButton(onClick = onReady, enabled = canReady, modifier = Modifier.weight(1f).semantics { stateDescription = "ready, tap for not ready" }) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = FREE_SEAT, modifier = Modifier.size(ButtonDefaults.IconSize))
+                            Text("Ready", modifier = Modifier.padding(start = 8.dp))
+                        }
+                    } else {
+                        Button(onClick = onReady, enabled = canReady, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                            Text("Ready", modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
                 }
             }
             // the game's chat is for its seat holders; it continues in the game
@@ -419,7 +494,7 @@ fun OnlineSetupScreen(gameId: String?, onBack: () -> kotlin.Unit, onOpenProfile:
 }
 
 @Composable
-private fun OptionChip(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onClick: () -> kotlin.Unit) {
+private fun OptionChip(label: String, icon: ImageVector, enabled: Boolean, onClick: () -> kotlin.Unit) {
     AssistChip(
         onClick = onClick,
         enabled = enabled,
@@ -428,23 +503,104 @@ private fun OptionChip(label: String, icon: androidx.compose.ui.graphics.vector.
     )
 }
 
-/** Thumbnail (if the map is installed here and has a preview), game name, nations and "Change map". */
+/** The map as the screen's banner: its preview (if installed here), the game name and nation count, and "Change". */
 @Composable
-private fun MapCard(game: GameInfoDto, installed: List<MobileEngine.InstalledGame>?, canChange: Boolean, onChange: () -> kotlin.Unit) {
-    val map = remember(installed, game.mapName) { installed?.let { list -> groupByMap(list.filter { it.mapName == game.mapName }).firstOrNull() } }
-    val preview = rememberPreview(map?.previewFile, 300)
-    Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            PreviewImage(preview, Modifier.size(width = 72.dp, height = 48.dp))
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(game.gameName, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${game.seats.size} nations", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                // the game is played with the map files of this device
-                if (installed != null && map == null) {
-                    Text("Not installed here: get it in the map browser", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+private fun MapHero(game: GameInfoDto, installed: List<MobileEngine.InstalledGame>?, canChange: Boolean, onGetMap: () -> kotlin.Unit, onChange: () -> kotlin.Unit) {
+    val map = remember(installed, game.mapName) { installed?.let { list -> groupByMap(list.filter { sameMap(it.mapName, game.mapName) }).firstOrNull() } }
+    val preview = rememberPreview(map?.previewFile, 720)
+    Box(Modifier.fillMaxWidth().height(MAP_HERO_HEIGHT).clip(RoundedCornerShape(12.dp))) {
+        PreviewImage(preview, Modifier.fillMaxSize())
+        // a scrim under the name: readable on any map
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
+        // the game is played with the map files of this device
+        if (installed != null && map == null) {
+            StatusPill(
+                "Not installed · Get map",
+                Icons.Filled.Download,
+                Modifier.align(Alignment.TopStart).padding(8.dp).clickable(onClickLabel = "open the map browser", onClick = onGetMap),
+                warning = true,
+            )
+        }
+        if (canChange) {
+            FilledTonalButton(
+                onClick = onChange,
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+            ) {
+                Icon(Icons.Filled.SwapHoriz, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                Text("Change", modifier = Modifier.padding(start = 6.dp))
+            }
+        }
+        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                game.gameName,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            StatusPill("${game.seats.size}", Icons.Filled.Flag, Modifier.padding(start = 8.dp).clearAndSetSemantics { contentDescription = "${game.seats.size} nations" })
+        }
+    }
+}
+
+/**
+ * Who plays a nation, as in the friends list: the player's initial and name (ticked when [showReady] and ready),
+ * a robot and the AI's name, or a green "Free". A tap opens [options]; without options it only shows.
+ */
+@Composable
+private fun SeatPicker(seat: SeatDto, me: String, showReady: Boolean, options: List<Pair<String, () -> kotlin.Unit>>) {
+    var expanded by remember { mutableStateOf(false) }
+    val name = seat.username
+    val open = seat.kind == "OPEN"
+    val ready = showReady && seat.ready
+    val label = when {
+        open -> "Free"
+        seat.kind == "HUMAN" -> name.orEmpty()
+        else -> seatLabel(seat)
+    }
+    Box {
+        Surface(
+            onClick = { expanded = true },
+            enabled = options.isNotEmpty(),
+            shape = RoundedCornerShape(50),
+            color = if (open) FREE_SEAT.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.width(SEAT_PICKER_WIDTH).heightIn(min = 48.dp).padding(vertical = 4.dp)
+                .semantics { contentDescription = label + if (ready) ", ready" else "" },
+        ) {
+            Row(Modifier.padding(start = 6.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                when {
+                    open -> Box(Modifier.size(26.dp).background(FREE_SEAT, CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                    seat.kind == "HUMAN" && name != null -> Initial(name, 26.dp)
+                    else -> Box(Modifier.size(26.dp).background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = when {
+                        open -> FREE_SEAT
+                        name == me -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
+                )
+                when {
+                    ready -> Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = FREE_SEAT, modifier = Modifier.size(18.dp))
+                    options.isNotEmpty() -> Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (canChange) TextButton(onClick = onChange) { Text("Change map") }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (text, action) ->
+                DropdownMenuItem(text = { Text(text) }, onClick = { expanded = false; action() })
+            }
         }
     }
 }
@@ -453,8 +609,17 @@ private fun MapCard(game: GameInfoDto, installed: List<MobileEngine.InstalledGam
 @Composable
 private fun InviteCodeRow(code: String) {
     val context = LocalContext.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Invite code: $code", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.weight(1f, fill = false).clearAndSetSemantics { contentDescription = "invite code $code" },
+        ) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
         IconButton(onClick = {
             context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("TripleA invite", code))
         }) { Icon(Icons.Filled.ContentCopy, contentDescription = "copy invite code") }
@@ -474,18 +639,19 @@ private fun ChatBar(channel: String, me: String, onOpenProfile: (String) -> kotl
         onClick = { open = !open },
         shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp),
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(
-                "Chat" + (last?.let { " · ${it.username}: ${it.text}" } ?: ""),
+                last?.let { "${it.username}: ${it.text}" } ?: "Chat",
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium,
+                color = if (last == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
             )
-            if (unread > 0) Badge { Text("$unread") }
+            if (unread > 0) Badge(Modifier.padding(end = 6.dp)) { Text("$unread") }
             Icon(if (open) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess, contentDescription = if (open) "close chat" else "open chat")
         }
     }
@@ -504,21 +670,28 @@ private fun InviteDialog(nation: String, onDismiss: () -> kotlin.Unit, onInvite:
     val channels = friends.channels
     val error = friends.error
     val list = channels?.keys.orEmpty().sorted()
-    AppDialog(title = "Invite a friend as $nation", onDismiss = onDismiss, buttons = { TextButton(onClick = onDismiss) { Text("Cancel") } }) {
+    AppDialog(title = "Invite to ${displayName(nation)}", onDismiss = onDismiss, buttons = { TextButton(onClick = onDismiss) { Text("Cancel") } }) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             when {
                 channels == null && error != null -> LoadFailed(error, friends.retry)
-                channels == null -> Text("Loading…")
-                list.isEmpty() -> Text("No friends yet: add them on the Friends tab.")
+                channels == null -> CircularProgressIndicator(Modifier.padding(16.dp).align(Alignment.CenterHorizontally))
+                list.isEmpty() -> EmptyState(Icons.Filled.PersonAdd, "No friends yet")
                 else -> list.forEach { name ->
-                    Text(name, modifier = Modifier.fillMaxWidth().clickable { onInvite(name) }.padding(vertical = 12.dp))
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClickLabel = "invite $name") { onInvite(name) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Initial(name, 36.dp)
+                        Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
+                        Icon(Icons.Filled.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }
     }
 }
 
-/** No clock, or blitz, rapid or correspondence with their times. */
+/** No clock, or blitz, rapid or daily (correspondence) with their times. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClockDialog(current: TimeControlDto?, onDismiss: () -> kotlin.Unit, onApply: (TimeControlDto?) -> kotlin.Unit) {
@@ -535,22 +708,22 @@ private fun ClockDialog(current: TimeControlDto?, onDismiss: () -> kotlin.Unit, 
     ) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = control == null, onClick = { control = null }, label = { Text("None") })
+                FilterChip(selected = control == null, onClick = { control = null }, label = { Text("None") }, leadingIcon = { ChipIcon(Icons.Filled.TimerOff) })
                 timeControls.forEach { choice ->
                     FilterChip(selected = control == choice, onClick = {
                         control = choice
                         base = choice.bases[1]
                         increment = 0
-                    }, label = { Text(choice.label) })
+                    }, label = { Text(choice.label) }, leadingIcon = { ChipIcon(choice.icon) })
                 }
             }
             control?.let { choice ->
-                Text("Time (${choice.unit})", style = MaterialTheme.typography.bodySmall)
+                Heading(choice.unit)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     choice.bases.forEach { FilterChip(selected = base == it, onClick = { base = it }, label = { Text("$it") }) }
                 }
                 if (choice.increments.isNotEmpty()) {
-                    Text("Seconds added per answer", style = MaterialTheme.typography.bodySmall)
+                    Heading("Seconds per move")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         choice.increments.forEach { FilterChip(selected = increment == it, onClick = { increment = it }, label = { Text("+$it") }) }
                     }
@@ -560,6 +733,9 @@ private fun ClockDialog(current: TimeControlDto?, onDismiss: () -> kotlin.Unit, 
     }
 }
 
+@Composable
+private fun ChipIcon(icon: ImageVector) = Icon(icon, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
+
 /** AI takeover, resigning and spectators. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -567,8 +743,10 @@ private fun MoreDialog(game: GameInfoDto, onDismiss: () -> kotlin.Unit, onApply:
     var aiTakesOver by remember { mutableStateOf(game.aiTakesOver) }
     var resignAfter by remember { mutableIntStateOf(game.resignAfterMissedTurns) }
     var allowSpectators by remember { mutableStateOf(game.allowSpectators) }
+    // link games are seen by their players only, so nobody could watch them
+    val spectatorsPossible = game.visibility != "link"
     AppDialog(
-        title = "More options",
+        title = "Options",
         onDismiss = onDismiss,
         buttons = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
@@ -576,23 +754,36 @@ private fun MoreDialog(game: GameInfoDto, onDismiss: () -> kotlin.Unit, onApply:
         },
     ) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { aiTakesOver = !aiTakesOver }) {
-                Checkbox(checked = aiTakesOver, onCheckedChange = { aiTakesOver = it })
-                Text("AI takes over when a clock runs out")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("What these do", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                InfoButton(
+                    "Options",
+                    "AI on timeout: the AI plays a turn when a player's clock runs out. " +
+                        "Resign: a player who misses that many turns in a row leaves the game. " +
+                        "Spectators see the game a few saves late (not in invite-code games).",
+                )
             }
-            Text("Resign after missed turns in a row", style = MaterialTheme.typography.bodySmall)
+            SwitchRow("AI on timeout", Icons.Filled.SmartToy, aiTakesOver) { aiTakesOver = it }
+            Heading("Resign after missed turns")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(0, 1, 2, 3, 5).forEach {
                     FilterChip(selected = resignAfter == it, onClick = { resignAfter = it }, label = { Text(if (it == 0) "Never" else "$it") })
                 }
             }
-            // link games are seen by their players only, so nobody could watch them
-            if (game.visibility != "link") {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { allowSpectators = !allowSpectators }) {
-                    Checkbox(checked = allowSpectators, onCheckedChange = { allowSpectators = it })
-                    Text("Allow spectators (they see the game a few saves late)")
-                }
-            }
+            if (spectatorsPossible) SwitchRow("Spectators", Icons.Filled.Visibility, allowSpectators) { allowSpectators = it }
         }
+    }
+}
+
+/** An icon, a short label and a switch; the whole row toggles. */
+@Composable
+private fun SwitchRow(label: String, icon: ImageVector, checked: Boolean, onChange: (Boolean) -> kotlin.Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { onChange(!checked) }.semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }

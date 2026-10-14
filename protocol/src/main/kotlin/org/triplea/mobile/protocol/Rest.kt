@@ -24,11 +24,20 @@ data class MapGameDto(val mapName: String, val gameName: String, val nations: Li
 /**
  * [kind]: HUMAN, OPEN (a human seat nobody holds yet), EASY_AI, FAST_AI, HARD_AI or DOES_NOTHING;
  * [username] is set for HUMAN, and for an AI seat that plays for its player (their clock ran out).
- * [ready]: the holder pressed Ready (lobby games). [resigned]: the player missed too many turns; the AI
- * keeps the seat for good.
+ * [ready]: the holder pressed Ready (lobby games). [resigned]: the player left the game (gave up, missed too many
+ * turns in a row or deleted the account); the AI keeps the seat for good.
+ * [team] (v3, running and ended games): the nation's alliance at the start (its own name without one); seats of one
+ * team win or lose together.
  */
 @Serializable
-data class SeatDto(val nation: String, val kind: String, val username: String? = null, val ready: Boolean = false, val resigned: Boolean = false)
+data class SeatDto(
+    val nation: String,
+    val kind: String,
+    val username: String? = null,
+    val ready: Boolean = false,
+    val resigned: Boolean = false,
+    val team: String? = null,
+)
 
 /**
  * [type]: blitz (base 3 to 10 minutes, increment 0 to 30 s per answered question), rapid (15 to 60
@@ -108,6 +117,8 @@ data class TurnsDto(val turns: List<TurnDto>, val unreadDirect: Int = 0)
  * battle), else the current step's player; [turnRemainingMs] their remaining clock time and
  * [turnDeadline] (epoch ms) when it runs out, while it runs (both null without a time control); [turnSince] (epoch ms)
  * when the current turn started.
+ * [vsAi] (v3, running and ended games): every human started on one team, so they play together against the AI; such
+ * games count in [ProfileDto.aiStats], not in the player-versus-player [ProfileDto.stats].
  */
 @Serializable
 data class GameInfoDto(
@@ -134,6 +145,7 @@ data class GameInfoDto(
     val turnRemainingMs: Long? = null,
     val turnDeadline: Long? = null,
     val turnSince: Long? = null,
+    val vsAi: Boolean = false,
 )
 
 /** v3: the player to move in a running game: [nation], its player's [username] (null if none) and whether the [ai] plays it. */
@@ -247,10 +259,19 @@ data class ChangePasswordRequest(val oldPassword: String, val newPassword: Strin
 /**
  * v3, `GET /users/{username}/profile`: [icon] is an id of the icon allow-list (`profile-icons.txt`, e.g.
  * `flag:Germans`, `unit:fighter`, default `emblem:default`); [status] 0 to 60 characters. [recentGames]: at most 10
- * ended games, newest first, only those the caller may replay.
+ * ended games, newest first, only those the caller may replay. [stats]: games against other players only;
+ * [aiStats]: games where all humans played together against the AI ([GameInfoDto.vsAi]), kept apart so wins against
+ * the AI do not raise the win rate.
  */
 @Serializable
-data class ProfileDto(val username: String, val icon: String, val status: String, val stats: StatsDto, val recentGames: List<RecentGameDto> = emptyList())
+data class ProfileDto(
+    val username: String,
+    val icon: String,
+    val status: String,
+    val stats: StatsDto,
+    val recentGames: List<RecentGameDto> = emptyList(),
+    val aiStats: StatsDto = StatsDto(),
+)
 
 /**
  * v3: counted over the games the user held a seat in that ended after they started: [played] = [won] + [lost] +
@@ -273,7 +294,8 @@ data class StatsDto(
 
 /**
  * v3: an ended game of a profile. [nations]: the ones the user played; [result]: won, lost, resigned, abandoned or draw;
- * [endedAt] epoch ms; [replay]: its final save is still kept (`GET /games/{id}/replay`, 365 days after the end).
+ * [endedAt] epoch ms; [replay]: its final save is still kept (`GET /games/{id}/replay`, 365 days after the end);
+ * [vsAi]: a game against the AI ([GameInfoDto.vsAi]).
  */
 @Serializable
 data class RecentGameDto(
@@ -284,6 +306,7 @@ data class RecentGameDto(
     val result: String,
     val endedAt: Long,
     val replay: Boolean,
+    val vsAi: Boolean = false,
 )
 
 /** v3, `PUT /account/profile`: null keeps a field. [icon] must be on the allow-list (else 400); [status] is trimmed, 0 to 60 characters, no control characters. */

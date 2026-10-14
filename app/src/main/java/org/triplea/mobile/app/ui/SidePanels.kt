@@ -227,7 +227,7 @@ internal fun NationFlag(images: ImageCache?, nation: String, size: Dp = 16.dp, m
 
 /** The nation's flag, decoded off the main thread, and whether it is known to be missing (the flag is null while loading too). */
 @Composable
-private fun rememberFlag(images: ImageCache?, nation: String): Pair<Bitmap?, Boolean> {
+internal fun rememberFlag(images: ImageCache?, nation: String): Pair<Bitmap?, Boolean> {
     val path = "flags/$nation.png"
     val candidates = listOf(path, "flags/${nation}_small.png")
     // key(nation): a new nation starts from its own cached flag, never the previous nation's
@@ -385,13 +385,12 @@ private enum class PanelTab(val label: String) {
     STATS("Stats"),
     HISTORY("History"),
     GOALS("Goals"),
-    DIPLOMACY("Diplomacy"),
 }
 
 /**
  * The details panel, one tab at a time. "Turn" is the nation whose turn it is with round, phase
  * and PUs plus the moves of the phase; "Zone" the tapped territory and the current selection;
- * then statistics, the history and (when the map has it) diplomacy.
+ * then statistics, the history and (when the map has them) objectives. Diplomacy is in the game info.
  */
 @Composable
 internal fun SidePanel(
@@ -407,7 +406,6 @@ internal fun SidePanel(
     stats: List<PlayerStats>,
     showVictoryCities: Boolean,
     history: List<HistoryBlock>,
-    relationships: List<RelationshipLine>,
     objectives: List<ObjectiveLine> = emptyList(),
     movesThisPhase: @Composable ColumnScope.() -> kotlin.Unit = {},
     onFlagTap: (() -> kotlin.Unit)? = null,
@@ -417,10 +415,8 @@ internal fun SidePanel(
     onReplay: (() -> kotlin.Unit)? = null,
 ) {
     var tabIndex by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = remember(relationships.isEmpty(), objectives.isEmpty()) {
-        PanelTab.entries.filter { tab ->
-            (tab != PanelTab.DIPLOMACY || relationships.isNotEmpty()) && (tab != PanelTab.GOALS || objectives.isNotEmpty())
-        }
+    val tabs = remember(objectives.isEmpty()) {
+        PanelTab.entries.filter { tab -> tab != PanelTab.GOALS || objectives.isNotEmpty() }
     }
     if (tabIndex >= tabs.size) tabIndex = 0
     val tab = tabs[tabIndex]
@@ -465,7 +461,6 @@ internal fun SidePanel(
                 PanelTab.STATS -> if (stats.isEmpty()) Text("No statistics yet.", style = MaterialTheme.typography.bodySmall) else StatsTable(stats, showVictoryCities, status.playerName)
                 PanelTab.HISTORY -> if (history.isEmpty()) Text("Nothing happened yet.", style = MaterialTheme.typography.bodySmall) else HistoryList(history, images, onShowEvent, onReplay)
                 PanelTab.GOALS -> ObjectivesList(objectives, images, status.playerName)
-                PanelTab.DIPLOMACY -> if (relationships.isEmpty()) Text("This map has no diplomacy.", style = MaterialTheme.typography.bodySmall) else DiplomacyView(relationships, images)
             }
         }
     }

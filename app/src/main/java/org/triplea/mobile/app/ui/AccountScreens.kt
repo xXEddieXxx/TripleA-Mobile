@@ -3,12 +3,12 @@ package org.triplea.mobile.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -16,10 +16,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +40,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
@@ -111,15 +116,32 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
             Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Username: ${AppSettings.tokens.tokens?.username.orEmpty()}")
-            if (busy) CircularProgressIndicator()
-            if (busy && deleting) Text("Deleting the account… Your running games are handed to the AI; this can take a minute.")
+            val username = AppSettings.tokens.tokens?.username.orEmpty()
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Initial(username, 40.dp)
+                Text(username, style = MaterialTheme.typography.titleMedium)
+            }
+            if (busy) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator()
+                    if (deleting) Text("Deleting…")
+                }
+            }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
 
             if (mailOn) {
-                Section("E-mail")
-                Text(email?.let { "Confirmed: $it" } ?: "No e-mail address. With one you can reset a forgotten password.")
+                Section(Icons.Filled.Mail, "E-mail")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val address = email
+                    if (address != null) {
+                        Text(address, modifier = Modifier.weight(1f, fill = false))
+                        StatusPill("Confirmed", Icons.Filled.Check)
+                    } else {
+                        Text("No e-mail")
+                        InfoButton("E-mail", "With a confirmed e-mail address you can reset a forgotten password.")
+                    }
+                }
                 val sentTo = codeSentTo
                 if (sentTo == null) {
                     OutlinedTextField(
@@ -133,13 +155,13 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
                         run({ it.requestEmail(address, emailPassword) }) {
                             codeSentTo = address
                             emailPassword = ""
-                            info = "A code was sent to $address."
+                            info = "Code sent to $address."
                         }
                     }, enabled = !busy && newEmail.contains('@') && emailPassword.isNotEmpty()) { Text("Send code") }
                     // the code mailed at registration, or one asked for before leaving this screen
                     TextButton(onClick = { codeSentTo = "the address you gave" }, enabled = !busy) { Text("I have a code") }
                 } else {
-                    Text("A confirmation code was sent to $sentTo.")
+                    Text("Code sent to $sentTo")
                     CodeField(code) { code = it }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = {
@@ -148,7 +170,7 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
                                 codeSentTo = null
                                 code = ""
                                 newEmail = ""
-                                info = "E-mail address confirmed."
+                                info = "E-mail confirmed."
                             }
                         }, enabled = !busy && code.length == 6) { Text("Confirm") }
                         TextButton(onClick = { codeSentTo = null; code = "" }, enabled = !busy) { Text("Cancel") }
@@ -156,18 +178,18 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
                 }
             }
 
-            Section("Password")
+            Section(Icons.Filled.Lock, "Password")
             PasswordField("Current password", oldPassword) { oldPassword = it }
-            PasswordField("New password (8 or more characters)", newPassword) { newPassword = it }
+            PasswordField("New password (8+ characters)", newPassword) { newPassword = it }
             Button(onClick = {
                 run({ it.changePassword(oldPassword, newPassword) }) {
                     oldPassword = ""
                     newPassword = ""
-                    info = "Password changed. Other devices are logged out."
+                    info = "Password changed. Other devices logged out."
                 }
             }, enabled = !busy && oldPassword.isNotEmpty() && newPassword.length >= 8) { Text("Change password") }
 
-            Section("Delete account")
+            Section(Icons.Filled.DeleteForever, "Delete account")
             OutlinedButton(onClick = { showDelete = true }, enabled = !busy) { Text("Delete account") }
         }
     }
@@ -216,13 +238,16 @@ fun ForgotPasswordScreen(onBack: () -> Unit, onLoggedIn: () -> Unit) {
             if (busy) CircularProgressIndicator()
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (!sent) {
-                Text("Enter your username or the e-mail address of your account. If it has a confirmed e-mail address, a 6-digit code is sent to it.")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("We'll mail a 6-digit code.", modifier = Modifier.weight(1f))
+                    InfoButton("Forgot password", "The code goes to the account's confirmed e-mail address. Without one, the password cannot be reset.")
+                }
                 OutlinedTextField(login, { login = it.trim() }, label = { Text("Username or e-mail") }, singleLine = true, keyboardOptions = usernameKeyboard, modifier = Modifier.fillMaxWidth())
                 Button(onClick = { run({ it.forgotPassword(login) }) { sent = true } }, enabled = !busy && login.isNotEmpty()) { Text("Send code") }
             } else {
-                Text("If the account has a confirmed e-mail address, a code is on its way to it. It is valid for 15 minutes.")
+                Text("Check your mail · the code is valid 15 min.")
                 CodeField(code) { code = it }
-                PasswordField("New password (8 or more characters)", password) { password = it }
+                PasswordField("New password (8+ characters)", password) { password = it }
                 Button(onClick = { run({ it.resetPassword(login, code, password) }, onLoggedIn) }, enabled = !busy && code.length == 6 && password.length >= 8) {
                     Text("Set password and log in")
                 }
@@ -285,15 +310,18 @@ internal fun markdownBlocks(markdown: String): List<Pair<Char, String>> {
     return blocks.filter { it.first != ' ' }
 }
 
+/** A section heading with its icon, in the friends list's small capitals. */
 @Composable
-private fun ColumnScope.Section(title: String) {
-    HorizontalDivider(Modifier.padding(top = 8.dp))
-    Text(title, style = MaterialTheme.typography.titleMedium)
+private fun Section(icon: ImageVector, title: String) {
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp).size(18.dp))
+        Heading(title)
+    }
 }
 
 @Composable
 private fun CodeField(code: String, onChange: (String) -> Unit) = OutlinedTextField(
-    code, { onChange(it.filter(Char::isDigit).take(6)) }, label = { Text("6-digit code from the mail") }, singleLine = true,
+    code, { onChange(it.filter(Char::isDigit).take(6)) }, label = { Text("6-digit code") }, singleLine = true,
     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), modifier = Modifier.fillMaxWidth(),
 )
 
@@ -308,7 +336,7 @@ private fun DeleteAccountDialog(onDismiss: () -> Unit, onConfirm: (String) -> Un
     var password by remember { mutableStateOf("") }
     AppDialog(
         title = "Delete account",
-        subtitle = "Your account is anonymised, your friends and blocks are deleted, and your seats in running games become AI. This cannot be undone.",
+        subtitle = "Your account is anonymised, friends and blocks are deleted, and your seats become AI. This cannot be undone.",
         onDismiss = onDismiss,
         buttons = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

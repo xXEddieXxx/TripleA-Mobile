@@ -54,8 +54,11 @@ object MoveHelper {
 
     /** The moves of the current move phase, oldest first. */
     fun movesMade(session: GameSession): List<MadeMove> = runCatching {
+        // ask the delegate before taking the data lock: a save holds the delegate lock while it
+        // waits for the data lock, so the other order deadlocks
+        val moves = session.currentDelegate(IMoveDelegate::class.java).movesMade
         session.gameData.acquireReadLock().use {
-            session.currentDelegate(IMoveDelegate::class.java).movesMade.mapIndexed { index, move ->
+            moves.mapIndexed { index, move ->
                 val canUndo = move.canUndo
                 MadeMove(
                     index = index,
@@ -71,8 +74,9 @@ object MoveHelper {
 
     /** The placements of the current placement phase, oldest first. */
     fun placementsMade(session: GameSession): List<MadeMove> = runCatching {
+        val placements = session.currentDelegate(IAbstractPlaceDelegate::class.java).movesMade // before the lock, see movesMade
         session.gameData.acquireReadLock().use {
-            session.currentDelegate(IAbstractPlaceDelegate::class.java).movesMade.mapIndexed { index, placement ->
+            placements.mapIndexed { index, placement ->
                 val canUndo = placement.canUndo
                 MadeMove(
                     index = index,
@@ -107,8 +111,8 @@ object MoveHelper {
     fun movableUnits(session: GameSession, player: GamePlayer, territory: Territory): List<Unit> {
         session.gameData.acquireReadLock().use {
             return territory.units.filter {
+                // no infrastructure filter, as on the desktop: "isAA" units are infrastructure and still move
                 it.owner == player &&
-                    !Matches.unitIsInfrastructure().test(it) &&
                     (Matches.unitHasMovementLeft().test(it) || (territory.isWater && Matches.unitIsBeingTransported().test(it)))
             }
         }

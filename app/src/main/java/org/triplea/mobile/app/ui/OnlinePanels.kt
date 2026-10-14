@@ -8,13 +8,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.filled.FlightTakeoff
+import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -32,7 +43,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +98,7 @@ internal fun clockText(millis: Long): String {
  * AI plays one of [me]'s seats (their clock ran out) it says so, with "I'm back" ([onBack]); after a
  * resignation without it.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ClockBar(clock: Clock?, me: String, takenOver: Boolean, resigned: Boolean, backSent: Boolean, onBack: () -> kotlin.Unit) {
     if (clock == null && !takenOver) return
@@ -98,31 +112,37 @@ internal fun ClockBar(clock: Clock?, me: String, takenOver: Boolean, resigned: B
     }
     OverlayChip {
         if (clock != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 clock.clocks.forEach { (user, remaining) ->
                     val running = user == clock.running
-                    Text(
-                        "$user ${clockText(if (running && deadline != null) deadline - now else remaining)}" + if (running) " ▸" else "",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (running) FontWeight.Bold else FontWeight.Normal,
-                        color = if (user == me && running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    )
+                    val left = if (running && deadline != null) deadline - now else remaining
+                    val low = left < LOW_TIME_MS
+                    val time = clockText(left)
+                    val description = "$user, $time left" + (if (running) ", running" else "") + (if (low) ", low" else "")
+                    Row(
+                        Modifier.clearAndSetSemantics { contentDescription = description },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Initial(user, 20.dp)
+                        StatusPill(time, if (running) Icons.Filled.Timer else null, strong = running, warning = low)
+                    }
                 }
             }
         }
         if (takenOver) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                StatusPill(
                     when {
-                        resigned -> "Resigned: the AI plays your seat"
-                        backSent -> "AI is playing your seat until your next turn"
-                        else -> "AI is playing your seat"
+                        resigned -> "Resigned"
+                        backSent -> "Back next turn"
+                        else -> "AI playing for you"
                     },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.error,
+                    Icons.Filled.SmartToy,
+                    warning = !backSent,
                 )
                 if (!backSent && !resigned) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(4.dp))
                     TextButton(onClick = onBack) { Text("I'm back") }
                 }
             }
@@ -130,11 +150,18 @@ internal fun ClockBar(clock: Clock?, me: String, takenOver: Boolean, resigned: B
     }
 }
 
+/** Under a minute left: the clock turns to the warning colour. */
+private const val LOW_TIME_MS = 60_000L
+
 /** One standing order: a chip per value; null is the engine's default answer. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun OrderRow(title: String, options: List<Pair<String?, String>>, value: String?, onChange: (String?) -> kotlin.Unit) {
-    Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+private fun OrderRow(icon: ImageVector, title: String, options: List<Pair<String?, String>>, value: String?, onChange: (String?) -> kotlin.Unit) {
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall)
+    }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (option, label) -> FilterChip(selected = value == option, onClick = { onChange(option) }, label = { Text(label) }) }
     }
@@ -155,27 +182,25 @@ internal fun StandingOrdersSheet(session: OnlineSession, onDismiss: () -> kotlin
     ModalBottomSheet(onDismissRequest = onDismiss) {
         // the game runs fullscreen: a fixed bottom margin clears the gesture handle, as for the chat
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            Text("Standing orders", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "How the server answers for you when you are not asked: outside your turn, and when your clock runs out.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Standing orders", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                InfoButton("Standing orders", "How the server answers for you when you are not asked: outside your turn, and when your clock runs out.")
+            }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
             val o = orders
             if (o == null) {
                 if (error == null) CircularProgressIndicator(Modifier.padding(16.dp).align(Alignment.CenterHorizontally))
                 return@Column
             }
-            OrderRow("When I defend", listOf("live" to "Always ask me", "hybrid" to "Ask me when online", "standing" to "Use my orders"), o.defenderMode) {
+            OrderRow(Icons.Filled.Shield, "Defending", listOf("live" to "Always ask me", "hybrid" to "Ask me when online", "standing" to "Use my orders"), o.defenderMode) {
                 orders = o.copy(defenderMode = it ?: "hybrid")
             }
-            OrderRow("Casualties", listOf(null to "Default", "cheapest_first" to "Cheapest first", "aircraft_last" to "Aircraft last"), o.casualties) {
+            OrderRow(Icons.Filled.PersonRemove, "Casualties", listOf(null to "Default", "cheapest_first" to "Cheapest first", "aircraft_last" to "Aircraft last"), o.casualties) {
                 orders = o.copy(casualties = it)
             }
-            OrderRow("Scramble", listOf(null to "Default", "never" to "Never"), o.scramble) { orders = o.copy(scramble = it) }
-            OrderRow("Retreat", listOf(null to "Default", "never" to "Never"), o.retreat) { orders = o.copy(retreat = it) }
-            OrderRow("Political offers", listOf(null to "Default", "decline" to "Decline", "ask" to "Always ask me"), o.offers) { orders = o.copy(offers = it) }
+            OrderRow(Icons.Filled.FlightTakeoff, "Scramble", listOf(null to "Default", "never" to "Never"), o.scramble) { orders = o.copy(scramble = it) }
+            OrderRow(Icons.AutoMirrored.Filled.DirectionsRun, "Retreat", listOf(null to "Default", "never" to "Never"), o.retreat) { orders = o.copy(retreat = it) }
+            OrderRow(Icons.Filled.Handshake, "Political offers", listOf(null to "Default", "decline" to "Decline", "ask" to "Always ask me"), o.offers) { orders = o.copy(offers = it) }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Button(enabled = !busy, onClick = {
@@ -196,6 +221,48 @@ internal fun StandingOrdersSheet(session: OnlineSession, onDismiss: () -> kotlin
     }
 }
 
+/**
+ * Gives up the game for good: the AI plays [me]'s nations, the server ends the game once only one team has players
+ * left ([onResigned] then leaves the game screen). The consequence stays on screen: it cannot be undone.
+ */
+@Composable
+internal fun ResignDialog(session: OnlineSession, info: GameInfoDto?, me: String, onDismiss: () -> kotlin.Unit, onResigned: () -> kotlin.Unit) {
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val seats = info?.seats.orEmpty()
+    val myTeams = seats.filter { it.username == me }.mapNotNull { it.team }.toSet()
+    // a teammate who still plays keeps the team in the game
+    val teammateLeft = seats.any { it.username != null && it.username != me && !it.resigned && it.team != null && it.team in myTeams }
+    val consequence = when {
+        info?.vsAi == true -> if (teammateLeft) "The AI plays your nations; your teammates play on." else "The game ends. It counts as left in your stats against the AI."
+        teammateLeft -> "The AI plays your nations; your teammates play on."
+        else -> "Your team loses: the other side wins. It counts as resigned."
+    }
+    AppDialog(
+        title = "Give up?",
+        subtitle = "$consequence This cannot be undone.",
+        onDismiss = onDismiss,
+        status = error,
+        statusColor = MaterialTheme.colorScheme.error,
+        buttons = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+            Button(
+                enabled = !busy,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { session.api.resign(session.gameId) } }
+                            .onSuccess { onResigned() }.onFailure { error = it.message ?: it.javaClass.simpleName }
+                        busy = false
+                    }
+                },
+            ) { Text("Give up") }
+        },
+    ) {}
+}
+
 /** Correspondence games: the player's clock stops for some days (at most 14 per game, not ended early). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -206,7 +273,7 @@ internal fun VacationDialog(session: OnlineSession, onDismiss: () -> kotlin.Unit
     val scope = rememberCoroutineScope()
     AppDialog(
         title = "Vacation",
-        subtitle = "Your clock in this game stops for the chosen days, at most 14 per game. A vacation cannot be ended early.",
+        subtitle = "Clock paused · max 14 days per game · can't be ended early",
         onDismiss = onDismiss,
         status = error,
         statusColor = MaterialTheme.colorScheme.error,

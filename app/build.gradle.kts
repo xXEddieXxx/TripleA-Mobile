@@ -109,8 +109,5 @@ dependencies {
 
     implementation(libs.slf4j.simple)
 
-    // parses the map listing (triplea_maps.yaml) in the map browser
-    implementation(libs.snakeyaml.engine)
-
     debugImplementation(libs.compose.ui.tooling)
 }
