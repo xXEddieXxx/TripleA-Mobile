@@ -27,19 +27,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.snakeyaml.engine.v2.api.Load
-import org.snakeyaml.engine.v2.api.LoadSettings
+import org.json.JSONObject
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppServices
 import org.triplea.mobile.app.MapInstaller
 
-/** One entry of the desktop client's map list (triplea_maps.yaml). */
+/** One entry of the map list the desktop client loads from the TripleA server. */
 data class MapEntry(
     val name: String,
-    val category: String,
     val url: String,
     val imageUrl: String?,
-    val version: Int,
+    /** Time of the map repository's last commit; a newer one than the installed copy means an update. */
+    val lastCommitMillis: Long,
+    val sizeBytes: Long?,
     val description: String,
 ) {
     /** Folder below the maps folder, following the repository naming rule of the listing. */
@@ -57,8 +57,8 @@ data class MapEntry(
 data class InstalledMap(
     val folder: Path,
     val normalizedName: String,
-    /** The listing version that was downloaded, null for maps not installed by the browser. */
-    val downloadVersion: Int?,
+    /** [MapEntry.lastCommitMillis] of the downloaded copy, null for maps not installed by the browser. */
+    val downloadVersion: Long?,
     val bundled: Boolean,
 )
 
@@ -84,10 +84,13 @@ sealed class DownloadState {
  */
 object MapDownloadManager {
     private const val TAG = "MapDownloads"
-    private const val LISTING_URL = "https://raw.githubusercontent.com/triplea-game/triplea/master/triplea_maps.yaml"
+    // the desktop client's source (MapListingFetcher); triplea_maps.yaml on GitHub is no longer maintained
+    private const val LISTING_URL = "https://prod.triplea-game.org/support/maps/listing"
     private const val VERSION_FILE = ".download_version"
     private const val BUNDLED_FILE = ".bundled_version"
     private const val LISTING_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L
+    /** Downloads from the old YAML listing stored a small version number, not a commit time: treat as unknown. */
+    private const val OLD_LISTING_VERSION_LIMIT = 1_000_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = HashMap<String, Job>()
@@ -107,7 +110,7 @@ object MapDownloadManager {
     private val thumbnails = LruCache<String, Bitmap>(60)
 
     private val cacheDir: Path get() = AppServices.appContext.cacheDir.toPath().resolve("mapdownloads")
-    private val listingCache: Path get() = cacheDir.resolve("triplea_maps.yaml")
+    private val listingCache: Path get() = cacheDir.resolve("maps_listing.json")
 
     // ---------------------------------------------------------------- listing
 
@@ -148,31 +151,26 @@ object MapDownloadManager {
         }
     }
 
+    /** Parses the server's MapListingResponse: `{"maps": [{mapName, downloadUrl, ...}]}`. */
     private fun parseListing(text: String): List<MapEntry> {
-        val loaded = Load(LoadSettings.builder().build()).loadFromString(text) as? List<*> ?: return emptyList()
-        return loaded.mapNotNull { item ->
-            val map = item as? Map<*, *> ?: return@mapNotNull null
-            val name = map["mapName"]?.toString()?.trim().orEmpty()
-            val url = map["url"]?.toString()?.trim().orEmpty()
+        val maps = JSONObject(text).optJSONArray("maps") ?: return emptyList()
+        return (0 until maps.length()).mapNotNull { i ->
+            val map = maps.optJSONObject(i) ?: return@mapNotNull null
+            val name = map.optString("mapName").trim()
+            val url = map.optString("downloadUrl").trim()
             if (name.isEmpty() || url.isEmpty()) return@mapNotNull null
             MapEntry(
                 name = name,
-                category = map["mapCategory"]?.toString()?.trim().orEmpty().ifEmpty { "OTHER" },
                 url = url,
-                imageUrl = map["img"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
-                version = map["version"]?.toString()?.trim()?.toIntOrNull() ?: 0,
-                description = htmlToText(map["description"]?.toString().orEmpty()),
+                imageUrl = map.optString("previewImageUrl").trim().takeIf { it.isNotEmpty() },
+                lastCommitMillis = map.optLong("lastCommitDateEpochMilli"),
+                sizeBytes = map.optLong("downloadSizeInBytes").takeIf { it > 0 },
+                description = htmlToText(map.optString("description")),
             )
-        }.distinctBy { it.normalizedName } // the listing has duplicates; the browser list keys rows by name
-            .sortedWith(compareBy({ categoryRank(it.category) }, { it.name.lowercase(Locale.ROOT) }))
-    }
-
-    fun categoryRank(category: String): Int = when (category.uppercase(Locale.ROOT)) {
-        "BEST" -> 0
-        "GOOD" -> 1
-        "DEVELOPMENT" -> 2
-        "EXPERIMENTAL" -> 3
-        else -> 4
+        }.sortedByDescending { it.lastCommitMillis }
+            // a few names are listed twice (old and new repository); both would install into one folder, keep the newer
+            .distinctBy { it.normalizedName }
+            .sortedBy { it.name.lowercase(Locale.ROOT) }
     }
 
     private fun htmlToText(html: String): String =
@@ -206,8 +204,8 @@ object MapDownloadManager {
                         return@forEach
                     }
                     val version = runCatching {
-                        String(Files.readAllBytes(dir.resolve(VERSION_FILE)), Charsets.UTF_8).trim().toIntOrNull()
-                    }.getOrNull()
+                        String(Files.readAllBytes(dir.resolve(VERSION_FILE)), Charsets.UTF_8).trim().toLongOrNull()
+                    }.getOrNull()?.takeIf { it > OLD_LISTING_VERSION_LIMIT }
                     val bundled = Files.exists(dir.resolve(BUNDLED_FILE))
                     val installed = InstalledMap(dir, MapEntry.normalizeName(name), version, bundled)
                     result[installed.normalizedName] = installed
@@ -296,7 +294,7 @@ object MapDownloadManager {
                 try {
                     Files.createDirectories(cacheDir)
                     zip = cacheDir.resolve("${entry.folderName}.zip.part")
-                    downloadFile(entry.url, zip) { bytes, total ->
+                    downloadFile(entry.url, zip, entry.sizeBytes) { bytes, total ->
                         _downloads.update { it + (key to DownloadState.Downloading(bytes, total)) }
                     }
                     _downloads.update { it + (key to DownloadState.Installing) }
@@ -358,7 +356,7 @@ object MapDownloadManager {
             if (!Files.exists(staging.resolve("map.yml")) && !Files.exists(staging.resolve("map"))) {
                 throw IOException("The archive does not look like a TripleA map")
             }
-            Files.write(staging.resolve(VERSION_FILE), entry.version.toString().toByteArray(Charsets.UTF_8))
+            Files.write(staging.resolve(VERSION_FILE), entry.lastCommitMillis.toString().toByteArray(Charsets.UTF_8))
             Files.createDirectories(mapsFolder)
             if (Files.exists(target)) target.deleteRecursively()
             try {
@@ -371,10 +369,11 @@ object MapDownloadManager {
         }
     }
 
-    private suspend fun downloadFile(url: String, target: Path, onProgress: (Long, Long?) -> Unit) {
+    private suspend fun downloadFile(url: String, target: Path, expectedSize: Long?, onProgress: (Long, Long?) -> Unit) {
         val connection = openConnection(url)
         try {
-            val total = connection.contentLengthLong.takeIf { it > 0 }
+            // GitHub archives are streamed without a length; the listing knows the size
+            val total = connection.contentLengthLong.takeIf { it > 0 } ?: expectedSize
             connection.inputStream.use { input ->
                 Files.newOutputStream(target).use { output ->
                     val buffer = ByteArray(64 * 1024)

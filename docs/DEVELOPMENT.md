@@ -166,7 +166,9 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
 
 ## Security notes
 
-- Network: only HTTPS to GitHub (map list and map archives); cleartext traffic is refused by the
+- Network: only HTTPS, to the TripleA server (the map list from
+  `prod.triplea-game.org/support/maps/listing`, as the desktop client loads it) and to GitHub
+  (map archives and previews); cleartext traffic is refused by the
   network security config (and `usesCleartextTraffic="false"` in the manifest) and by the
   download code, also after redirects.
 - Map archives are unpacked with path traversal checks and size/entry limits.
