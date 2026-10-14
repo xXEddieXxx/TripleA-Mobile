@@ -1300,7 +1300,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             stats = shown?.stats ?: emptyList(),
             showVictoryCities = shown?.hasVictoryCities ?: false,
             history = snapshot?.history ?: emptyList(),
-            relationships = snapshot?.relationships ?: emptyList(),
             objectives = snapshot?.objectives ?: emptyList(),
             onFlagTap = ::jumpToCapital,
             onShowEvent = ::showHistoryEvent,

@@ -112,8 +112,8 @@ object MoveHelper {
     fun movableUnits(session: LocalGameSession, player: GamePlayer, territory: Territory): List<Unit> {
         session.gameData.acquireReadLock().use {
             return territory.units.filter {
+                // no infrastructure filter, as on the desktop: "isAA" units are infrastructure and still move
                 it.owner == player &&
-                    !Matches.unitIsInfrastructure().test(it) &&
                     (Matches.unitHasMovementLeft().test(it) || (territory.isWater && Matches.unitIsBeingTransported().test(it)))
             }
         }

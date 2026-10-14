@@ -246,7 +246,7 @@ private val CHAPTERS = listOf(
                 "With the unit scroller switched on in the settings, the arrows at the bottom left select the next or previous units that can still move. The moon puts the selected units to sleep, so the arrows pass them by; a check beside it shows that the selected units sleep, a tap wakes them and a long press wakes all.",
                 "Undo lists every move of the phase; each can be taken back on its own. Tapping a move shows its route on the map.",
                 "Done ends the phase. You are asked first, because a finished phase cannot be reopened.",
-                "The status line at the bottom shows the tapped territory, its owner and its value. The details panel (info symbol) shows the units there, statistics of all nations, the game history and, if the map has it, diplomacy.",
+                "The status line at the bottom shows the tapped territory, its owner and its value. The details panel (info symbol) shows the units there, statistics of all nations, the game history and, if the map has them, objectives. Diplomacy is in the game info.",
                 "Tapping an event in the history shows the map as it was at that moment, like the desktop's history mode; the arrows step through the events, and Back to game returns to the present. The phase buttons rest while you look at the past; a battle brings you back to the game.",
                 "The battle window opens for every fight; Hide puts it away, the next battle opens it again.",
                 "Save game, settings, game notes with the stats of every unit, and this guide are in the menu at the top right. An autosave is written every round when your turn begins.",
