@@ -100,6 +100,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -1328,7 +1330,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     // controls keep their own distance (edgeStart ...), the panels pad themselves.
     val panelInsets = barsAndCutout.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)
     val snackbarHost: @Composable () -> kotlin.Unit = {
-        SnackbarHost(snackbarHostState, Modifier.windowInsetsPadding(barsAndCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)))
+        SnackbarHost(snackbarHostState, Modifier.windowInsetsPadding(barsAndCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))) { DismissableSnackbar(it) }
     }
     Box(Modifier.fillMaxSize()) {
     if (landscape) {
@@ -1363,7 +1365,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     actions = { menu() },
                 )
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { SnackbarHost(snackbarHostState) { DismissableSnackbar(it) } },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 mapArea(Modifier.weight(1f).fillMaxWidth())
@@ -1671,6 +1673,12 @@ internal fun summarizeUnits(units: Collection<Unit>): String =
 
 /** How long a hint or error stays on screen; the stock snackbar durations (4 s, 10 s) felt too long. */
 private const val BRIEF_MESSAGE_MILLIS = 2000L
+
+/** A tap takes the snackbar away at once: it sits over the move card and would block its X until it times out. */
+@Composable
+private fun DismissableSnackbar(data: SnackbarData) {
+    Snackbar(data, Modifier.clickable(onClickLabel = "dismiss") { data.dismiss() })
+}
 
 /** Shows a snackbar for [BRIEF_MESSAGE_MILLIS] and takes it away again. */
 private suspend fun showBriefly(host: SnackbarHostState, text: String) {
