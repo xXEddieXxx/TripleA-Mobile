@@ -447,7 +447,9 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
   - **Chess clocks in the lists:** `GameInfoDto.turn` (nation, username, ai), `turnRemainingMs`,
     `turnDeadline` and `turnSince` for running games. `TurnPill` in `OnlineScreen.kt` shows "Your turn ·
     4:12", "bob · 2:03" or "AI" with a timer icon, or, without a clock, how long the turn has lasted with an
-    hourglass icon ("bob · 2 h"). The game's latest `Clock` (`Social.clocks`) wins over the card: it says whose clock
+    hourglass icon ("bob · 2 h"). In the game the header shows the same next to the round (`TurnTimer`):
+    the running clock counting down, else how long the turn has lasted (online from the server's
+    `turnSince`, offline from when the screen saw the turn start). The game's latest `Clock` (`Social.clocks`) wins over the card: it says whose clock
     runs (also a defender in a battle) and until when, so a Clock never reloads a list.
   - **Turn push:** when the turn passes to another nation the server sends `LobbyUpdate` (the full
     `GameInfoDto`) to the seat holders, and the spectators' view to those who may watch (also for the

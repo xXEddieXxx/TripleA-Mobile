@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -147,6 +149,28 @@ internal fun ClockBar(clock: Clock?, me: String, takenOver: Boolean, resigned: B
                 }
             }
         }
+    }
+}
+
+/**
+ * The turn's time beside the nation in the header: the running clock counting down to [deadline], else how long the
+ * turn has lasted since [startedAt]. Both are server time, so [Social.clockSkewMs] is added to the phone's.
+ */
+@Composable
+internal fun TurnTimer(deadline: Long?, startedAt: Long?) {
+    if (deadline == null && startedAt == null) return
+    val now by produceState(System.currentTimeMillis() + Social.clockSkewMs) {
+        while (true) {
+            value = System.currentTimeMillis() + Social.clockSkewMs
+            delay(1000 - value % 1000)
+        }
+    }
+    if (deadline != null) {
+        val left = deadline - now
+        StatusPill(clockText(left), Icons.Filled.Timer, Modifier.semantics { contentDescription = "${clockText(left)} left" }, warning = left < LOW_TIME_MS)
+    } else if (startedAt != null) {
+        val lasted = clockText(now - startedAt)
+        StatusPill(lasted, Icons.Filled.HourglassTop, Modifier.semantics { contentDescription = "turn running for $lasted" })
     }
 }
 

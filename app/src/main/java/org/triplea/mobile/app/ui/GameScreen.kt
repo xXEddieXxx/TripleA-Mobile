@@ -341,6 +341,17 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     val spectating = (session as? OnlineSession)?.spectating == true
     val onlineInfo = (session as? OnlineSession)?.takeUnless { spectating }?.let { rememberGameInfo(it) }
     val clocks by Social.clocks.collectAsState()
+    // the header's turn timer: the running chess clock, else how long the turn has lasted; the server knows when an
+    // online turn started, a local one (or one the info has not caught up with) counts from when this screen saw it
+    val turnSeenAt = remember(status.playerName, status.round) { System.currentTimeMillis() + Social.clockSkewMs }
+    val turnClock = (session as? OnlineSession)?.let { clocks[it.gameId] }
+    val turnStartedAt = onlineInfo?.turnSince?.takeIf { onlineInfo.turn?.nation == status.playerName } ?: turnSeenAt
+    val turnTimer: @Composable () -> kotlin.Unit = {
+        // a replay's turns are long over: no timer there
+        if (session !is ReplaySession) {
+            TurnTimer(deadline = turnClock?.deadline?.takeIf { turnClock.running != null }, startedAt = turnStartedAt.takeIf { status.round > 0 })
+        }
+    }
     // the AI plays a seat of mine whose clock ran out, until I am back
     val aiSeats = onlineInfo?.seats?.filter { it.username == me && it.kind != "HUMAN" }.orEmpty()
     val takenOver = aiSeats.isNotEmpty()
@@ -1200,6 +1211,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         separator = " · ",
                         compact = true,
                         onFlagTap = ::jumpToCapital,
+                        timer = turnTimer,
                     )
                 }
             }
@@ -1450,6 +1462,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                             large = true,
                             compact = true,
                             onFlagTap = ::jumpToCapital,
+                            timer = turnTimer,
                         )
                     },
                     actions = { menu() },

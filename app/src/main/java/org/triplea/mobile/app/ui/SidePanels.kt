@@ -795,6 +795,8 @@ internal fun PlayerHeader(
     /** Only flag, nation and round; step and resources live elsewhere on the phone layout. */
     compact: Boolean = false,
     onFlagTap: (() -> kotlin.Unit)? = null,
+    /** Beside the round in the compact header: the turn's clock ([TurnTimer]). */
+    timer: (@Composable () -> kotlin.Unit)? = null,
 ) {
     val flag = remember(status.playerName, images) {
         if (status.playerName.isBlank()) null
@@ -825,8 +827,11 @@ internal fun PlayerHeader(
                 overflow = TextOverflow.Ellipsis,
             )
             if (compact) {
-                if (status.round > 0) {
-                    Text("Round ${status.round}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (status.round > 0) {
+                        Text("Round ${status.round}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    timer?.invoke()
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically) {
                 if (status.stepName.isNotBlank()) {
