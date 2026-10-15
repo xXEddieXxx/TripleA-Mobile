@@ -13,8 +13,11 @@ Technical documentation for TripleA Mobile. For an overview of the app, see the
 ### Engine
 
 The engine sources were copied from the desktop project (`game-core`, `ai`, `map-data`,
-`domain-data`, `xml-reader`, `java-extras`) and then reduced. Notable changes compared to the
-desktop engine:
+`domain-data`, `xml-reader`, `java-extras`) and then reduced. It is synced with the upstream
+release tag in `engine/src/main/resources/META-INF/triplea/product.properties` (upstream keeps a
+placeholder there); *About* shows it after seven taps on the version. To sync, diff the upstream
+engine modules from that tag to the new one, apply the changes, and update the tag in that file.
+Notable changes compared to the desktop engine:
 
 - `java.awt.{Point,Polygon,Rectangle,Dimension,Color}` are replaced by `org.triplea.geom.*`.
 - `javax.swing.tree.*` (used by the game history) is replaced by `org.triplea.tree.*`.

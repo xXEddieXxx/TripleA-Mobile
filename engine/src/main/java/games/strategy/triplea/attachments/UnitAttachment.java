@@ -2385,7 +2385,7 @@ public class UnitAttachment extends DefaultAttachment {
   }
 
   private void setMovementLimit(final String value) throws GameParseException {
-    placementLimit = parseStackingLimit("movementLimit", value);
+    movementLimit = parseStackingLimit("movementLimit", value);
   }
 
   private void setMovementLimit(final Tuple<Integer, String> value) {
@@ -2455,7 +2455,7 @@ public class UnitAttachment extends DefaultAttachment {
    * @return Returns {@link #placementLimit}.
    */
   private @Nullable Tuple<Integer, String> getPlacementLimitOrNull() {
-    return movementLimit;
+    return placementLimit;
   }
 
   private void resetPlacementLimit() {

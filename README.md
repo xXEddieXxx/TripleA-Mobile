@@ -46,7 +46,8 @@ purchases.
 - **Play by file**: save your game, share the save file through any chat or mail app, and your
   friend continues the game on their own phone. A replay in the history tab shows on the map
   what the others did since your last turn, move by move. The same save file opens in the
-  desktop TripleA client and vice versa, as long as both run the same engine version.
+  desktop TripleA client and vice versa, as long as both run the same engine version. To see
+  which TripleA engine version the app runs, open *About* and tap the version seven times.
 - **Almost 300 maps**: two maps come with the app, every other map from the TripleA map library
   can be downloaded inside the app. You can also import map zip files from your phone.
 - **Battle calculator**: before you attack, check your odds. The calculator simulates the fight
