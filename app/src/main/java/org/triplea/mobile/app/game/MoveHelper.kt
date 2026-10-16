@@ -5,6 +5,7 @@ import games.strategy.engine.data.MoveDescription
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
 import games.strategy.triplea.delegate.AbstractMoveDelegate
+import games.strategy.triplea.delegate.GameStepPropertiesHelper
 import games.strategy.triplea.delegate.Matches
 import games.strategy.triplea.delegate.data.PlaceableUnits
 import games.strategy.triplea.delegate.move.validation.AirMovementValidator
@@ -285,7 +286,21 @@ object MoveHelper {
 
     fun placeableUnits(session: LocalGameSession, player: GamePlayer, territory: Territory): Result<PlaceableUnits> =
         runCatching {
-            val units = unitsToPlace(session, player)
+            // filter by territory type like the desktop PlacePanel; the bid delegate rejects mixed land/sea lists
+            val units = session.gameData.acquireReadLock().use {
+                val all = player.unitCollection.units
+                val data = session.gameData
+                val properties = data.properties
+                when {
+                    !territory.isWater -> all.filter { Matches.unitIsNotSea().test(it) }
+                    Properties.getProduceFightersOnCarriers(properties) ||
+                        Properties.getProduceNewFightersOnOldCarriers(properties) ||
+                        Properties.getLhtrCarrierProductionRules(properties) ||
+                        GameStepPropertiesHelper.isBid(data) ->
+                        all.filter { Matches.unitIsSea().or(Matches.unitCanLandOnCarrier()).test(it) }
+                    else -> all.filter { Matches.unitIsSea().test(it) }
+                }
+            }
             session.getCurrentRemoteDelegate(IAbstractPlaceDelegate::class.java).getPlaceableUnits(units, territory)
         }
 
