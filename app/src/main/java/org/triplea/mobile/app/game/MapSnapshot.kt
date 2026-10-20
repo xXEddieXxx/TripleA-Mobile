@@ -137,6 +137,8 @@ class PlayerStats(
     val victoryCities: Int,
     /** The technologies the nation has researched, in the map's order. */
     val technologies: List<String> = emptyList(),
+    /** A row summing an alliance (Axis, Allies), shown below the nations like on the desktop. */
+    val alliance: Boolean = false,
 )
 
 /** Immutable rendering data derived from the game state, rebuilt whenever the game data changes. */
@@ -644,7 +646,7 @@ class MapSnapshot(
                     unitsByOwner.getOrPut(unit.owner.name) { ArrayList() }.add(unit)
                 }
             }
-            players.map { player ->
+            val nations = players.map { player ->
                 val units = unitsByOwner[player.name] ?: emptyList<Unit>()
                 PlayerStats(
                     name = player.name,
@@ -660,6 +662,24 @@ class MapSnapshot(
                     }.getOrDefault(emptyList()),
                 )
             }
+            // the desktop's alliance rows: every alliance of more than one nation, summed
+            val tracker = gameData.allianceTracker
+            val alliances = tracker.alliances.sorted().mapNotNull { alliance ->
+                val members = tracker.getPlayersInAlliance(alliance).map { it.name }.toSet()
+                val rows = nations.filter { it.name in members }.takeIf { members.size > 1 } ?: return@mapNotNull null
+                PlayerStats(
+                    name = alliance,
+                    resources = "",
+                    pus = rows.sumOf { it.pus },
+                    production = rows.sumOf { it.production },
+                    territories = rows.sumOf { it.territories },
+                    units = rows.sumOf { it.units },
+                    tuv = rows.sumOf { it.tuv },
+                    victoryCities = rows.sumOf { it.victoryCities },
+                    alliance = true,
+                )
+            }
+            nations + alliances
         }.getOrDefault(emptyList())
 
         private fun toPath(polygon: Polygon): Path {

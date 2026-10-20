@@ -70,6 +70,7 @@ import games.strategy.engine.data.Resource
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
 import games.strategy.engine.data.UnitType
+import games.strategy.triplea.Constants
 import games.strategy.triplea.attachments.AbstractUserActionAttachment
 import games.strategy.triplea.attachments.UnitAttachment
 import games.strategy.triplea.util.TuvUtils
@@ -257,7 +258,13 @@ fun PurchaseDialog(
     val frontier = player.productionFrontier
     val rules = remember(request) { frontier?.rules?.toList() ?: emptyList() }
     val resources = remember(request) { rules.flatMap { it.costs.keySet() }.distinct() }
-    val available = remember(request) { resources.associateWith { player.resources.getQuantity(it) } }
+    // a bid spends the "<nation> bid" game option, not the nation's PUs (as BidPurchaseDelegate.canAfford)
+    val available = remember(request) {
+        resources.associateWith {
+            if (request.bid) (if (it.name == Constants.PUS) player.data.properties.get("${player.name} bid", 0) else 0)
+            else player.resources.getQuantity(it)
+        }
+    }
     val spent: Map<Resource, Int> = resources.associateWith { resource ->
         rules.sumOf { rule -> (counts[rule] ?: 0) * rule.costs.getInt(resource) }
     }

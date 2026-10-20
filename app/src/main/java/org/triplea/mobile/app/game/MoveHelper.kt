@@ -5,6 +5,7 @@ import games.strategy.engine.data.MoveDescription
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
 import games.strategy.triplea.delegate.AbstractMoveDelegate
+import games.strategy.triplea.delegate.GameStepPropertiesHelper
 import games.strategy.triplea.delegate.Matches
 import games.strategy.triplea.delegate.data.PlaceableUnits
 import games.strategy.triplea.delegate.move.validation.AirMovementValidator
@@ -209,9 +210,12 @@ object MoveHelper {
                 }
                 if (withRoom.isEmpty()) throw IllegalArgumentException("No transport with room in ${to.name}")
                 transportChoices = withRoom
-                // Like the desktop: by default fill each transport before using the next one; the
-                // transports the player picks get the units spread evenly across them.
-                val minMapping = TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits, withRoom)
+                // Like the desktop: by default fill own transports first, allied ones only for the rest,
+                // each transport before the next; the transports the player picks get the units spread evenly.
+                val own = withRoom.filter { it.owner == player }
+                val ownMapping = TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits, own)
+                val minMapping = ownMapping +
+                    TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits - ownMapping.keys, withRoom - own.toSet())
                 defaultTransports = withRoom.filter { it in minMapping.values }
                 val chosen = transports?.filter { it in withRoom }?.takeIf { it.isNotEmpty() }
                 val mapping = if (chosen == null || chosen.toSet() == defaultTransports.toSet()) {
@@ -274,7 +278,21 @@ object MoveHelper {
 
     fun placeableUnits(session: GameSession, player: GamePlayer, territory: Territory): Result<PlaceableUnits> =
         runCatching {
-            val units = unitsToPlace(session, player)
+            // filter by territory type like the desktop PlacePanel; the bid delegate rejects mixed land/sea lists
+            val units = session.gameData.acquireReadLock().use {
+                val all = player.unitCollection.units
+                val data = session.gameData
+                val properties = data.properties
+                when {
+                    !territory.isWater -> all.filter { Matches.unitIsNotSea().test(it) }
+                    Properties.getProduceFightersOnCarriers(properties) ||
+                        Properties.getProduceNewFightersOnOldCarriers(properties) ||
+                        Properties.getLhtrCarrierProductionRules(properties) ||
+                        GameStepPropertiesHelper.isBid(data) ->
+                        all.filter { Matches.unitIsSea().or(Matches.unitCanLandOnCarrier()).test(it) }
+                    else -> all.filter { Matches.unitIsSea().test(it) }
+                }
+            }
             session.currentDelegate(IAbstractPlaceDelegate::class.java).getPlaceableUnits(units, territory)
         }
 }

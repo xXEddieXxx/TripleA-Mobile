@@ -362,8 +362,10 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var topOverlayHeight by remember { mutableStateOf(0.dp) }
     /** The calculator waits for a tap on the map that chooses its territory. */
     var calcPicking by remember { mutableStateOf(false) }
-    var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
+    // the attacker picked in the calculator holds for the turn; the next nation's turn starts with that nation
+    var calcAttacker by remember(session, status.playerName) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
+    var notesBaseUrl by remember { mutableStateOf<String?>(null) }
     /** The tab the game info page opens on; null for its default. */
     var gameInfoTab by remember { mutableStateOf<String?>(null) }
     var showMoves by remember { mutableStateOf(false) }
@@ -1011,8 +1013,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 runCatching {
                     val xml = GameController.gameXmlPath
                         ?: MobileEngine.listInstalledGames().firstOrNull { it.gameName == session.gameData.gameName }?.xmlPath
-                    xml?.let { GameController.stripHtml(GameNotes.loadGameNotes(it)) }
+                    xml?.let { GameNotes.loadGameNotes(it) }
                 }.getOrNull()
+            }
+            // the desktop resolves notes <img> against <content root>/doc/images, the root being the polygons folder
+            notesBaseUrl = withContext(Dispatchers.IO) {
+                session.resourceLoader.optionalResource("polygons.txt")
+                    .map { it.parent.resolve("doc").resolve("images").toUri().toString().trimEnd('/') + "/" }.orElse(null)
             }
             gameInfoTab = tab
             gameNotes = notes.orEmpty()
@@ -1542,11 +1549,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     }
                 }
                 when (shownTab) {
-                    "Notes" -> Text(
-                        notes.ifBlank { "This map has no game notes." },
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
-                    )
+                    "Notes" -> if (notes.isBlank()) {
+                        Text("This map has no game notes.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+                    } else {
+                        GameNotesView(notes, notesBaseUrl, Modifier.fillMaxWidth().weight(1f))
+                    }
                     "Diplomacy" -> Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) { DiplomacyView(relations, images) }
                     "Tech" -> TechList(techs, images)
                     else -> {

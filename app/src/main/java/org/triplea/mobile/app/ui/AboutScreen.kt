@@ -39,15 +39,21 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import org.triplea.config.product.ProductVersionReader
 import org.triplea.mobile.app.R
 
 const val SOURCE_URL = "https://github.com/xXEddieXxx/TripleA-Mobile"
@@ -83,6 +89,7 @@ private fun openBugReport(context: Context) {
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val version = remember { appVersion(context) }
+    var versionTaps by rememberSaveable { mutableIntStateOf(0) }
     fun open(url: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
     }
@@ -105,7 +112,12 @@ fun AboutScreen(onBack: () -> Unit) {
                 Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Image(painterResource(R.drawable.triplea_logo), contentDescription = null, modifier = Modifier.height(112.dp))
                     Text("TripleA Mobile", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 8.dp))
-                    Pill("Version $version", Modifier.padding(top = 8.dp))
+                    // hidden like Android's build number: seven taps reveal the upstream engine version
+                    Pill("Version $version", Modifier.padding(top = 8.dp).clip(CircleShape).clickable { versionTaps++ })
+                    if (versionTaps >= 7) {
+                        val engine = remember { runCatching { ProductVersionReader.getCurrentVersion() }.getOrNull() ?: "?" }
+                        Pill("Engine $engine", Modifier.padding(top = 8.dp))
+                    }
                 }
 
                 Group("Links") {
