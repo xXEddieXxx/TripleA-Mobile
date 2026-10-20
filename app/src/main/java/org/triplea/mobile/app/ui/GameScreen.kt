@@ -321,7 +321,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var showCalc by remember { mutableStateOf(false) }
     /** The calculator waits for a tap on the map that chooses its territory. */
     var calcPicking by remember { mutableStateOf(false) }
-    var calcAttacker by remember(session) { mutableStateOf<String?>(null) }
+    // the attacker picked in the calculator holds for the turn; the next nation's turn starts with that nation
+    var calcAttacker by remember(session, status.playerName) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
     var notesBaseUrl by remember { mutableStateOf<String?>(null) }
     /** The tab the game info page opens on; null for its default. */

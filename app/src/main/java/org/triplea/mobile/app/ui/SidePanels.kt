@@ -468,8 +468,9 @@ internal fun StatsTable(stats: List<PlayerStats>, showVictoryCities: Boolean, cu
         if (showVictoryCities) Cell("VC")
     }
     HorizontalDivider()
-    stats.forEach { row ->
+    stats.forEachIndexed { i, row ->
         val bold = row.name == currentPlayer
+        if (row.alliance && (i == 0 || !stats[i - 1].alliance)) HorizontalDivider()
         Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 row.name,

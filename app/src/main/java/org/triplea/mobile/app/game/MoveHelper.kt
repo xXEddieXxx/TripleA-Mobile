@@ -211,9 +211,12 @@ object MoveHelper {
                 }
                 if (withRoom.isEmpty()) throw IllegalArgumentException("No transport with room in ${to.name}")
                 transportChoices = withRoom
-                // Like the desktop: by default fill each transport before using the next one; the
-                // transports the player picks get the units spread evenly across them.
-                val minMapping = TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits, withRoom)
+                // Like the desktop: by default fill own transports first, allied ones only for the rest,
+                // each transport before the next; the transports the player picks get the units spread evenly.
+                val own = withRoom.filter { it.owner == player }
+                val ownMapping = TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits, own)
+                val minMapping = ownMapping +
+                    TransportUtils.mapTransportsToLoadUsingMinTransports(movingUnits - ownMapping.keys, withRoom - own.toSet())
                 defaultTransports = withRoom.filter { it in minMapping.values }
                 val chosen = transports?.filter { it in withRoom }?.takeIf { it.isNotEmpty() }
                 val mapping = if (chosen == null || chosen.toSet() == defaultTransports.toSet()) {
