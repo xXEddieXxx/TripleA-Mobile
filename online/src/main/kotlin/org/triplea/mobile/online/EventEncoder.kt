@@ -19,6 +19,8 @@ class EventEncoder(private val emit: (Event) -> Unit) : GameEventListener {
 
     override fun gameEnded(message: String) = emit(Event.GameEnded(message))
 
+    override fun gameEnded(message: String, winners: List<String>) = emit(Event.GameEnded(message, winners = winners))
+
     override fun gameAborted(message: String) = emit(Event.GameEnded(message, aborted = true))
 
     override fun gameStepChanged(stepName: String, displayName: String, player: GamePlayer?, round: Int) =

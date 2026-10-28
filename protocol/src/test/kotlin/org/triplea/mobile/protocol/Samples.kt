@@ -64,6 +64,7 @@ internal object Samples {
     val events: List<Event> = listOf(
         Event.Message("Battle", "Russians attack"),
         Event.GameEnded("Russians win"),
+        Event.GameEnded("Russians win", winners = listOf("Russians")),
         Event.GameEnded("Game aborted by alice", aborted = true),
         Event.StepChanged("russianPurchase", "Purchase", "Russians", 1),
         Event.BattleStarted(UNIT2, "blue north 2", "Russians attack Italians", listOf(UNIT), listOf(UNIT2), "Russians", "Italians", "NORMAL"),
@@ -97,6 +98,9 @@ internal object Samples {
             Clock("g1", mapOf("alice" to 0)),
             WatchRefused("g1", "Spectators are not allowed in this game"),
             FriendsChanged("bob"),
+            DefenderNotice("g1", 42, "Italians", "casualties", deadline = 1_800_000_060_000),
+            DefenderNotice("g1", 43, "Italians", "offer"),
+            DefenderNoticeClosed("g1", 42),
         ) +
             asks.mapIndexed { i, ask -> Question(i + 1L, "g1", "Russians", 7, ask, deadline = if (i == 0) 1_800_000_000_000 else null) } +
             notes.map { Notice("g1", "Russians", 7, it) } +
@@ -165,7 +169,9 @@ internal object Samples {
         RestSample(EmailConfirmRequest.serializer(), EmailConfirmRequest("123456")),
         RestSample(ForgotPasswordRequest.serializer(), ForgotPasswordRequest("alice")),
         RestSample(ResetPasswordRequest.serializer(), ResetPasswordRequest("alice@example.org", "123456", "new-password")),
-        RestSample(AccountDto.serializer(), AccountDto("alice", "alice@example.org")),
+        RestSample(AccountDto.serializer(), AccountDto("alice", "alice@example.org", notifyByEmail = true)),
+        RestSample(DeviceRequest.serializer(), DeviceRequest("fcm-token-1")),
+        RestSample(NotificationsRequest.serializer(), NotificationsRequest(true)),
         RestSample(ChangePasswordRequest.serializer(), ChangePasswordRequest("password123", "new-password")),
         RestSample(
             GameInfoDto.serializer(),
@@ -185,6 +191,43 @@ internal object Samples {
         ),
         RestSample(ProfileDto.serializer(), ProfileDto("carol", "emblem:default", "", StatsDto())),
         RestSample(ProfileUpdateRequest.serializer(), ProfileUpdateRequest(icon = "unit:fighter", status = "Back on Monday")),
+        RestSample(CreateGameRequest.serializer(), CreateGameRequest("minimap", "Minimap", seats, timeControl = blitz, rated = true)),
+        RestSample(UpdateGameRequest.serializer(), UpdateGameRequest(noTimeControl = true, rated = false)),
+        RestSample(
+            GameInfoDto.serializer(),
+            GameInfoDto(
+                "Ab3dEf6hIj9k", "minimap", "Minimap", "finished", seats, 12, 3, null, null, listOf("Russians"),
+                rated = true, ratingChanges = mapOf("alice" to 12, "bob" to -12),
+            ),
+        ),
+        RestSample(
+            ProfileDto.serializer(),
+            ProfileDto(
+                "dave", "emblem:default", "", StatsDto(played = 1, lost = 1, mostPlayedMap = "minimap", mostPlayedNation = "Italians"),
+                listOf(RecentGameDto("Ab3dEf6hIj9k", "minimap", "Minimap", listOf("Italians"), "lost", 1_800_000_000_000, replay = true, ratingChange = -8)),
+                rating = 1192, ratedGames = 1,
+            ),
+        ),
+        RestSample(
+            LeaderboardDto.serializer(),
+            LeaderboardDto(listOf(LeaderboardEntryDto("alice", "flag:Russians", 1312, 25), LeaderboardEntryDto("bob", "emblem:default", 1188, 5))),
+        ),
+        RestSample(
+            GameInfoDto.serializer(),
+            GameInfoDto(
+                "Ab3dEf6hIj9k", "minimap", "Minimap", "finished", seats, 12, 3, null, null, listOf("Russians"),
+                unlocks = mapOf("alice" to listOf("first_victory", "unit:Russians/armour", "unit:Russians/fighter", "unit:Russians/transport")),
+            ),
+        ),
+        RestSample(
+            ProfileDto.serializer(),
+            ProfileDto(
+                "erin", "unit:Russians/armour", "", StatsDto(played = 1, won = 1, winRate = 1.0, mostPlayedMap = "world_war_ii_classic", mostPlayedNation = "Russians"),
+                achievements = listOf(AchievementDto("first_victory", 1_800_000_000_000), AchievementDto("map_win:worldwariiclassic", 1_800_000_000_000)),
+                winsByNation = mapOf("Russians" to 1),
+                maps = listOf(MapProgressDto("worldwariiclassic", 1, listOf("Russians"))),
+            ),
+        ),
     )
 
     private val blitz get() = TimeControlDto("blitz", 300_000, incrementMs = 5_000)

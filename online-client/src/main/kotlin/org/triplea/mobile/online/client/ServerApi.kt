@@ -19,6 +19,7 @@ import org.triplea.mobile.protocol.ChatReadRequest
 import org.triplea.mobile.protocol.CreateGameRequest
 import org.triplea.mobile.protocol.DefenderModeRequest
 import org.triplea.mobile.protocol.DeleteAccountRequest
+import org.triplea.mobile.protocol.DeviceRequest
 import org.triplea.mobile.protocol.EmailConfirmRequest
 import org.triplea.mobile.protocol.EmailRequest
 import org.triplea.mobile.protocol.ErrorDto
@@ -28,8 +29,10 @@ import org.triplea.mobile.protocol.FriendDto
 import org.triplea.mobile.protocol.FriendRequest
 import org.triplea.mobile.protocol.GameInfoDto
 import org.triplea.mobile.protocol.JoinRequest
+import org.triplea.mobile.protocol.LeaderboardDto
 import org.triplea.mobile.protocol.LeaveRequest
 import org.triplea.mobile.protocol.LoginRequest
+import org.triplea.mobile.protocol.NotificationsRequest
 import org.triplea.mobile.protocol.ProfileDto
 import org.triplea.mobile.protocol.ProfileUpdateRequest
 import org.triplea.mobile.protocol.ProtocolJson
@@ -80,6 +83,9 @@ class ServerApi(baseUrl: String, private val tokens: TokenStore, internal val cl
 
     fun confirmEmail(code: String) = done { post("/account/email/confirm", EmailConfirmRequest.serializer(), EmailConfirmRequest(code)) }
 
+    /** Battle decisions by e-mail on or off; on needs a confirmed address (400). */
+    fun setNotifyByEmail(on: Boolean) = done { put("/account/notifications", NotificationsRequest.serializer(), NotificationsRequest(on)) }
+
     /** 403 for a wrong [oldPassword]. The server revokes every token, so the new pair is stored. */
     fun changePassword(oldPassword: String, newPassword: String): TokensDto =
         store(authed(TokensDto.serializer()) { post("/account/password", ChangePasswordRequest.serializer(), ChangePasswordRequest(oldPassword, newPassword)) })
@@ -128,6 +134,12 @@ class ServerApi(baseUrl: String, private val tokens: TokenStore, internal val cl
 
     /** The open questions for the user's seats and their unread private messages (the turn notification polls it). */
     fun turns(): TurnsDto = authed(TurnsDto.serializer()) { get("/me/turns") }
+
+    /** This device's push token for the logged-in user (after login and on every new token). */
+    fun registerDevice(token: String) = done { put("/me/devices", DeviceRequest.serializer(), DeviceRequest(token)) }
+
+    /** Logout: the server forgets this device's token. */
+    fun unregisterDevice(token: String) = done { Request.Builder().url(base.newBuilder().addPathSegments("me/devices").addPathSegment(token).build()).delete() }
 
     fun orders(id: String): StandingOrdersDto = authed(StandingOrdersDto.serializer()) { get("/games/$id/orders") }
 
@@ -210,6 +222,9 @@ class ServerApi(baseUrl: String, private val tokens: TokenStore, internal val cl
     /** Sets the caller's icon (from the allow-list) and status; null keeps one. Answers the caller's profile; 400 for a refused value. */
     fun updateProfile(icon: String? = null, status: String? = null): ProfileDto =
         authed(ProfileDto.serializer()) { put("/account/profile", ProfileUpdateRequest.serializer(), ProfileUpdateRequest(icon, status)) }
+
+    /** "Top players": the 50 highest ratings of players with at least 5 rated games. */
+    fun leaderboard(): LeaderboardDto = authed(LeaderboardDto.serializer()) { get("/leaderboard") }
 
     /** The access token for the WebSocket; refreshed first when it is known to expire within a minute. */
     fun accessToken(): String {

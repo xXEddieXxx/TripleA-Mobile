@@ -1,5 +1,9 @@
 package org.triplea.mobile.app.online
 
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.triplea.mobile.app.AppServices
 import org.triplea.mobile.app.AppSettings
+import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.online.client.GameConnection
 import org.triplea.mobile.online.client.ServerApi
 import org.triplea.mobile.online.client.SocialConnection
 import org.triplea.mobile.online.client.mergeChat
@@ -15,6 +21,8 @@ import org.triplea.mobile.protocol.ChatError
 import org.triplea.mobile.protocol.ChatMessage
 import org.triplea.mobile.protocol.ChatSend
 import org.triplea.mobile.protocol.Clock
+import org.triplea.mobile.protocol.DefenderNotice
+import org.triplea.mobile.protocol.DefenderNoticeClosed
 import org.triplea.mobile.protocol.FriendDto
 import org.triplea.mobile.protocol.FriendsChanged
 import org.triplea.mobile.protocol.GameInfoDto
@@ -24,12 +32,13 @@ import org.triplea.mobile.protocol.ServerMessage
 
 /**
  * The logged-in user's social state (debug builds' online mode): chat per channel, friends' presence
- * and a counter that bumps on every lobby change. Open while the Online screen or an online game is shown.
+ * a counter that bumps on every lobby change, and the open defender notices (the banner above every screen).
+ * Open while the Online screen or an online game is shown.
  */
 object Social {
     @Volatile var api: ServerApi? = null
         private set
-    private var connection: SocialConnection? = null
+    @Volatile private var connection: SocialConnection? = null
 
     /** Chat per channel (`lobby`, `game:<id>`), sorted by id: the server may deliver ids out of order. */
     private val _chat = MutableStateFlow<Map<String, List<ChatMessage>>>(emptyMap())
@@ -83,16 +92,99 @@ object Social {
     private val _clocks = MutableStateFlow<Map<String, Clock>>(emptyMap())
     val clocks = _clocks.asStateFlow()
 
-    /** Opens the social socket for [server]; a no-op when it is already open for it. */
+    /**
+     * Open defender notices by (game id, question id), from DefenderNotice until DefenderNoticeClosed; the banner above
+     * every screen shows them. The server may send one twice; a close for an unknown one changes nothing.
+     */
+    private val _notices = MutableStateFlow<Map<Pair<String, Long>, DefenderNotice>>(emptyMap())
+    val notices = _notices.asStateFlow()
+
+    /**
+     * Notices that already rang: a reconnect or a new [start] re-sends the open ones, which must not ring again.
+     * Kept across [stop] too: the same user logging in again is not a new notice.
+     * shortcut: a key whose close was missed while the socket was down stays until the process ends (a few longs per battle).
+     */
+    private val alerted: MutableSet<Pair<String, Long>> = ConcurrentHashMap.newKeySet()
+
+    /** Opens the social socket for [server]; a no-op when it is already open for it. While [paused], [resume] opens it. */
     @Synchronized
     fun start(server: ServerApi) {
         if (api === server) return
         stop()
         api = server
+        if (!paused) connect(server)
+    }
+
+    private fun connect(server: ServerApi) {
         lateinit var opened: SocialConnection
         // messages still in flight from a replaced connection are dropped
-        opened = SocialConnection(server, { if (connection === opened) received(it) }, { reason -> stopped(opened, reason) })
+        opened = SocialConnection(
+            server,
+            { if (connection === opened) received(it) },
+            { reason -> stopped(opened, reason) },
+            // the server re-sends the open ones after the Hello; one closed while the socket was down disappears
+            { if (connection === opened) _notices.value = emptyMap() },
+        )
         connection = opened.also { it.open() }
+    }
+
+    // between background() + AWAY_DELAY_MS and foreground(): the social and the game socket are closed
+    private var paused = false
+    private val main by lazy { Handler(Looper.getMainLooper()) }
+    private val away = Runnable { pause() }
+
+    /**
+     * The app is no longer seen (MainActivity stopped). Shortly after, both sockets close, so the server counts the player
+     * offline: turns and battle decisions come by push, with the offline window. Short of Android's freezer (about 10 s),
+     * which would hold the timer.
+     * shortcut: the delay counts uptime, which stops while the phone sleeps; the server's ping timeout (about 45 s) then closes
+     * the sockets instead. Upgrade to an alarm if players report the short online window after locking the phone.
+     */
+    fun background() {
+        main.postDelayed(away, AWAY_DELAY_MS)
+    }
+
+    /** Seen again: the sockets reconnect; the server re-sends the open question, notices and clocks. */
+    fun foreground() {
+        main.removeCallbacks(away)
+        resume()
+    }
+
+    @Synchronized
+    private fun pause() {
+        paused = true
+        connection?.pause()
+        // the server re-sends the open ones on reconnect; until then the banner shows none that may have closed meanwhile
+        _notices.value = emptyMap()
+        (GameController.session as? OnlineSession)?.connection?.pause()
+    }
+
+    /** A game started while the app is away pauses too; under the lock, so a [resume] in between cannot miss it. */
+    @Synchronized
+    fun pauseIfAway(game: GameConnection) {
+        if (paused) game.pause()
+    }
+
+    @Synchronized
+    private fun resume() {
+        if (!paused) return
+        paused = false
+        (GameController.session as? OnlineSession)?.connection?.resume()
+        val server = api ?: return
+        // a start() while away has not opened one yet
+        connection?.resume() ?: connect(server)
+        // lobby changes and chat sent while away were missed: the lists reload, every chat loaded since login its newest page
+        _lobbyVersion.update { it + 1 }
+        val channels = _chat.value.keys
+        val started = generation
+        if (channels.isNotEmpty()) thread(isDaemon = true, name = "chat-catch-up") {
+            channels.forEach { channel ->
+                runCatching { server.chat(channel) }.onSuccess { page ->
+                    // a stop() (log out) meanwhile: the page belongs to the old session
+                    synchronized(this) { if (generation == started) add(channel, page) }
+                }
+            }
+        }
     }
 
     /** The socket gave up (login gone, app too old): forget it, so the next [start] opens a new one. */
@@ -101,6 +193,7 @@ object Social {
         if (connection !== gone) return
         connection = null
         api = null
+        _notices.value = emptyMap()
         _chatError.value = ChatError("", "Chat disconnected: $reason")
     }
 
@@ -121,6 +214,7 @@ object Social {
         _blocked.value = emptySet()
         _chatError.value = null
         _clocks.value = emptyMap()
+        _notices.value = emptyMap()
         clockSkewMs = 0
         _unread.value = emptyMap()
         _channels.value = null
@@ -145,6 +239,17 @@ object Social {
             // the Online screen's reload takes the friends list too
             is FriendsChanged -> _lobbyVersion.update { it + 1 }
             is Clock -> _clocks.update { it + (message.gameId to message) }
+            is DefenderNotice -> {
+                val key = message.gameId to message.questionId
+                _notices.update { it + (key to message) }
+                // once per question, also across reconnects; in the background the push does it
+                if (alerted.add(key) && Notifications.inForeground()) Notifications.alert(AppServices.appContext)
+            }
+            is DefenderNoticeClosed -> {
+                val key = message.gameId to message.questionId
+                alerted.remove(key)
+                _notices.update { it - key }
+            }
             else -> {}
         }
     }
@@ -209,4 +314,5 @@ object Social {
 
     private const val MAX_MESSAGES = 200
     private const val MAX_SKEW_MS = 60 * 60_000L
+    private const val AWAY_DELAY_MS = 5_000L
 }

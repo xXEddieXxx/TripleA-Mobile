@@ -66,6 +66,8 @@ sealed interface Ask {
         val defaultDamaged: List<String>,
         val battleId: String,
         val allowMultipleHitsPerUnit: Boolean,
+        /** The battle's territory, for the defender's notification; null when the battle is not pending (AA fire during a move). */
+        val territory: String? = null,
     ) : Ask
 
     @Serializable @SerialName("select_territory")

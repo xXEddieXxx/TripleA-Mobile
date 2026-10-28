@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -69,6 +72,8 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
     val context = LocalContext.current
     var email by remember { mutableStateOf<String?>(null) }
     var mailOn by remember { mutableStateOf(false) }
+    // only set after the server accepted it, so a refusal leaves the switch where it was (the error shows)
+    var notify by remember { mutableStateOf(false) }
     val busyState = remember { mutableStateOf(false) }
     val busy by busyState
     var error by remember { mutableStateOf<String?>(null) }
@@ -98,9 +103,10 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
     BackHandler(enabled = deleting) { }
 
     LaunchedEffect(serverUrl) {
-        run({ server -> server.features().email to server.account().email }) { (on, address) ->
+        run({ server -> server.features().email to server.account() }) { (on, account) ->
             mailOn = on
-            email = address
+            email = account.email
+            notify = account.notifyByEmail
         }
     }
 
@@ -142,6 +148,30 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
                         InfoButton("E-mail", "With a confirmed e-mail address you can reset a forgotten password.")
                     }
                 }
+                Row(
+                    Modifier.toggleable(
+                        value = notify,
+                        enabled = !busy && email != null,
+                        role = Role.Switch,
+                        onValueChange = { on -> run({ it.setNotifyByEmail(on) }) { notify = on } },
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Battle decisions by e-mail")
+                        Text(
+                            if (email == null) "Needs a confirmed e-mail address" else "One mail when a decision waits an hour (10 minutes without a clock)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = notify,
+                        enabled = !busy && email != null,
+                        onCheckedChange = null,
+                    )
+                }
                 val sentTo = codeSentTo
                 if (sentTo == null) {
                     OutlinedTextField(
@@ -165,8 +195,9 @@ fun AccountScreen(onBack: () -> Unit, mailedTo: String? = null) {
                     CodeField(code) { code = it }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = {
-                            run({ server -> server.confirmEmail(code); server.account().email }) { confirmed ->
-                                email = confirmed
+                            run({ server -> server.confirmEmail(code); server.account() }) { account ->
+                                email = account.email
+                                notify = account.notifyByEmail
                                 codeSentTo = null
                                 code = ""
                                 newEmail = ""

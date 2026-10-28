@@ -26,9 +26,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavHostController
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.Modifier
+import org.triplea.mobile.app.online.Social
+import org.triplea.mobile.app.ui.DefenderBanner
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.game.LocalSession
+import org.triplea.mobile.app.online.OnlineSession
 import java.nio.file.Path
 import org.triplea.mobile.app.ui.GameScreen
 import org.triplea.mobile.app.ui.AboutScreen
@@ -42,6 +58,7 @@ import org.triplea.mobile.app.ui.AccountScreen
 import org.triplea.mobile.app.ui.ForgotPasswordScreen
 import org.triplea.mobile.app.ui.PrivacyScreen
 import org.triplea.mobile.app.ui.OnlineSetupScreen
+import org.triplea.mobile.app.ui.LeaderboardScreen
 import org.triplea.mobile.app.ui.ProfileScreen
 import org.triplea.mobile.app.ui.SettingsScreen
 import org.triplea.mobile.app.ui.SetupScreen
@@ -53,13 +70,23 @@ object NavArgs {
 
     /** A save game handed to the app by another app (a chat, a mail); the load screen imports it. */
     val pendingImport = MutableStateFlow<Uri?>(null)
+
+    /** An online game to open (a tapped notification, the battle banner); the Online screen opens it once logged in. */
+    val pendingGame = MutableStateFlow<String?>(null)
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** The online game a notification opens; the FCM data key too, so a tap on a push the system showed carries it. */
+        const val EXTRA_GAME_ID = "gameId"
+        private val GAME_ID = Regex("[A-Za-z0-9]{1,32}")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        takeImport(intent)
+        // a recreate (rotation) must not replay the launch intent
+        if (savedInstanceState == null) takeIntent(intent)
         setContent {
             TripleATheme {
                 Surface {
@@ -71,10 +98,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        takeImport(intent)
+        takeIntent(intent)
     }
 
-    private fun takeImport(intent: Intent?) {
+    // the only activity, and rotation does not recreate it: stopped means the app is not seen
+    override fun onStart() {
+        super.onStart()
+        Social.foreground()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        Social.background()
+    }
+
+    private fun takeIntent(intent: Intent?) {
         val uri: Uri? = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             // shared "to" the app: the file travels as a stream extra, not as the data URI
@@ -86,6 +124,11 @@ class MainActivity : ComponentActivity() {
         }
         Log.i("Import", "intent action=${intent?.action} type=${intent?.type} data=${intent?.data} stream=$uri")
         if (uri != null) NavArgs.pendingImport.value = uri
+        // only a server game id, and only where online play exists (debug); anything else an app could put here is ignored
+        if (BuildConfig.DEBUG) {
+            intent?.getStringExtra(EXTRA_GAME_ID)?.takeIf { GAME_ID.matches(it) }?.let { NavArgs.pendingGame.value = it }
+            intent?.removeExtra(EXTRA_GAME_ID)
+        }
     }
 }
 
@@ -122,7 +165,56 @@ private fun AppNavigation() {
     LaunchedEffect(pendingImport) {
         if (pendingImport != null) navController.navigate("load") { launchSingleTop = true }
     }
-    NavHost(navController = navController, startDestination = "home") {
+    val pendingGame by NavArgs.pendingGame.collectAsState()
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    // a running local game is never quit silently: the player confirms first (see the dialog below)
+    val gameOver by GameController.gameOver.collectAsState()
+    // a replay, a finished game and an online game never ask
+    val localRunning = currentRoute == "game" && GameController.session is LocalSession && gameOver == null
+    LaunchedEffect(pendingGame, localRunning) {
+        if (pendingGame == null || localRunning) return@LaunchedEffect
+        // the online game already shown: nothing to open, no reconnect
+        val shown = GameController.session
+        if (currentRoute == "game" && shown is OnlineSession && shown.gameId == pendingGame) {
+            NavArgs.pendingGame.value = null
+            return@LaunchedEffect
+        }
+        // already on Online: OnlineScreen opens it; a singleTop navigate would replace (dispose) that screen mid-open
+        if (currentRoute != "online") navController.navigate("online") {
+            popUpTo("online")
+            launchSingleTop = true
+        }
+    }
+    if (pendingGame != null && localRunning) {
+        AlertDialog(
+            onDismissRequest = { NavArgs.pendingGame.value = null },
+            title = { Text("Leave this game to decide?") },
+            // the same switch GameScreen's autosave follows
+            text = { Text(if (AppSettings.current.autosaveEachRound) "It is saved automatically." else "Unsaved progress is lost.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    // navigate first: GameScreen's onQuit acts only while the game route is shown
+                    navController.navigate("online") { popUpTo("home") }
+                    GameController.quit()
+                }) { Text("Leave") }
+            },
+            dismissButton = { TextButton(onClick = { NavArgs.pendingGame.value = null }) { Text("Stay") } },
+        )
+    }
+    val notices by Social.notices.collectAsState()
+    // inside that same game its question dialog is already open
+    val playing = (GameController.session as? OnlineSession)?.gameId?.takeIf { currentRoute == "game" }
+    val bannerNotices = notices.values.filter { it.gameId != playing }.sortedBy { it.deadline ?: Long.MAX_VALUE }
+    Column(Modifier.fillMaxSize()) {
+        // "Decide now" takes the notification tap's path, with its "Leave this game to decide?" in a local game
+        if (bannerNotices.isNotEmpty()) DefenderBanner(bannerNotices) { NavArgs.pendingGame.value = it }
+        AppRoutes(navController, Modifier.weight(1f).then(if (bannerNotices.isNotEmpty()) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier))
+    }
+}
+
+@Composable
+private fun AppRoutes(navController: NavHostController, modifier: Modifier) {
+    NavHost(navController = navController, startDestination = "home", modifier = modifier) {
         composable("home") {
             HomeScreen(
                 onNewGame = {
@@ -147,6 +239,7 @@ private fun AppNavigation() {
                 onOpenPrivacy = { navController.navigate("privacy") },
                 onForgotPassword = { navController.navigate("forgotPassword") },
                 onOpenProfile = { username -> navController.navigate("profile/" + Uri.encode(username)) },
+                onOpenLeaderboard = { navController.navigate("leaderboard") },
             )
         }
         composable("account?sentTo={sentTo}", arguments = listOf(navArgument("sentTo") { type = NavType.StringType; nullable = true })) { entry ->
@@ -157,6 +250,12 @@ private fun AppNavigation() {
                 username = entry.arguments?.getString("username").orEmpty(),
                 onBack = { navController.popBackStack() },
                 onOpenGame = { navController.navigate("game") },
+            )
+        }
+        composable("leaderboard") {
+            LeaderboardScreen(
+                onBack = { navController.popBackStack() },
+                onOpenProfile = { username -> navController.navigate("profile/" + Uri.encode(username)) },
             )
         }
         composable("privacy") {

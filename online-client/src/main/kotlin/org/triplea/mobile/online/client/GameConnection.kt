@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
@@ -34,6 +35,8 @@ import org.triplea.mobile.protocol.ClientMessage
 import org.triplea.mobile.protocol.Clock
 import org.triplea.mobile.protocol.ENGINE_BASE_TAG
 import org.triplea.mobile.protocol.Event
+import org.triplea.mobile.protocol.DefenderNotice
+import org.triplea.mobile.protocol.DefenderNoticeClosed
 import org.triplea.mobile.protocol.FriendsChanged
 import org.triplea.mobile.protocol.GameEvent
 import org.triplea.mobile.protocol.GameVersion
@@ -74,8 +77,8 @@ class GameConnection(
         fun copyChanged(data: GameData, version: Long)
 
         /**
-         * The open question was replaced (drop, reconnect or game end): cancel the pending UI request. On an
-         * OkHttp thread or the runner; may come when nothing is pending, and more than once.
+         * The open question was replaced (drop, reconnect, pause or game end): cancel the pending UI request. On an
+         * OkHttp thread, the runner or the reconnect thread; may come when nothing is pending, and more than once.
          */
         fun questionCancelled()
 
@@ -115,6 +118,11 @@ class GameConnection(
 
     @Volatile private var closed = false
 
+    // between pause and resume: no socket, no reconnect
+    @Volatile private var paused = false
+
+    @Volatile private var retry: ScheduledFuture<*>? = null
+
     @Volatile private var openQuestion: Long? = null
 
     @Volatile private var pendingPlaceable: Pair<Long, CompletableFuture<PlaceableResult>>? = null
@@ -138,6 +146,39 @@ class GameConnection(
         reconnects.shutdownNow()
         runner.shutdownNow()
         listener.connectionState(State.CLOSED, null)
+    }
+
+    /**
+     * The app went to the background: the socket closes until [resume], so the server counts the player as offline
+     * (push, the offline window). The open question is cancelled; the server asks it again after [resume].
+     */
+    fun pause() {
+        paused = true
+        // on the reconnect thread, after a connect in flight; no lock on the caller's (main) thread
+        schedule(0) {
+            retry?.cancel(false)
+            // the cancelled socket's late drop is ignored: it must not schedule a reconnect once resume() connected again
+            synchronized(this) { generation++ }
+            socket?.cancel()
+            releasePlaceable()
+            listener.questionCancelled()
+        }
+    }
+
+    fun resume() {
+        if (!paused) return
+        paused = false
+        // a connection that ended meanwhile (login gone) keeps saying so
+        if (closed) return
+        // the failures before the pause say nothing about the network now
+        failures.set(0)
+        schedule(0) {
+            // a drop that raced with pause() may have scheduled one more try: it would replace this socket
+            retry?.cancel(false)
+            // the game screen shows "Connecting..." until the server's question is back
+            listener.connectionState(State.CONNECTING, null)
+            connect(null)
+        }
     }
 
     /** Blocking query for the open placement question; call off the main thread. */
@@ -175,7 +216,7 @@ class GameConnection(
 
     @Synchronized
     private fun connect(expiredToken: String?) {
-        if (closed) return
+        if (closed || paused) return
         val token = api.socketToken(expiredToken, loggedOut = { reason ->
             closed = true
             listener.connectionState(State.CLOSED, reason)
@@ -185,14 +226,15 @@ class GameConnection(
         val request = Request.Builder().url(api.webSocketUrl).header("Authorization", "Bearer $token").build()
         val ws = socketClient.newWebSocket(request, SocketListener(gen, token))
         socket = ws
-        if (closed) ws.cancel() // close() ran during the token fetch
+        if (closed || paused) ws.cancel() // close() or pause() ran during the token fetch
     }
 
     private fun retryLater(reason: String?, expiredToken: String? = null) {
-        if (closed) return
+        // paused: resume() connects; no RECONNECTING, which would end a start that waits for its first copy
+        if (closed || paused) return
         listener.connectionState(State.RECONNECTING, reason)
         try {
-            reconnects.schedule({ connect(expiredToken) }, backoff(failures.getAndIncrement()), TimeUnit.SECONDS)
+            retry = reconnects.schedule({ connect(expiredToken) }, backoff(failures.getAndIncrement()), TimeUnit.SECONDS)
         } catch (e: RejectedExecutionException) {
             // closed meanwhile
         }
@@ -200,6 +242,11 @@ class GameConnection(
 
     private inner class SocketListener(private val gen: Int, private val token: String) : ServerSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            // paused or replaced while it opened: it must not report CONNECTED
+            if (gen != generation) {
+                webSocket.cancel()
+                return
+            }
             webSocket.send(ProtocolJson.encode(Hello(PROTOCOL_VERSION, ENGINE_BASE_TAG)))
             if (spectate) webSocket.send(ProtocolJson.encode(Watch(gameId)))
             // a question of the old socket may have reached the UI after the drop's cancel
@@ -221,7 +268,14 @@ class GameConnection(
                 if (message.gameId == gameId) clock(message)
                 return
             }
+            // a defender's window runs off the clock: its notice closing is the only sign that the server answered it. It closes
+            // the question also while that one still waits on the runner; a reloaded game may send the same question again later
+            if (message is DefenderNoticeClosed) {
+                if (message.gameId == gameId) noticeClosed(message.questionId)
+                return
+            }
             if (!ours(message)) return
+            if (message is Question) synchronized(expiryLock) { closedNotices -= message.id }
             when (message) {
                 is PlaceableResult ->
                     pendingPlaceable?.takeIf { it.first == message.questionId }?.second?.complete(message)
@@ -270,7 +324,7 @@ class GameConnection(
             is GameEvent -> message.gameId == gameId
             is WatchRefused -> message.gameId == gameId
             // the SocialConnection handles these; queued here they would wait behind an open question
-            is LobbyUpdate, is Presence, is ChatMessage, is ChatError, is FriendsChanged -> false
+            is LobbyUpdate, is Presence, is ChatMessage, is ChatError, is FriendsChanged, is DefenderNotice -> false
             else -> true
         }
 
@@ -296,8 +350,10 @@ class GameConnection(
             is Question -> {
                 val copy = sync(message.version, ws, link) ?: return
                 synchronized(expiryLock) {
-                    // closed by the server while it waited behind another question: the next one follows
-                    if (message.id <= closedUpTo) return
+                    // closed by the server while it waited behind another question (or downloaded): the next one follows
+                    val alreadyClosed = message.id <= closedUpTo || message.id in closedNotices
+                    closedNotices.removeIf { it <= message.id }
+                    if (alreadyClosed) return
                     openQuestion = message.id
                 }
                 // without clocks (an untimed hybrid window) only the device's time can tell
@@ -366,9 +422,11 @@ class GameConnection(
 
     private val expiryLock = Any()
 
-    // under expiryLock: the game has clocks (a Clock came), and every question id up to closedUpTo is closed
+    // under expiryLock: the game has clocks (a Clock came), every question id up to closedUpTo is closed, and so are the
+    // questions whose notice closed after they arrived (pruned as the runner moves past them)
     private var clocked = false
     private var closedUpTo = Long.MIN_VALUE
+    private val closedNotices = HashSet<Long>()
 
     /**
      * On the OkHttp thread. A Clock names its question (ids only grow): a running clock closes every older
@@ -381,6 +439,11 @@ class GameConnection(
         val id = message.questionId ?: return@synchronized
         closedUpTo = maxOf(closedUpTo, if (message.running == null) id else id - 1)
         if ((openQuestion ?: Long.MAX_VALUE) <= closedUpTo) listener.questionExpired()
+    }
+
+    private fun noticeClosed(questionId: Long) = synchronized(expiryLock) {
+        closedNotices += questionId
+        expired(questionId)
     }
 
     // shortcut: a close between openQuestion and the UI showing the request cancels nothing; the dialog

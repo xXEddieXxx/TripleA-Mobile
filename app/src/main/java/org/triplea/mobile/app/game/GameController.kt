@@ -43,6 +43,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import org.triplea.mobile.app.online.OnlineSession
+import org.triplea.mobile.app.online.Social
 import org.triplea.mobile.online.client.GameConnection
 import org.triplea.mobile.online.client.ServerApi
 import org.triplea.mobile.protocol.GameInfoDto
@@ -136,6 +137,9 @@ data class BattleState(
 /** Non-blocking notifications for the user (errors, messages from the engine). */
 data class UiMessage(val title: String, val text: String, val isError: Boolean = false)
 
+/** How a game ended: the server's or engine's sentence, the winning nations (empty for none), an abort, or a replay's end. */
+data class GameResult(val message: String, val winners: List<String>, val aborted: Boolean, val replay: Boolean = false)
+
 /**
  * Owns the running game and bridges the engine's blocking questions to the Compose UI. The engine
  * calls the [HumanPlayerUiAdapter] methods on its own thread; each one publishes a [UiRequest] and
@@ -165,7 +169,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     private val _dataVersion = MutableStateFlow(0)
     val dataVersion = _dataVersion.asStateFlow()
 
-    private val _gameOver = MutableStateFlow<String?>(null)
+    private val _gameOver = MutableStateFlow<GameResult?>(null)
     val gameOver = _gameOver.asStateFlow()
 
     /** A move an AI nation just made, for the map to follow. */
@@ -183,6 +187,9 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
 
     /** Whether the nation is played by a person on this device. */
     fun isHumanPlayer(name: String): Boolean = humanPlayers.contains(name)
+
+    /** The nations played on this device: empty for a spectator and a replay. */
+    val humanNations: Set<String> get() = humanPlayers.toSet()
 
     /** Parses and starts a new game. Call from a background thread. */
     /** The game XML the running game was started from; null when it was loaded from a save. */
@@ -246,7 +253,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         val replay = ReplaySession(data)
         session = replay
         updateStatus(data)
-        _gameOver.value = "Replay of a finished game"
+        _gameOver.value = GameResult("Replay of a finished game", emptyList(), aborted = false, replay = true)
         _dataVersion.value = _dataVersion.value + 1
     }
 
@@ -309,6 +316,8 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         }, spectating = spectate)
         session = online
         online.connection.open()
+        // the app left the screen while this start ran: it connects on return (Social.foreground), within the wait below
+        Social.pauseIfAway(online.connection)
         try {
             firstCopy.get(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             online.mapData // fails here when the map is not installed
@@ -732,20 +741,23 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         _messages.tryEmit(UiMessage(stripHtml(title), stripHtml(message)))
     }
 
-    override fun gameEnded(message: String) = gameOver(message, aborted = false)
+    override fun gameEnded(message: String) = gameOver(GameResult(message, emptyList(), aborted = false))
 
-    override fun gameAborted(message: String) = gameOver(message, aborted = true)
+    override fun gameEnded(message: String, winners: List<String>) = gameOver(GameResult(message, winners, aborted = false))
 
-    private fun gameOver(message: String, aborted: Boolean) {
+    override fun gameAborted(message: String) = gameOver(GameResult(message, emptyList(), aborted = true))
+
+    private fun gameOver(result: GameResult) {
         // the server re-sends GameEnded on every reconnect of an ended game
         if (_gameOver.value != null) return
         // an open question was already cancelled by GameConnection: this runs on its question runner
         (session as? OnlineSession)?.gameEnded()
-        if (!aborted) {
+        // local games get the sound from the engine's EndRoundDelegate; online ends by resignation have none
+        if (!result.aborted && session is OnlineSession) {
             session?.resourceLoader?.let { SoundPlayer.play(SoundPath.CLIP_GAME_WON, null, it) }
         }
-        _gameOver.value = message
-        _messages.tryEmit(UiMessage("Game over", message))
+        // the result dialog (GameScreen) shows it; no extra message dialog
+        _gameOver.value = result
     }
 
     override fun gameStepChanged(stepName: String, displayName: String, player: GamePlayer?, round: Int) {

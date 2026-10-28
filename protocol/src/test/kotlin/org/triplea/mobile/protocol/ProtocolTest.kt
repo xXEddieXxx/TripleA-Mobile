@@ -75,4 +75,17 @@ class ProtocolTest {
 
     @OptIn(ExperimentalSerializationApi::class)
     private fun subtypes(sealed: SerialDescriptor): List<String> = sealed.getElementDescriptor(1).elementNames.toList()
+
+    @Test
+    fun defenderKindsComeFromTheAsk() {
+        val kinds = Samples.asks.associate { it::class.simpleName!! to DefenderNotice.kindOf(it) }
+        assertThat(kinds).containsEntry("Casualties", "casualties").containsEntry("Scramble", "scramble").containsEntry("Retreat", "retreat")
+            .containsEntry("Kamikaze", "kamikaze").containsEntry("AcceptAction", "offer").containsEntry("Confirm", "confirm")
+            .containsEntry("ConfirmCasualties", "confirm").containsEntry("Purchase", "confirm")
+        assertThat(DefenderNotice.label("casualties")).isEqualTo("Choose casualties")
+        assertThat(Samples.asks.filterIsInstance<Ask.Retreat>().map { DefenderNotice.territoryOf(it) }).containsExactly("blue north 2")
+        assertThat(Samples.asks.filterIsInstance<Ask.Kamikaze>().map { DefenderNotice.territoryOf(it) }).containsExactly("sea zone 2")
+        val casualties = Samples.asks.filterIsInstance<Ask.Casualties>().single()
+        assertThat(DefenderNotice.territoryOf(casualties.copy(territory = "red north 1"))).isEqualTo("red north 1")
+    }
 }

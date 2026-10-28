@@ -9,9 +9,9 @@ sealed interface Event {
     @Serializable @SerialName("message")
     data class Message(val title: String, val text: String) : Event
 
-    /** [aborted]: stopped without a result (abort, server error); since v3, absent before. */
+    /** [aborted]: stopped without a result (abort, server error); since v3, absent before. [winners]: the winning nations, empty for none. */
     @Serializable @SerialName("game_ended")
-    data class GameEnded(val message: String, val aborted: Boolean = false) : Event
+    data class GameEnded(val message: String, val aborted: Boolean = false, val winners: List<String> = emptyList()) : Event
 
     @Serializable @SerialName("step_changed")
     data class StepChanged(val step: String, val displayName: String, val player: String?, val round: Int) : Event

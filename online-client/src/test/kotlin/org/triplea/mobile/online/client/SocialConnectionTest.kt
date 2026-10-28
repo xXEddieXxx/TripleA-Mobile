@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test
 import org.triplea.mobile.protocol.ChatError
 import org.triplea.mobile.protocol.ChatMessage
 import org.triplea.mobile.protocol.ChatSend
+import org.triplea.mobile.protocol.DefenderNotice
+import org.triplea.mobile.protocol.DefenderNoticeClosed
 import org.triplea.mobile.protocol.ENGINE_BASE_TAG
 import org.triplea.mobile.protocol.FriendsChanged
 import org.triplea.mobile.protocol.GameInfoDto
@@ -35,6 +37,7 @@ class SocialConnectionTest {
     private val received = LinkedBlockingQueue<ServerMessage>()
     private val upgradeTokens = LinkedBlockingQueue<String>()
     private val stopped = LinkedBlockingQueue<String>()
+    private val connects = java.util.concurrent.atomic.AtomicInteger()
 
     @Volatile private var refusedUpgrades = 0
 
@@ -62,7 +65,7 @@ class SocialConnectionTest {
         }
         server.start()
         val store = MemoryTokenStore().apply { tokens = TokensDto("a1", "r1", 900, "alice") }
-        connection = SocialConnection(ServerApi(server.url("/").toString(), store), { received += it }, { stopped += it })
+        connection = SocialConnection(ServerApi(server.url("/").toString(), store), { received += it }, { stopped += it }, { connects.incrementAndGet() })
     }
 
     @AfterEach
@@ -70,6 +73,23 @@ class SocialConnectionTest {
         connection.close()
         sockets.forEach { it.close(1001, "test over") }
         server.close()
+    }
+
+    @Test
+    fun `defender notices reach the listener and every connect is announced before the servers messages`() {
+        val socket = open()
+        assertThat(connects.get()).isEqualTo(1)
+        socket.send(ProtocolJson.encode(DefenderNotice("g1", 7, "Italians", "casualties", 1_800_000_000_000)))
+        socket.send(ProtocolJson.encode(DefenderNoticeClosed("g1", 7)))
+
+        assertThat(List(2) { received.poll(10, TimeUnit.SECONDS) })
+            .containsExactly(DefenderNotice("g1", 7, "Italians", "casualties", 1_800_000_000_000), DefenderNoticeClosed("g1", 7))
+        // a drop and reconnect announces itself again, so the app forgets notices the server will re-send
+        socket.close(1001, "drop")
+        sockets.poll(10, TimeUnit.SECONDS)!!
+        val deadline = System.currentTimeMillis() + 10_000
+        while (connects.get() < 2 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertThat(connects.get()).isEqualTo(2)
     }
 
     @Test
@@ -153,6 +173,22 @@ class SocialConnectionTest {
 
         Thread.sleep(2_500)
         assertThat(upgradeTokens).hasSize(1)
+        assertThat(stopped).isEmpty()
+    }
+
+    @Test
+    fun `pause closes the socket without reconnecting until resume opens one again`() {
+        open()
+
+        connection.pause()
+
+        Thread.sleep(2_500) // longer than the first backoff
+        assertThat(upgradeTokens).describedAs("no reconnect while paused").hasSize(1)
+        assertThat(connection.send(ChatSend("lobby", "away"))).isFalse()
+        connection.resume()
+        assertThat(sockets.poll(10, TimeUnit.SECONDS)).isNotNull
+        assertThat(ProtocolJson.decodeClientMessage(fromClient.poll(10, TimeUnit.SECONDS)!!)).isEqualTo(Hello(PROTOCOL_VERSION, ENGINE_BASE_TAG))
+        assertThat(sockets.poll(2, TimeUnit.SECONDS)).describedAs("only one new socket").isNull()
         assertThat(stopped).isEmpty()
     }
 

@@ -1,16 +1,10 @@
 package org.triplea.mobile.app.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,9 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -41,8 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,9 +40,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.triplea.mobile.MobileEngine
-import org.triplea.mobile.app.AppServices
-import org.triplea.mobile.protocol.GameInfoDto
-import org.triplea.mobile.protocol.SeatDto
 import java.nio.file.Path
 
 // The online screens' shared look, built from the friends list: round avatars with a status dot,
@@ -70,12 +56,6 @@ internal fun mapTitle(mapName: String) = displayName(mapName).split(' ').joinToS
 }
 
 private val ROMAN_NUMERAL = Regex("[ivx]+", RegexOption.IGNORE_CASE)
-
-/** Two letters for a nation without a flag: the first and last capital ("AustrianEmpire" AE, "KingdomOfPrussia" KP), else the first two ("France" FR). */
-internal fun nationInitials(nation: String): String {
-    val capitals = nation.filter { it.isUpperCase() }
-    return if (capitals.length >= 2) "${capitals.first()}${capitals.last()}" else nation.filter { it.isLetter() }.take(2).uppercase()
-}
 
 /** Whether two map names mean the same map, loosely like the engine's search: "Capture the Flag" is "capture_the_flag". */
 internal fun sameMap(a: String, b: String) = a.replace('_', ' ').equals(b.replace('_', ' '), ignoreCase = true)
@@ -149,65 +129,6 @@ internal fun StatusPill(text: String, icon: ImageVector?, modifier: Modifier = M
     }
 }
 
-/**
- * One seat as a tile: the nation's flag, and on its corner who plays it (the player's initial, a robot for the AI,
- * a green + for a free seat). [active] rings the nation to move; [showReady] ticks a ready player (game setup).
- */
-@Composable
-internal fun SeatTile(seat: SeatDto, active: Boolean, showReady: Boolean, onOpenProfile: (String) -> kotlin.Unit) {
-    val name = seat.username
-    val who = when (seat.kind) {
-        "OPEN" -> "free"
-        "HUMAN" -> name.orEmpty() + (if (showReady && seat.ready) ", ready" else "")
-        else -> seatLabel(seat)
-    }
-    val description = "${displayName(seat.nation)}: $who" + (if (active) ", to move" else "")
-    val ring = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-    Box(
-        Modifier.size(48.dp)
-            .then(if (name != null) Modifier.clickable(onClickLabel = "profile of $name") { onOpenProfile(name) } else Modifier)
-            .clearAndSetSemantics { contentDescription = description },
-    ) {
-        Box(
-            Modifier.align(Alignment.Center).size(38.dp)
-                .border(if (active) 2.dp else 1.dp, ring, RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            // the engine's flags cover the common nations only; others ("AustrianEmpire") show their initials
-            val (flag, _) = rememberFlag(AppServices.engineImages, seat.nation)
-            if (flag != null) {
-                Image(flag.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(28.dp))
-            } else {
-                Text(nationInitials(seat.nation), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        val badge = Modifier.align(Alignment.BottomEnd).size(20.dp)
-        when {
-            seat.kind == "OPEN" -> Box(badge.background(FREE_SEAT, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-            }
-            seat.kind == "HUMAN" && name != null -> Initial(name, 20.dp, badge.border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape))
-            else -> Box(badge.background(MaterialTheme.colorScheme.tertiaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.SmartToy, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(13.dp))
-            }
-        }
-        if (showReady && seat.ready) {
-            Box(Modifier.align(Alignment.TopEnd).size(16.dp).background(ONLINE_DOT, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
-            }
-        }
-    }
-}
-
-/** Every seat of [game] as a [SeatTile] in one row that scrolls sideways on big maps, so cards keep their height. */
-@Composable
-internal fun SeatStrip(game: GameInfoDto, activeNation: String?, showReady: Boolean, onOpenProfile: (String) -> kotlin.Unit) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        game.seats.forEach { SeatTile(it, active = it.nation == activeNation, showReady = showReady, onOpenProfile = onOpenProfile) }
-    }
-}
-
 /** An (i) button that shows [text] in a dialog: the explanation stays one tap away instead of on the screen. */
 @Composable
 internal fun InfoButton(title: String, text: String) {
@@ -240,15 +161,25 @@ internal fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Mo
 
 /** A big number with an icon and a one-word label: the profile's stats. */
 @Composable
-internal fun StatTile(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
+internal fun StatTile(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier, hint: String? = null) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp), modifier = modifier.semantics(mergeDescendants = true) {}) {
         Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
             Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            hint?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         }
     }
 }
+
+/** A rating change as the profile and the result dialog show it: "+12", "−8" (a real minus sign). */
+internal fun ratingDelta(change: Int): String = if (change < 0) "−${-change}" else "+$change"
+
+/** Under this many rated games a rating is provisional (K is 40 for them). */
+internal const val PROVISIONAL_GAMES = 20
+
+/** Rated games a player needs to appear on the leaderboard. */
+internal const val LEADERBOARD_MIN_GAMES = 5
 
 /** The preview picture of every map installed here, by map name; empty while loading. */
 @Composable

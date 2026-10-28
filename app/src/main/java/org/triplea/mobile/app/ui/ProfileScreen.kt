@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,11 +28,17 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Leaderboard
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MilitaryTech
 import androidx.compose.material.icons.filled.Percent
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,15 +62,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -77,22 +92,49 @@ import org.triplea.mobile.app.online.OnlineApi
 import org.triplea.mobile.app.render.ImageCache
 import org.triplea.mobile.online.client.ServerApi
 import org.triplea.mobile.online.client.loadServerSave
+import org.triplea.mobile.protocol.Achievements
+import org.triplea.mobile.protocol.Badge
+import org.triplea.mobile.protocol.IconUnlocks
+import org.triplea.mobile.protocol.MapProgressDto
 import org.triplea.mobile.protocol.ProfileDto
 import org.triplea.mobile.protocol.RecentGameDto
+import org.triplea.mobile.protocol.Scenario
 import org.triplea.mobile.protocol.StatsDto
-import androidx.compose.material.icons.filled.SmartToy
 
 /** The longest status the server takes, in code points. */
 private const val MAX_STATUS = 60
+private val CAMEL_CASE_GAP = Regex("(?<=[a-z])(?=[A-Z])")
 
 /** The engine's flags and unit images, for profile icons (no map is loaded on the online screens). */
 private val engineImages by lazy { ImageCache(ResourceLoader(listOfNotNull(MobileEngine.getEngineAssetsFolder().orElse(null)))) }
 
-/** The image files of icon [id]: `flag:<Nation>` or `unit:<unit>` (drawn as the neutral nation's); none for `emblem:default`. */
+/**
+ * The image files of icon [id]: `flag:<Nation>`, `unit:<Nation>/<unit>` or `unit:<unit>` (drawn as the neutral
+ * nation's); none for `emblem:default`.
+ */
 private fun iconPaths(id: String): List<String> = when {
     id.startsWith("flag:") -> id.removePrefix("flag:").let { listOf("flags/${it}_large.png", "flags/$it.png") }
+    id.startsWith("unit:") && '/' in id -> listOf("units/${id.removePrefix("unit:")}.png")
     id.startsWith("unit:") -> id.removePrefix("unit:").let { listOf("units/Neutral/$it.png", "units/Germans/$it.png") }
     else -> emptyList()
+}
+
+/** The editor's group of icon [id]: the nation of a nation's unit, else "Flags" or "Units" ("" for the default emblem). */
+private fun iconGroup(id: String) = when {
+    id.startsWith("unit:") && '/' in id -> id.removePrefix("unit:").substringBefore('/')
+    id.startsWith("flag:") -> "Flags"
+    id.startsWith("unit:") -> "Units"
+    else -> ""
+}
+
+/** How TalkBack reads icon [id]: "Germans armour", "flag Germans". */
+internal fun iconLabel(id: String) = id.substringAfter(':').replace('/', ' ').let { if (id.startsWith("flag:")) "flag $it" else it }
+
+/** The next locked tier of one nation's icons [ids], e.g. "Armour, fighter, transport: 1 win with Germans"; null when none is locked. */
+private fun lockHint(ids: List<String>, winsByNation: Map<String, Int>): String? {
+    val next = ids.mapNotNull(IconUnlocks::requirement).filter { (winsByNation[it.nation] ?: 0) < it.wins }.minByOrNull { it.wins } ?: return null
+    val units = ids.filter { IconUnlocks.requirement(it) == next }.joinToString(", ") { it.substringAfter('/') }
+    return units.replaceFirstChar { it.uppercase() } + ": " + next.text
 }
 
 /** Profile icon [id], or the user's initial for the default emblem (and an image this device lacks). */
@@ -180,6 +222,8 @@ fun ProfileScreen(username: String, onBack: () -> kotlin.Unit, onOpenGame: () ->
                     }
                 }
             }
+            // null: an older server sends no counts, so nothing is locked here (the server still enforces)
+            val wins = shown.winsByNation
             if (own && editing) {
                 OutlinedTextField(
                     status,
@@ -189,17 +233,40 @@ fun ProfileScreen(username: String, onBack: () -> kotlin.Unit, onOpenGame: () ->
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Heading("Icon")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    icons.forEach { id ->
-                        val selected = id == icon
-                        Box(
-                            Modifier
-                                .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                                .clickable { icon = id }
-                                .padding(4.dp)
-                                .semantics { contentDescription = if (selected) "$id, chosen" else id },
-                        ) { ProfileIcon(id, shown.username, 44.dp) }
+                // the nations' classic units first, each under its flag; then flags and the neutral units
+                icons.groupBy(::iconGroup).entries.sortedBy { it.key == "Flags" || it.key == "Units" }.forEach { (group, ids) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (group != "Flags" && group != "Units" && group.isNotEmpty()) NationFlag(AppServices.engineImages, group, 20.dp, Modifier.padding(top = 10.dp))
+                        Heading(group.ifEmpty { "Icon" })
+                    }
+                    wins?.let { lockHint(ids, it) }?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ids.forEach { id ->
+                            val selected = id == icon
+                            // the icon the user already has stays theirs (the server keeps it too); a tap on a locked one says what it needs
+                            val locked = IconUnlocks.requirement(id)?.takeUnless { id == shown.icon || wins == null || IconUnlocks.isUnlocked(id, wins) }
+                            Box(
+                                Modifier
+                                    .border(2.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                                    .clickable { if (locked != null) info = "Locked: ${locked.text}" else icon = id }
+                                    .padding(4.dp)
+                                    .semantics {
+                                        role = Role.Button
+                                        contentDescription = iconLabel(id) + when {
+                                            selected -> ", chosen"
+                                            locked != null -> ", locked: ${locked.text}"
+                                            else -> ""
+                                        }
+                                    },
+                            ) {
+                                Box(Modifier.alpha(if (locked != null) 0.38f else 1f)) { ProfileIcon(id, shown.username, 44.dp) }
+                                if (locked != null) {
+                                    Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(16.dp).align(Alignment.BottomEnd))
+                                }
+                            }
+                        }
                     }
                 }
                 Button(
@@ -208,6 +275,8 @@ fun ProfileScreen(username: String, onBack: () -> kotlin.Unit, onOpenGame: () ->
                 ) { Text("Save") }
             }
             Stats(shown, previews)
+            AchievementsSection(shown) { info = it }
+            MapsSection(shown, previews) { info = it }
             Heading("Recent games")
             if (shown.recentGames.isEmpty()) EmptyState(Icons.Filled.History, "No finished games yet")
             shown.recentGames.forEach { game ->
@@ -229,7 +298,7 @@ fun ProfileScreen(username: String, onBack: () -> kotlin.Unit, onOpenGame: () ->
 @Composable
 private fun Stats(profile: ProfileDto, previews: Map<String, Path?>) {
     Heading("Versus players")
-    Outcomes(profile.stats)
+    Outcomes(profile.stats, rating = profile)
     val ai = profile.aiStats
     if (ai.played > 0) {
         Heading("Versus AI")
@@ -251,11 +320,129 @@ private fun Stats(profile: ProfileDto, previews: Map<String, Path?>) {
     }
 }
 
+/** The 10 general badges as tiles: earned ones in colour (a tap tells when), the others greyed with what they need. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AchievementsSection(profile: ProfileDto, onInfo: (String) -> kotlin.Unit) {
+    val earned = profile.achievements.associate { it.id to it.unlockedAt }
+    Heading("Achievements (${Achievements.general.count { it.id in earned }} / ${Achievements.general.size})")
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Achievements.general.forEach { BadgeTile(it, earned[it.id], it.name, onInfo) }
+    }
+}
+
+/** One badge as a tile labelled [label]: earned at [at] in colour (a tap tells when), else greyed with what it needs. */
+@Composable
+private fun BadgeTile(badge: Badge, at: Long?, label: String, onInfo: (String) -> kotlin.Unit) {
+    val context = LocalContext.current
+    val date = at?.let { DateUtils.formatDateTime(context, it, DateUtils.FORMAT_SHOW_DATE) }
+    val text = if (date != null) "${badge.name}, earned $date" else "${badge.name}, locked: ${badge.description}"
+    Column(
+        Modifier
+            .width(104.dp)
+            .clickable(onClickLabel = "Show details", role = Role.Button) { onInfo(if (date != null) "${badge.name}: earned $date" else "${badge.name}: ${badge.description}") }
+            .alpha(if (at != null) 1f else 0.38f)
+            .padding(4.dp)
+            .semantics(mergeDescendants = true) { contentDescription = text },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // one spoken description per tile: the children are silent
+        Column(Modifier.clearAndSetSemantics { }, horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Filled.MilitaryTech, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // "10 wins" needs no second line under "10 wins"
+            if (at == null && badge.description != label) {
+                Text(badge.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 3)
+            }
+        }
+    }
+}
+
+/**
+ * The map badges, collapsed to one row "Maps · n / 60"; expanded, one card per scenario: the played ones first (most
+ * wins first), then the unplayed ones greyed.
+ */
+@Composable
+private fun MapsSection(profile: ProfileDto, previews: Map<String, Path?>, onInfo: (String) -> kotlin.Unit) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val earned = profile.achievements.associate { it.id to it.unlockedAt }
+    val progress = profile.maps.associateBy { it.key }
+    val mapBadges = Achievements.SCENARIOS.flatMap(Achievements::mapBadges)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(onClickLabel = if (open) "collapse" else "expand", role = Role.Button) { open = !open }
+            .semantics { stateDescription = if (open) "expanded" else "collapsed" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Heading("Maps · ${mapBadges.count { it.id in earned }} / ${mapBadges.size}", Modifier.weight(1f))
+        Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+    }
+    if (!open) return
+    // sortedBy is stable: within each group the catalog's order stays
+    Achievements.SCENARIOS.sortedBy { progress[it.key]?.let { p -> -p.wins } ?: 1 }.forEach { scenario ->
+        ScenarioCard(scenario, progress[scenario.key], earned, previews[scenario.map], onInfo)
+    }
+}
+
+/**
+ * A scenario's card: preview, name and wins, its three badges, and its catalog nations' flags (coloured: won with).
+ * Unplayed ([progress] null) it is greyed with "Not played yet", every flag greyed.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScenarioCard(scenario: Scenario, progress: MapProgressDto?, earned: Map<String, Long>, preview: Path?, onInfo: (String) -> kotlin.Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MapThumb(preview, 40.dp)
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(scenario.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        progress?.let { "${it.wins} win${if (it.wins == 1) "" else "s"}" } ?: "Not played yet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Achievements.mapBadges(scenario).forEach { BadgeTile(it, earned[it.id], it.name.removePrefix("${scenario.name} – "), onInfo) }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                scenario.nations.forEach { nation ->
+                    val name = displayName(nation).replace(CAMEL_CASE_GAP, " ")
+                    val won = progress != null && nation in progress.wonWith
+                    Box(
+                        Modifier
+                            .alpha(if (won) 1f else 0.38f)
+                            .clearAndSetSemantics { contentDescription = "$name, ${if (won) "won with" else "not won yet"}" },
+                    ) {
+                        // the engine has flags for the World War II nations; others show their name
+                        if (rememberFlag(AppServices.engineImages, nation).let { it.first == null && it.second }) {
+                            Text(name, style = MaterialTheme.typography.labelSmall)
+                        } else {
+                            NationFlag(AppServices.engineImages, nation, 24.dp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Played, won and win rate as tiles; the other outcomes as pills (only those that happened). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Outcomes(s: StatsDto) {
+private fun Outcomes(s: StatsDto, rating: ProfileDto? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // the Elo rating leads the games against players; the hint says it is still settling
+        rating?.let {
+            StatTile(Icons.Filled.Leaderboard, it.rating.toString(), "Rating", Modifier.weight(1f), hint = if (it.ratedGames < PROVISIONAL_GAMES) "provisional" else null)
+        }
         StatTile(Icons.Filled.SportsEsports, s.played.toString(), "Played", Modifier.weight(1f))
         StatTile(Icons.Filled.EmojiEvents, s.won.toString(), "Won", Modifier.weight(1f))
         val rated = s.won + s.lost + s.resigned > 0
@@ -298,6 +485,10 @@ private fun RecentGameCard(game: RecentGameDto, preview: Path?, enabled: Boolean
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     ResultPill(game.result)
+                    // the sign carries the meaning, the colour only repeats it
+                    game.ratingChange?.let {
+                        Text(ratingDelta(it), style = MaterialTheme.typography.labelLarge, color = if (it < 0) MaterialTheme.colorScheme.error else FREE_SEAT)
+                    }
                     if (game.vsAi) StatusPill("vs AI", Icons.Filled.SmartToy)
                     game.nations.forEach { NationFlag(AppServices.engineImages, it, 18.dp) }
                     Text(

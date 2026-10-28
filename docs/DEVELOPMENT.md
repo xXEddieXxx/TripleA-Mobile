@@ -209,6 +209,9 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
     debug manifest also adds `ACCESS_LOCAL_NETWORK`: Android 17 blocks private addresses (the
     emulator's `10.0.2.2`, a LAN server) without it. Release builds have neither, and no Online
     entry or Server URL setting.
+  - The push token (to deliver notifications) is stored on the server until logout, account deletion
+    or until Firebase reports it invalid; the recipient is Google Firebase Cloud Messaging. Release
+    builds have no Firebase: check that `processReleaseMainManifest` has no Firebase entry.
   - Access and refresh tokens live in the private SharedPreferences file `online`
     (`PrefsTokenStore`), never in logs, and are cleared when the Server URL changes.
   - The app never uploads a save. It only downloads the server's saves, at most 64 MB compressed
@@ -266,7 +269,12 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
 - Battle, dice and step events go to every device as `GameEvent`s (`EventEncoder` on the host,
   `OnlineClient.event` on the device). Units the device's copy does not know are left out of an
   event. `GameEnded` carries `aborted` (v3) for every server abort; the app plays no victory sound then
-  (`GameEventListener.gameAborted`).
+  (`GameEventListener.gameAborted`), and `winners` (the winning nations, empty for no winner and for
+  aborts). The game screen shows `ResultDialog`: Victory/Defeat for a player, "<nations> win" for a
+  spectator, and, only when there are winners, every nation with player and outcome (seats from
+  `GET /games/{id}`; local games "You"/"AI"); "Stay on map" keeps the board, replays show none. Local
+  games report their winners from `MobileLaunchAction.promptGameStop` (the engine's end hook), which
+  also gives them the game-over state and the Menu button for the first time.
 - Messages are limited to 64 KB (`MAX_MESSAGE_CHARS`). The app's first message is `Hello` with
   `PROTOCOL_VERSION` and `ENGINE_BASE_TAG`; a mismatch is answered with `UpdateRequired`.
 - **Changing a message:**
@@ -276,11 +284,16 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
 
   A golden file that was released is never edited.
 - **Clocks** (milestone 3b, protocol v3): a game may have a time control (`CreateGameRequest.timeControl`:
-  blitz, rapid or correspondence, plus `aiTakesOver` and `resignAfterMissedTurns`). The server sends
+  blitz, rapid or correspondence, plus `aiTakesOver` and `resignAfterMissedTurns`). Every clock is per
+  turn: it is full again at the start of each of the player's turns (blitz 3–10 min, rapid 15–60 min,
+  daily 1–14 days, plus the increment per answered question within the turn); no game has a limit on its
+  whole length. It runs only in the player's own turn; decisions out of turn have their window (see
+  "Push and defender notices") off the clock. The setup screen labels them "min/turn". The server sends
   `Clock` (remaining time per player, whose clock runs, its deadline) and sets `Question.deadline`.
   When a clock runs out the server answers the open question itself (`Done` for phase questions,
-  the engine default otherwise), then the AI plays the seat until the player comes back (an
-  accepted answer, game chat, or `POST /games/{id}/back`, the app's "I'm back").
+  the engine default otherwise), so the rest of the turn ends, then the AI plays the seat until the
+  player comes back (an accepted answer, game chat, or `POST /games/{id}/back`, the app's "I'm back";
+  an empty clock gets 60 s for the rest of that turn, the next turn brings a full clock).
   In the app, `SocialConnection` passes every `Clock` to `Social.clocks` for the clock bar.
   The online game screen shows a clock bar (`OnlinePanels.kt`: every player's time, the running one
   counting down from `deadline`, and "AI is playing your seat" when `GET /games/{id}` lists one of
@@ -292,8 +305,10 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
   A stopped clock closes its question and every older one, a running clock every older one; then
   `Listener.questionExpired` cancels the dialog without an answer. Other Clocks (vacation, time
   travel, the reconnect catch-up) name the question open at the moment they are sent, or none, so one
-  that arrives out of order never closes the open question. Only games without clocks (an untimed
-  hybrid window) fall back to the device's time: `Question.deadline` + 2 s.
+  that arrives out of order never closes the open question. A defender's window runs on no clock: its
+  `DefenderNoticeClosed`, which the game socket gets too, closes it if it is the open question (only that
+  one: a reloaded game may close the notice and send the same question again). Only games
+  without clocks also fall back to the device's time: `Question.deadline` + 2 s.
   All server calls go through `OnlineApi.forUrl`, one `ServerApi` per process, because refresh tokens
   are single-use and two instances refreshing at once would log the user out.
 - **Spectators** (milestone 3b, protocol v3): the Online screen's Lobby tab lists the running games
@@ -322,9 +337,50 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
   Online screen; debug builds have "Check turns now" in its menu. `app/src/release/AndroidManifest.xml`
   removes WorkManager's permissions, start-up initializer, services and receivers from release
   builds, which have no online play.
+- **Push and defender notices** (sub-project 4): debug builds only. `debugImplementation` has Firebase
+  Messaging; `app/src/debug/.../push` holds `PushPlatform` and `TripleAMessagingService`, and
+  `app/src/release` a no-op `PushPlatform`. The google-services plugin is applied only when
+  `app/google-services.json` exists (gitignored), so without it the app builds and runs without push;
+  Firebase auto-init stays off until the first registration. The app sends `PUT /me/devices` on every
+  login or Online visit and on a new token, and `DELETE /me/devices/{token}` on logout (the server's
+  `devices` table keeps the newest 10 tokens per account; the server sends only with `FCM_CREDENTIALS`,
+  the path of the Firebase service-account key). Notification channels: `turns` ("Your turn") and
+  `battle` ("Battle decisions", high importance). In front with the social socket open no notification
+  is shown. A tap opens the game through `MainActivity.EXTRA_GAME_ID`, `NavArgs.pendingGame` and
+  `OnlineScreen.open(id)`; with a live local game running it first asks "Leave this game to decide?"
+  (nothing is quit before the answer). Notifications of the same game on different channels do not
+  replace each other (`Notifications.show` tags them `<channel>:<tag>`).
+  The server's defender window depends on the time control: blitz 30 s, rapid 60 s / 2 min,
+  correspondence 12 h, no clock 5 min / 30 min (online / offline; online = at least one WebSocket),
+  always off the player's clock. The battle push goes out in every game type, blitz included; it names
+  the territory where the question has one (casualties: the battle's, `Ask.Casualties.territory`, null
+  for AA fire during a move; kamikaze: when all targets lie in one territory).
+  **Leaving the app:** `MainActivity.onStop` calls `Social.background()`; 5 s later (before Android's
+  freezer, about 10 s, would hold the timer) the social socket closes and the open game's
+  `GameConnection.pause()` closes its socket without reconnecting or reporting RECONNECTING (its open
+  question is cancelled; a game start that runs meanwhile pauses too and waits for the return, up to its
+  60 s, then fails with "The server did not send the game"). The server then counts the player offline:
+  "Your turn" and battle decisions arrive by push, with the offline window. `onStart`
+  (`Social.foreground()`) reconnects both (the game screen shows "Connecting..."); the server re-sends
+  the open question, notices and clocks, the Online lists reload and every chat loaded since login
+  loads its newest page again (lobby updates and chat sent meanwhile were missed). A notice that
+  came as a push while the sockets were closed rings once more in the app when the reconnect re-sends
+  it (a missed alert would be worse); one that arrived before the pause rang as the push only. Both connections pause in place (`pause()`/`resume()`, no new connection per return):
+  nothing is interrupted, so a token refresh in flight still stores the rotated refresh token, and a
+  drop or open of a socket the pause gave up is ignored. The delay counts
+  uptime, which stops while the phone sleeps; the server's ping timeout closes the sockets then. A turn
+  left for more than 5 s asks its open question again on return: a dialog's unsent choices (a purchase
+  being put together) are lost. `DefenderNotice` and
+  `DefenderNoticeClosed` arrive on the social socket and fill `Social.notices` (deduplicated by game
+  and question; the server re-sends open notices on connect). `DefenderBanner` sits above `NavHost`
+  (least time left first, "1 of n", hidden in that same game; sound and vibration only in front);
+  "Decide now" sets `NavArgs.pendingGame`. The Account screen has the switch "Battle decisions by
+  e-mail" (disabled without a confirmed address; the server mails after 1 h for correspondence games,
+  10 min with no clock). Local test: with `DEV_MODE=true` the server has `POST /admin/defender-notice`
+  `{"gameId": ...}`, which opens a notice for the game's open question.
 - **Standing orders** (milestone 3b, protocol v3): out-of-turn questions (the seat is not the current
-  step's player) follow the player's defender mode (`live`, `hybrid` with a 60 s window on their
-  clock while they are online, `standing`) and their standing orders (`StandingOrdersDto`,
+  step's player) follow the player's defender mode (`live`, `hybrid` with the window of the game's
+  time control (see above), `standing`) and their standing orders (`StandingOrdersDto`,
   `DefenderModeRequest`; REST `GET`/`PUT /games/{id}/orders`, `PUT /games/{id}/defender-mode`). The
   server's answers go through `RemoteHumanUi` like any other. Details in the server README.
 - Copying the game for a device takes its write lock. Events are therefore not synced while the
@@ -366,8 +422,9 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
   - **Games:** the player's games and "New online game". A running game opens on tap ("Your
     turn"), a finished one shows its winners, an aborted one its reason (`GameInfoDto.error`). A
     lobby game (every new game starts in status `lobby`) opens the setup screen.
-  - **Lobby:** visible lobby games with an open seat the player does not hold yet (a tap opens the
-    setup screen); "Join by code" takes the `<game id>:<code>` invite and a nation typed in (a link
+  - **Lobby:** visible lobby games with an open seat the player does not hold yet ("Join" or a tap
+    opens the setup screen), running games to watch ("Watch"); "Join with an invite code" takes the
+    `<game id>:<code>` invite and a nation typed in (a link
     game is invisible before joining, so its open nations cannot be listed), then opens the setup
     screen; the lobby chat underneath.
   - **Friends** (redesigned in milestone 3c): cards in sections Requests (Accept / ✕), Online and
@@ -375,13 +432,16 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
     (green online, amber in a running game, grey offline), a status line (`activity`, "online" or
     "last seen …"), the unread badge, a chat button and a ⋮ menu (Remove friend, Block, Report; Remove and Block ask first). A
     floating "Add friend" button asks for the username.
-  - **Look of the online screens** (`OnlineComponents.kt`): built from the friends list. Icons, pills
-    and nation tiles replace sentences: the games list has the sections Your turn (least time first),
-    Waiting, Setting up and Finished (folded), each card a map thumbnail, a status pill and a row of
-    `SeatTile`s (flag with the player's initial, a robot for an AI, a green + for a free seat; nations
-    without an engine flag show two initials); tabs carry count badges (my turns; friend requests plus
-    unread messages). Chat messages are bubbles, profile stats are tiles, and explanations moved
-    behind (i) buttons (`InfoButton`); destructive consequences stay visible.
+  - **Look of the online screens** (`OnlineComponents.kt`): kept plain, few small icons. The games
+    list has the sections Your turn (least time first), Waiting, Setting up and Finished (folded);
+    each game is one row (`GameRow`): map thumbnail, name, one status line ("Your turn · 2h left",
+    "bob to move · for 5 d", "1 free · Public", "2/3 ready", "Won") and the map and round, with a
+    labelled button on the right in the lobby ("Join", "Watch"). Who holds which nation shows in the
+    setup screen and the game. Finished games colour the outcome: "Won" green with a trophy, "Lost" in
+    the error colour. Tabs are text with count badges (my turns; friend requests plus unread
+    messages); Refresh sits in the account menu, as pushes keep the lists current. Chat messages are
+    bubbles, profile stats are tiles, and explanations moved behind (i) buttons (`InfoButton`);
+    destructive consequences stay visible.
   - **Private chat** (`DirectChatScreen`, route `chat/{username}`, milestone 3c): `ChatPanel` on the
     friend's `dm:<a>:<b>` channel (`FriendDto.channel`). While the screen is resumed it marks the
     newest message read (`POST /chat/{channel}/read`). `Social.unread` holds the counts per channel:
@@ -419,8 +479,9 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
     `GameConnection`, open while the Online screen or an online game is shown (`Social` in
     `app/.../online/` starts it when logged in and stops it on log out and when the Online screen
     is left with Back). The server sends every message to all of a user's sockets, so each socket
-    ignores the other's messages; the social one hands `ChatMessage`, `ChatError`, `Presence` and
-    `LobbyUpdate` to `Social`, whose `StateFlow`s the screens collect. A `LobbyUpdate` of a lobby,
+    ignores the other's messages; the social one hands `ChatMessage`, `ChatError`, `Presence`,
+    `LobbyUpdate`, `FriendsChanged`, `Clock`, `DefenderNotice` and `DefenderNoticeClosed` to `Social`,
+    whose `StateFlow`s the screens collect (and calls `onConnected` before each Hello). A `LobbyUpdate` of a lobby,
     finished or deleted game reloads the lists (300 ms debounce); one of a running game replaces its
     card in place (`Social.gameUpdates`, see milestone 3d below), and an open game takes its own as its seat info (also fetched 3 s after a clock
     change or a new step, which catch AI takeovers and hand-backs); chat is merged by id and sorted (ids may arrive out of order), at most 200 per
@@ -480,13 +541,44 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
     goes on with AI players only: once one team has players left it wins, once none is left the game
     ends without a winner. Games against the AI count in `ProfileDto.aiStats` ("Versus AI" on the
     profile) and not in the win rate ("Versus players"), so wins against the AI cannot be farmed.
+  - **Rated games and Elo:** `CreateGameRequest` and `UpdateGameRequest` carry `rated`. The setup screen
+    has a "Rated"/"Unrated" chip next to the clock; it is disabled with "Needs a time
+    control" without a clock, and removing the clock of a rated game unrates it. Ready is refused (409)
+    without human players on two sides or with a player on two sides. Rules in brief: start 1200, K 40
+    for the first 20 rated games then 20, team average, pairwise matches divided by the number of
+    opponent teams, resigned counts 0, no winner (draw) ½, floor 100; a game is not rated when aborted
+    or when `round < 2` at the end; the creator cannot abort a rated running game from round 2 on
+    (`POST /games/{id}/abort` answers 409, resign instead). The server computes it in the transaction that finishes the game
+    (details in the server README, "Rated games"). Lists show "Rated · " before the status line
+    (`GameRow`; `GameCard` colours by the plain status). The profile has a Rating tile first in "Versus
+    players" ("provisional" under 20 rated games) and "+12"/"−8" after a recent game's result
+    (`ratingChange`). The result dialog shows the change after each row's outcome, draws included (from
+    `GET /games/{id}` on `GameEnded`). "Top players" in the Online account menu opens route
+    `leaderboard` (`LeaderboardScreen`, `GET /leaderboard`: top 50 with at least 5 rated games).
   - **Profiles** (`ProfileScreen.kt`, route `profile/{username}`; `GET /users/{u}/profile`,
     `PUT /account/profile`): an icon, a status (trimmed, no control or format characters, at most 60
     code points) and stats from finished games (played, won, lost, draws, resigned, abandoned, win rate,
     most played map and nation) plus the 10 most recent games. Icons are ids from an allow-list:
     `app/src/main/assets/profile-icons.txt` is a copy of the server's file and must stay byte-identical
-    (`cmp`), as with the privacy policy. Opened from the Online menu, friend cards, seat lines, the setup
-    seat picker and the chat long-press dialog.
+    (`cmp`), as with the privacy policy. Ids: `emblem:default` (the initial), `flag:<Nation>`,
+    `unit:<unit>` (neutral) and `unit:<Nation>/<unit>`, the ten classic units of the eight nations the
+    engine has unit images for; the editor groups them by nation under its flag and marks locked ones.
+    `ProfileDto` also carries `achievements`, `winsByNation` and `maps`. Opened from the Online
+    menu, friend cards, the setup seat picker and the chat long-press dialog.
+  - **Achievements and unlockable icons:** the catalog (`Achievements.catalog`: 10 general badges and three per scenario of `Achievements.SCENARIOS`, 70 in all) and the icon
+    tiers (`IconUnlocks`) live in `protocol/…/Achievements.kt`, shared by app and server. Tiers: the
+    `unit:<Nation>/<unit>` icons of the 8 nations unlock by wins with that nation (armour, fighter,
+    transport 1 win; bomber, destroyer, submarine 5; battleship, carrier 10); infantry, artillery,
+    flags, neutral units and the emblem are free. The server awards badges at every finish and on the
+    own profile load (catch-up; migration V19 caught up every existing player once); badges are permanent. Map badges (`map_win:<key>`, `map_wins10:<key>`, `map_master:<key>`) exist for 20 fixed scenarios, matched by the game XML's name normalised like the engine's `normalizeName` (`Scenario.key`); a win is a won, non-resigned seat (vs AI counts), counted once per game; Map Master needs a win with every nation of the scenario's fixed catalog list (`Scenario.nations`: the XML's non-optional players without `GameSetup`/`MinorClans`; a map author changing the nations means updating the list). `ProfileDto.maps` carries per played scenario the wins and the catalog nations won with. Migration V20 deleted the former Nation Master badges and caught up map badges without a game. Icons are not stored: they are derived from
+    `ProfileDto.winsByNation`, and `PUT /account/profile` refuses a locked icon other than the current
+    one (grandfathering: an icon the user already has stays theirs). App: an "Achievements (n / 10)"
+    section after the stats (`AchievementsSection`; a tap shows the date or the requirement in a
+    snackbar), then a collapsed "Maps · n / 60" row (`MapsSection`): expanded, one card per scenario (preview, wins, the three badge tiles, the catalog nations' flags in colour when won with; a nation without an engine flag shows its name), played ones first, unplayed ones greyed "Not played yet" with all flags greyed. In the icon editor, locked icons are greyed with a lock mark, a tap shows "Locked: …", and a
+    hint per nation names the next tier. The editor fails open: against an older server without
+    `winsByNation` (null) nothing is marked locked. The result dialog shows "Achievement unlocked: …"
+    and "New icon: …" lines from `GameInfoDto.unlocks` for that single game only; ids the app does not
+    know are skipped.
   - **Replay:** `GET /games/{id}/replay` returns a finished or aborted game's final save to participants
     and to whoever the game's visibility would have let see it. "Replay" on a profile's recent game opens
     a read-only `ReplaySession` in the history view. A daily job deletes final saves 365 days after the
@@ -531,6 +623,13 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.
 - Online play (debug builds only):
+  - an app built before map achievements cannot decode profiles carrying `maps` (strict JSON; protocol version
+    unchanged; debug-only beta); `ProtocolJson` now ignores unknown fields, so later additions will not break;
+  - backfilled badges (V19, V20) show the migration day as their earned date, not the day of the win;
+  - achievements: only nations named exactly like the 8 image folders count for icons
+    (a map that calls them e.g. "Germany" does not); map badges exist for 20 fixed scenarios only, matched by game name, so a renamed scenario (two names carry a version: "Middle Earth - Battle for Arda (v2)", "Total World War: December 1941 3.0") stops counting, and a map update that changes its players needs the nation list updated; the profile shows engine flags only (other maps' nations by name); games from before teams were stored
+    never give "Brothers in Arms"; badges are permanent (never taken back); a badge whose award
+    failed at the finish is caught up on the next own profile load but then shows no result line;
   - finished and aborted games are listed but cannot be opened from the Online list (their replay
     opens from a player's profile); a replay of a map not installed on the device shows an error and
     offers no download;
@@ -543,10 +642,22 @@ the game; a human seat on a phone is played through JSON messages (`protocol/`):
   - a stuck Hard AI thread that ignores the stop keeps the JVM-wide Hard AI lock until a restart, so
     every Hard AI waits (visible as `aiHardLock` in `/admin/status`);
   - "resigned after an AI takeover" counts as resigned in the stats, even when that nation won;
+  - rated games: a player whose opponents all deleted their accounts is not rated for that game
+    (fewer than two teams with players); there are no seasons and no rating decay, and ratings are
+    never recomputed (no undo of a game);
   - the app has no Abort button, although the server has `POST /games/{id}/abort` for the
     game's creator;
-  - the "your turn" notification polls every 15 minutes (WorkManager's minimum), so it can come
-    that late; there is no push;
+  - push works only with Google Play services and a Firebase project (`app/google-services.json`);
+    without them the "your turn" notification polls every 15 minutes (`TurnCheckWorker`, WorkManager's
+    minimum) and can come that late;
+  - the "Your turn" push is sent only when the user has no connection at all (the app closes its
+    sockets 5 s after it leaves the screen), and may repeat after a reload or restart in the same turn;
+  - the in-app defender banner names no territory (push and mail do, see above); a kamikaze push with
+    targets in several territories names none;
+  - a server restart restarts open defender windows (the attacker is never stuck; a correspondence
+    window may restart its 12 h);
+  - a restart drops the pending decision-mail timers, and a refused re-ask skips the mail;
+  - the google-services plugin 4.4.4 is not yet exercised with a real `google-services.json` on AGP 9;
   - spectators lag a little more after an AI takeover or a server restart (the held events are
     lost, see the server README), and the delay counts saves, not turns;
   - battles were not part of the two-player test run;

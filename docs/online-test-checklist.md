@@ -131,14 +131,14 @@ Start the server with `DEV_MODE=true` in `.env` (time travel). One emulator as a
 token (login as in section 5).
 
 1. Online screen: the system asks for notifications (and local network) once; allow both.
-2. New online game > Minimap; on the setup screen the clock chip > "Blitz" 3 min + 0 s, Italians
-   "Fast AI", "More" > "AI takes over" ticked; Ready. In the game the clock bar shows alice's time counting
-   down in bold with ▸.
+2. New online game > Minimap; on the setup screen the clock chip > "Blitz" 3 min + 0 s (the chip reads
+   "Blitz 3 min/turn"), Italians "Fast AI", "More" > "AI takes over" ticked; Ready. In the game the
+   clock bar shows alice's time counting down in bold with ▸.
 3. Time travel past the clock: `curl -X POST localhost:8080/admin/clock/advance -H "Authorization:
    Bearer $ALICE" -H 'Content-Type: application/json' -d '{"gameId":"<id>","millis":200000}'`.
    The open dialog closes by itself (no answer is sent), the next phase follows, and soon "AI is
    playing your seat" shows with "I'm back". Press it: the text reads "…until your next turn", and
-   at alice's next turn the questions come to the phone again.
+   at alice's next turn the questions come to the phone again, with a full 3:00 on her clock.
 4. A correspondence game (Clock "Correspondence", 1 day): menu > Vacation > 2 days. The clock bar's
    deadline moves by two days, and the open dialog stays open.
 5. Menu > Standing orders: defender mode "Standing", casualties "Cheapest first", Save; open it
@@ -146,6 +146,11 @@ token (login as in section 5).
 6. Turn notification: quit to the Online screen, then menu > "Check turns now" while a question of
    alice waits: a notification "Your turn: Minimap" appears; tapping it opens the app. Repeating it
    for the same question shows nothing new.
+7. Leaving the app (needs push, see `app/google-services.json`): two humans in a blitz game, alice
+   ends her turn and presses Home. After 5 s the server shows her offline (`/admin/status` or bob's
+   friend list); when bob attacks her, a "Battle decision · Choose casualties · <territory> · Minimap"
+   notification arrives within the 30 s window and its tap opens the casualty dialog. Back in the
+   app the Online lists reload and the game reconnects without a lasting "Reconnecting" banner.
 
 ## 8. Spectators (milestone 3b)
 

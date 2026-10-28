@@ -38,6 +38,7 @@ import org.triplea.mobile.protocol.Answer
 import org.triplea.mobile.protocol.Ask
 import org.triplea.mobile.protocol.ClientMessage
 import org.triplea.mobile.protocol.Clock
+import org.triplea.mobile.protocol.DefenderNoticeClosed
 import org.triplea.mobile.protocol.ENGINE_BASE_TAG
 import org.triplea.mobile.protocol.Event
 import org.triplea.mobile.protocol.GameEvent
@@ -248,6 +249,64 @@ class GameConnectionTest {
         // the stop of 7 was missed, the start of 9 (another player's) comes
         socket.sendMessage(Clock("g1", mapOf("alice" to 0, "bob" to 5_000), "bob", now, questionId = 9))
         assertThat(expired.await(10, TimeUnit.SECONDS)).isTrue()
+    }
+
+    @Test
+    fun `a defender's question off the clock closes with its notice`() {
+        ui.holdMove = CountDownLatch(1)
+        val socket = open()
+        val now = System.currentTimeMillis()
+        // a clocked game: the device's time does not close it, and no clock names the window
+        socket.sendMessage(Clock("g1", mapOf("alice" to 60_000)))
+        socket.sendMessage(Question(7, "g1", "Russians", 3, Ask.Move("Russians", false, "russianCombatMove"), deadline = now - 10_000))
+        assertThat(ui.inMove.await(20, TimeUnit.SECONDS)).isTrue()
+
+        socket.sendMessage(DefenderNoticeClosed("other game", 7))
+        socket.sendMessage(DefenderNoticeClosed("g1", 6))
+        assertThat(expired.await(1, TimeUnit.SECONDS)).isFalse()
+
+        socket.sendMessage(DefenderNoticeClosed("g1", 7))
+        assertThat(expired.await(10, TimeUnit.SECONDS)).isTrue()
+
+        // a reloaded game may close the notice and send the same question again: it is still answered
+        socket.sendMessage(Question(7, "g1", "Russians", 3, Ask.Purchase("Russians", false, false)))
+        assertThat((next() as Answer).questionId).isEqualTo(7)
+    }
+
+    @Test
+    fun `a notice closed while its question downloads never reaches the ui`() {
+        saveGate = CountDownLatch(1)
+        val socket = open()
+        socket.sendMessage(Question(7, "g1", "Russians", 3, Ask.Move("Russians", false, "russianCombatMove")))
+        assertThat(saveRequested.await(10, TimeUnit.SECONDS)).isTrue()
+
+        // the window ends while the save downloads (after a return from the background)
+        socket.sendMessage(DefenderNoticeClosed("g1", 7))
+        Thread.sleep(500) // the close arrives before the download ends
+        saveGate!!.countDown()
+        socket.sendMessage(Question(8, "g1", "Russians", 3, Ask.Purchase("Russians", false, false)))
+
+        assertThat((next() as Answer).questionId).isEqualTo(8)
+        assertThat(ui.moves.get()).describedAs("question 7 never shown").isZero()
+    }
+
+    @Test
+    fun `pause closes the socket and cancels the question until resume connects again`() {
+        ui.holdMove = CountDownLatch(1)
+        val socket = open()
+        socket.sendMessage(Question(7, "g1", "Russians", 3, Ask.Move("Russians", false, "russianCombatMove")))
+        assertThat(ui.inMove.await(20, TimeUnit.SECONDS)).isTrue()
+
+        connection.pause()
+
+        assertThat(cancelled.await(10, TimeUnit.SECONDS)).isTrue()
+        assertThat(sockets.poll(3, TimeUnit.SECONDS)).describedAs("no reconnect while paused").isNull()
+        // a start waiting for its first copy ends on RECONNECTING
+        assertThat(states).noneMatch { it.first == GameConnection.State.RECONNECTING }
+        connection.resume()
+        assertThat(sockets.poll(10, TimeUnit.SECONDS)).isNotNull
+        assertThat(next()).isEqualTo(Hello(PROTOCOL_VERSION, ENGINE_BASE_TAG))
+        ui.holdMove!!.countDown()
     }
 
     @Test

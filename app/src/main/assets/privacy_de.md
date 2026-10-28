@@ -25,16 +25,27 @@ Wir speichern nur, was für Konten, Spiele und Chat nötig ist:
   Verbindung endete („zuletzt online“, für deine Freunde sichtbar).
 - Profil: ein Profilbild aus den Bildern der App (Flagge oder Einheit) und ein kurzer Statustext,
   wenn du sie festlegst.
+- Wertung: deine Elo-Zahl und die Zahl deiner gewerteten Spiele sowie je gewertetem Spiel die
+  Änderung deiner Elo-Zahl (Spiel, Wert davor und danach, Zeitpunkt).
+- Erfolge: die Abzeichen, die du erreicht hast, mit Zeitpunkt und dem Spiel, in dem du sie
+  erreicht hast. Deine Siege je Nation und je Szenario, die Nationen, mit denen du ein Szenario
+  gewonnen hast, und die damit freigeschalteten Profilbilder speichern wir nicht eigens; sie werden
+  aus deinen Spielen berechnet.
 - E-Mail-Adresse (freiwillig): Sie wird erst gespeichert, wenn du sie mit einem 6-stelligen Code
   bestätigt hast, den wir an sie senden. Wir nutzen sie nur für Bestätigungs- und
-  Passwort-zurücksetzen-Codes, nie für Werbung oder Newsletter.
+  Passwort-zurücksetzen-Codes und, wenn du es einschaltest, für einen Hinweis auf eine offene
+  Kampfentscheidung, nie für Werbung oder Newsletter.
 - Bestätigungscodes: der Code (nur als SHA-256-Hash), die Adresse, an die er ging, Zeitpunkte und
   die Zahl der Fehlversuche.
 - Anmelde-Token: zufällige Zeichenfolgen (nur als SHA-256-Hash) mit Ablaufzeit, damit du
   angemeldet bleibst.
+- Push-Token (nur in der Android-App, wenn du online spielst): eine von Google Firebase Cloud
+  Messaging vergebene Kennung deines Geräts, die Plattform und wann sie zuletzt gemeldet wurde,
+  damit wir dir „Du bist am Zug“ und offene Kampfentscheidungen melden können.
 - Spiele: Karte, Spielregeln und Einstellungen (Sichtbarkeit, Einladungscode, Bedenkzeit,
   Zuschauer), wer welche Nation spielt, Bereitschaft, Uhren, Urlaubstage, Daueraufträge und
-  Verteidigungsmodus, der Spielstand (Speicherdateien) und das Ergebnis.
+  Verteidigungsmodus, ob du offene Kampfentscheidungen per E-Mail erhalten möchtest, der Spielstand
+  (Speicherdateien) und das Ergebnis.
 - Chat: Lobby-, Spiel-, Zuschauer- und private Nachrichten mit Absender, Kanal und Zeitpunkt sowie
   bis wohin du einen Kanal gelesen hast.
 - Freunde und Blockierungen: wen du als Freund hast oder angefragt hast und wen du blockierst.
@@ -46,7 +57,8 @@ Wir setzen keine Cookies, kein Tracking, keine Analyse-Werkzeuge und keine Werbu
 
 ## 3. Zwecke und Rechtsgrundlagen
 
-- Konto, Spiele, Chat, Freunde, E-Mail-Bestätigung und Passwort-Zurücksetzen: um dir den Dienst
+- Konto, Spiele, Chat, Freunde, Push-Benachrichtigungen, E-Mail-Bestätigung, Passwort-Zurücksetzen und
+  Hinweise auf offene Kampfentscheidungen per E-Mail (nur wenn du sie einschaltest): um dir den Dienst
   bereitzustellen, den du mit der Registrierung nutzt (Art. 6 Abs. 1 lit. b DSGVO, Vertrag).
 - Begrenzung von Anfragen, Server-Protokolle und Meldungen: um den Server und seine Nutzer vor
   Missbrauch und Angriffen zu schützen (Art. 6 Abs. 1 lit. f DSGVO, berechtigtes Interesse an
@@ -54,18 +66,23 @@ Wir setzen keine Cookies, kein Tracking, keine Analyse-Werkzeuge und keine Werbu
 
 Die Kontodaten (Benutzername, Passwort, Altersbestätigung) brauchen wir, um dir ein Online-Konto
 bereitzustellen; ohne sie kannst du nur offline spielen. Die Angabe einer E-Mail-Adresse ist
-freiwillig; ohne sie kannst du ein vergessenes Passwort nicht zurücksetzen.
+freiwillig; ohne sie kannst du ein vergessenes Passwort nicht zurücksetzen und keine Hinweise per
+E-Mail erhalten.
 
 ## 4. Speicherdauer
 
 - Konto: bis du es löschst. Dann werden Passwort, E-Mail-Adresse, „zuletzt online“, Token, Codes,
-  Freundschaften und Blockierungen gelöscht, und dein Benutzername wird durch „deleted-“ und eine
+  Freundschaften, Blockierungen und Abzeichen gelöscht, und dein Benutzername wird durch „deleted-“ und eine
   Nummer ersetzt. Der Kontodatensatz bleibt unter dieser Nummer (pseudonymisiert) mit dem
   Registrierungszeitpunkt bestehen, damit Spiele, Uhren, Daueraufträge und Meldungen, die auf ihn
-  verweisen, gültig bleiben. Deine Plätze in laufenden Spielen übernimmt der Computer.
+  verweisen, gültig bleiben. Die Änderungen der Elo-Zahl deiner gewerteten Spiele bleiben als
+  Spielverlauf der anderen Spieler unter dieser Nummer erhalten; in der Liste „Top-Spieler“
+  erscheinst du nicht mehr. Deine Plätze in laufenden Spielen übernimmt der Computer.
 - E-Mail-Bestätigungscodes: 15 Minuten gültig; gelöscht spätestens zwei Stunden nach ihrer Erstellung.
 - Anmelde-Token: 15 Minuten (Zugriff) bzw. 30 Tage (Erneuerung); abgelaufene Token werden spätestens
   eine Stunde nach ihrem Ablauf gelöscht.
+- Push-Token: bis du dich in der App abmeldest, dein Konto löschst oder Firebase den Token als
+  ungültig meldet. Meldet sich auf dem Gerät ein anderes Konto an, gehört der Token danach diesem.
 - Chatnachrichten: 90 Tage, danach automatisch gelöscht. Nachrichten eines gelöschten Kontos
   erscheinen bis dahin als „deleted user“.
 - Spiele und Spielstände: solange der Dienst betrieben wird, damit Mitspieler ihre Partien
@@ -87,17 +104,29 @@ Wir verkaufen und teilen deine Daten nicht. Daten erhalten nur:
 - Alle angemeldeten Nutzer: deine Nachrichten im Lobby-Chat sowie öffentliche Spiele in der Lobby
   mit den Benutzernamen auf ihren Plätzen (bei Spielen „nur Freunde“ die Freunde des Erstellers);
   dein Profil mit Profilbild, Statustext und Spielstatistik (gespielte, gewonnene, verlorene,
-  aufgegebene und abgebrochene Spiele, meistgespielte Karte und Nation) sowie deine letzten
-  beendeten Spiele, die sie nach denselben Regeln sehen dürfen, auch als Wiedergabe.
+  aufgegebene und abgebrochene Spiele, meistgespielte Karte und Nation), deine Abzeichen mit Datum,
+  deine Siege je Nation (für die Freischaltung von Profilbildern), deine Siege je Szenario der
+  Kartenerfolge und die Nationen, mit denen du dort gewonnen hast, deine Elo-Zahl und die
+  Zahl deiner gewerteten Spiele sowie deine letzten beendeten Spiele mit den Änderungen der
+  Elo-Zahl aller Spieler, die sie nach denselben Regeln sehen dürfen, auch als Wiedergabe; in der
+  Liste „Top-Spieler“ stehen Benutzername, Profilbild und Elo-Zahl, sobald du mindestens 5
+  gewertete Spiele hast.
 - Zuschauer: Spiele, die Zuschauer erlauben, können angemeldete Nutzer mit etwas Verzögerung
   ansehen, mit dem Spielstand, den Benutzernamen der Spieler und dem Zuschauer-Chat.
 - Wer Meldungen bearbeitet ([Betreiber oder beauftragte Moderatoren]): die Meldung, die gemeldete
   Chatnachricht und die Benutzernamen der meldenden und der gemeldeten Person.
 - Der Hosting-Anbieter: [Name des Hosting-Anbieters], der den Server für uns betreibt
   (Auftragsverarbeitung nach Art. 28 DSGVO).
+- Google (Firebase Cloud Messaging; Google Ireland Limited, Google LLC), nur in der Android-App mit
+  Online-Spiel: der Push-Token, Titel und Text der Benachrichtigung (Spielname, Nation, Art
+  der Entscheidung, bei manchen Entscheidungen das Gebiet) und die Spiel-ID (Auftragsverarbeitung nach Art. 28 DSGVO). Dabei können Daten in
+  die USA übertragen werden (Angemessenheitsbeschluss EU-US Data Privacy Framework).
+  [Hinweis für den Betreiber: die Firebase-Datenverarbeitungsbedingungen in der Firebase-Konsole
+  annehmen.]
 - Der E-Mail-Versanddienst: [Name des SMTP-Anbieters], nur wenn du eine E-Mail-Adresse angibst
   oder ein Passwort zurücksetzt (Auftragsverarbeitung nach Art. 28 DSGVO). Er erhält deine
-  E-Mail-Adresse und die Mail mit dem Code; E-Mails werden im Klartext übertragen und können
+  E-Mail-Adresse und die Mail mit dem Code bzw. dem Hinweis auf eine Kampfentscheidung (Spielname,
+  Nation, Art der Entscheidung); E-Mails werden im Klartext übertragen und können
   unterwegs von den beteiligten Mail-Servern gelesen werden.
 
 Karten lädt der Server von GitHub herunter; dabei werden keine Daten über dich übertragen.

@@ -12,6 +12,9 @@
 {"type":"clock","gameId":"g1","clocks":{"alice":0}}
 {"type":"watch_refused","gameId":"g1","reason":"Spectators are not allowed in this game"}
 {"type":"friends_changed","username":"bob"}
+{"type":"defender_notice","gameId":"g1","questionId":42,"nation":"Italians","kind":"casualties","deadline":1800000060000}
+{"type":"defender_notice","gameId":"g1","questionId":43,"nation":"Italians","kind":"offer"}
+{"type":"defender_notice_closed","gameId":"g1","questionId":42}
 {"type":"question","id":1,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"purchase","player":"Russians","bid":false,"keepCurrentPurchase":false},"deadline":1800000000000}
 {"type":"question","id":2,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"repair","player":"Russians","bid":false,"allowedPlayers":["Russians"]}}
 {"type":"question","id":3,"gameId":"g1","seat":"Russians","version":7,"ask":{"type":"tech","player":"Russians"}}
@@ -39,6 +42,7 @@
 {"type":"notice","gameId":"g1","seat":"Russians","version":7,"note":{"type":"tech_results","rolls":[0,5],"hits":1,"remainder":0,"advances":["heavyBomber"]}}
 {"type":"game_event","gameId":"g1","version":7,"event":{"type":"message","title":"Battle","text":"Russians attack"}}
 {"type":"game_event","gameId":"g1","version":7,"event":{"type":"game_ended","message":"Russians win"}}
+{"type":"game_event","gameId":"g1","version":7,"event":{"type":"game_ended","message":"Russians win","winners":["Russians"]}}
 {"type":"game_event","gameId":"g1","version":7,"event":{"type":"game_ended","message":"Game aborted by alice","aborted":true}}
 {"type":"game_event","gameId":"g1","version":7,"event":{"type":"step_changed","step":"russianPurchase","displayName":"Purchase","player":"Russians","round":1}}
 {"type":"game_event","gameId":"g1","version":7,"event":{"type":"battle_started","battleId":"7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e","territory":"blue north 2","title":"Russians attack Italians","attackingUnits":["2f1c6a4e-6d1b-4f0e-9a51-3c1f5c7d9e10"],"defendingUnits":["7b9e2c11-0a4d-4c55-8f3e-1d2a3b4c5d6e"],"attacker":"Russians","defender":"Italians","battleType":"NORMAL"}}
@@ -118,10 +122,19 @@
 {"code":"123456"}
 {"login":"alice"}
 {"login":"alice@example.org","code":"123456","newPassword":"new-password"}
-{"username":"alice","email":"alice@example.org"}
+{"username":"alice","email":"alice@example.org","notifyByEmail":true}
+{"token":"fcm-token-1"}
+{"notifyByEmail":true}
 {"oldPassword":"password123","newPassword":"new-password"}
 {"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","status":"running","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice","ready":true},{"nation":"Germans","kind":"OPEN"}],"version":0,"round":0,"step":null,"currentPlayer":null,"inviteCode":"Zx9Yw8Vu7Ts6","creator":"alice","timeControl":{"type":"blitz","baseMs":300000,"incrementMs":5000},"turn":{"nation":"Russians","username":"alice"},"turnRemainingMs":180000,"turnDeadline":1800000180000,"turnSince":1800000000000}
 {"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","status":"running","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice","ready":true},{"nation":"Germans","kind":"OPEN"}],"version":0,"round":0,"step":null,"currentPlayer":null,"inviteCode":"Zx9Yw8Vu7Ts6","creator":"alice","turn":{"nation":"Germans","ai":true},"turnSince":1800000000000}
 {"username":"bob","icon":"flag:Germans","status":"Blitz only","stats":{"played":5,"won":2,"lost":1,"resigned":1,"abandoned":1,"winRate":0.5,"mostPlayedMap":"minimap","mostPlayedNation":"Germans"},"recentGames":[{"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","nations":["Germans"],"result":"won","endedAt":1800000000000,"replay":true}]}
 {"username":"carol","icon":"emblem:default","status":"","stats":{}}
 {"icon":"unit:fighter","status":"Back on Monday"}
+{"mapName":"minimap","gameName":"Minimap","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice"},{"nation":"Germans","kind":"FAST_AI","username":"bob","resigned":true}],"timeControl":{"type":"blitz","baseMs":300000,"incrementMs":5000},"rated":true}
+{"noTimeControl":true,"rated":false}
+{"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","status":"finished","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice"},{"nation":"Germans","kind":"FAST_AI","username":"bob","resigned":true}],"version":12,"round":3,"step":null,"currentPlayer":null,"winners":["Russians"],"rated":true,"ratingChanges":{"alice":12,"bob":-12}}
+{"username":"dave","icon":"emblem:default","status":"","stats":{"played":1,"lost":1,"mostPlayedMap":"minimap","mostPlayedNation":"Italians"},"recentGames":[{"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","nations":["Italians"],"result":"lost","endedAt":1800000000000,"replay":true,"ratingChange":-8}],"rating":1192,"ratedGames":1}
+{"entries":[{"username":"alice","icon":"flag:Russians","rating":1312,"ratedGames":25},{"username":"bob","icon":"emblem:default","rating":1188,"ratedGames":5}]}
+{"id":"Ab3dEf6hIj9k","mapName":"minimap","gameName":"Minimap","status":"finished","seats":[{"nation":"Russians","kind":"HUMAN","username":"alice"},{"nation":"Germans","kind":"FAST_AI","username":"bob","resigned":true}],"version":12,"round":3,"step":null,"currentPlayer":null,"winners":["Russians"],"unlocks":{"alice":["first_victory","unit:Russians/armour","unit:Russians/fighter","unit:Russians/transport"]}}
+{"username":"erin","icon":"unit:Russians/armour","status":"","stats":{"played":1,"won":1,"winRate":1.0,"mostPlayedMap":"world_war_ii_classic","mostPlayedNation":"Russians"},"achievements":[{"id":"first_victory","unlockedAt":1800000000000},{"id":"map_win:worldwariiclassic","unlockedAt":1800000000000}],"winsByNation":{"Russians":1},"maps":[{"key":"worldwariiclassic","wins":1,"wonWith":["Russians"]}]}

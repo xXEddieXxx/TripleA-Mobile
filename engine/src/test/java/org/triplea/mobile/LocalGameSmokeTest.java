@@ -2,17 +2,24 @@ package org.triplea.mobile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import games.strategy.engine.data.CompositeChange;
 import games.strategy.engine.data.GameData;
 import games.strategy.engine.data.GamePlayer;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.triplea.delegate.Matches;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -118,6 +125,51 @@ class LocalGameSmokeTest {
     assertThat(steps).as("continued from step %s", step).isPositive();
     assertThat(gameData.getSequence().getRound() > round || session.isGameOver()).isTrue();
     session.stop();
+  }
+
+  // without the end hook runNextStep blocks forever once the engine has stopped the sequence
+  @Test
+  @Timeout(60)
+  void gameEndReportsTheWinners() {
+    final Path xml = MobileEngine.listInstalledGames().get(0).getXmlPath();
+    final GameData gameData = MobileEngine.parseGame(xml).orElseThrow();
+    // the Italians lose every unit and their capitol: the Russians hold both victory cities when the first round ends
+    try (GameData.Unlocker ignored = gameData.acquireWriteLock()) {
+      final GamePlayer russians = gameData.getPlayerList().getPlayerId("Russians");
+      final GamePlayer italians = gameData.getPlayerList().getPlayerId("Italians");
+      final CompositeChange change = new CompositeChange();
+      for (final Territory territory : gameData.getMap().getTerritories()) {
+        final List<Unit> theirs =
+            territory.getUnitCollection().getMatches(Matches.unitIsOwnedBy(italians));
+        if (!theirs.isEmpty()) {
+          change.add(ChangeFactory.removeUnits(territory, theirs));
+        }
+      }
+      change.add(
+          ChangeFactory.changeOwner(
+              gameData.getMap().getTerritoryOrThrow("blue capitol"), russians));
+      gameData.performChange(change);
+    }
+    final EndEvents events = new EndEvents();
+    final LocalGameSession session =
+        LocalGameSession.create(gameData, Map.of(), new NoInputUi(), events);
+    session.setUpForSteps();
+    int steps = 0;
+    while (events.winners == null && steps < 200) {
+      session.runNextStep();
+      steps++;
+    }
+    assertThat(events.winners).containsExactly("Russians");
+    session.stop();
+  }
+
+  private static final class EndEvents implements GameEventListener {
+    List<String> winners;
+
+    @Override
+    public void gameEnded(final String message, final List<String> winners) {
+      this.winners = winners;
+    }
   }
 
   /** Units per territory, the fingerprint of a game state. */

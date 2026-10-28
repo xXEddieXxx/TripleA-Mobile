@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -28,28 +29,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.outlined.Group
-import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -84,6 +74,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -105,6 +96,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.triplea.mobile.app.AppSettings
+import org.triplea.mobile.app.NavArgs
+import org.triplea.mobile.app.push.PushPlatform
 import org.triplea.mobile.app.R
 import org.triplea.mobile.app.game.GameController
 import org.triplea.mobile.app.online.OnlineApi
@@ -139,6 +132,7 @@ fun OnlineScreen(
     onOpenPrivacy: () -> kotlin.Unit,
     onForgotPassword: () -> kotlin.Unit,
     onOpenProfile: (String) -> kotlin.Unit,
+    onOpenLeaderboard: () -> kotlin.Unit,
 ) {
     val settings by AppSettings.state.collectAsState()
     val tokens = AppSettings.tokens
@@ -209,7 +203,9 @@ fun OnlineScreen(
     /** A lobby or friends change on the server: [call], then the lists again. */
     fun change(call: (ServerApi) -> kotlin.Unit) = run(done = ::reload, call = call)
 
-    fun open(game: GameInfoDto, spectate: Boolean = false) = run { server ->
+    fun open(id: String, spectate: Boolean = false, known: GameInfoDto? = null) = run { server ->
+        val game = known ?: server.game(id)
+        if (game.status != "running") error("This game is over")
         GameController.startOnline(server, game, username.orEmpty(), spectate)
         scope.launch { onOpenGame() }
     }
@@ -237,6 +233,19 @@ fun OnlineScreen(
         if (username != null && server != null) Social.start(server) else Social.stop()
         // turn notifications poll only while logged in
         if (username != null) TurnCheckWorker.start(context) else TurnCheckWorker.stop(context)
+    }
+    // push: this device's token for this account at every login and Online visit (an upsert); none without Firebase
+    LaunchedEffect(username, api) {
+        val server = api.getOrNull() ?: return@LaunchedEffect
+        if (username != null) withContext(Dispatchers.IO) { runCatching { PushPlatform.token(context)?.let(server::registerDevice) } }
+    }
+    val pendingGame by NavArgs.pendingGame.collectAsState()
+    // a tapped notification or the battle banner: opened as from the list, once logged in
+    LaunchedEffect(username, pendingGame) {
+        val id = pendingGame ?: return@LaunchedEffect
+        if (username == null) return@LaunchedEffect
+        NavArgs.pendingGame.value = null
+        open(id)
     }
     LaunchedEffect(username, api) {
         val server = api.getOrNull() ?: return@LaunchedEffect
@@ -269,14 +278,15 @@ fun OnlineScreen(
                 actions = {
                     val me = username
                     if (me != null) {
-                        IconButton(onClick = ::reload, enabled = !busy) { Icon(Icons.Filled.Refresh, contentDescription = "refresh") }
                         Box {
                             // my initial opens the account menu, as in most online games
                             IconButton(onClick = { showMenu = true }) {
                                 Initial(me, 32.dp, Modifier.semantics { contentDescription = "menu of $me" })
                             }
                             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                DropdownMenuItem(text = { Text("Refresh") }, enabled = !busy, onClick = { showMenu = false; reload() })
                                 DropdownMenuItem(text = { Text("Profile") }, onClick = { showMenu = false; onOpenProfile(me) })
+                                DropdownMenuItem(text = { Text("Top players") }, onClick = { showMenu = false; onOpenLeaderboard() })
                                 DropdownMenuItem(text = { Text("Account") }, onClick = { showMenu = false; onOpenAccount(null) })
                                 DropdownMenuItem(text = { Text("Privacy policy") }, onClick = { showMenu = false; onOpenPrivacy() })
                                 // online play is debug-only, so is this test trigger of the turn notification
@@ -284,7 +294,11 @@ fun OnlineScreen(
                                 HorizontalDivider()
                                 DropdownMenuItem(text = { Text("Log out") }, enabled = !busy, onClick = {
                                     showMenu = false
-                                    run(done = { Social.stop(); clearLists() }) { server -> server.logout() }
+                                    run(done = { Social.stop(); clearLists() }) { server ->
+                                        // pushes for this account stop on this device (never enabling Firebase); a failure must not block the logout
+                                        runCatching { PushPlatform.currentToken(context)?.let(server::unregisterDevice) }
+                                        server.logout()
+                                    }
                                 })
                             }
                         }
@@ -324,16 +338,16 @@ fun OnlineScreen(
             val myTurns = games.count { isMyTurn(it, me) }
             val friendNews = friends.count { it.status == "incoming" } + friends.sumOf { f -> f.channel?.let { unread[it] } ?: 0 }
             PrimaryTabRow(selectedTabIndex = tab) {
-                OnlineTab(tab == 0, "Games", Icons.Outlined.SportsEsports, myTurns, "your turn") { tab = 0 }
-                OnlineTab(tab == 1, "Lobby", Icons.Filled.Public, 0, "") { tab = 1 }
-                OnlineTab(tab == 2, "Friends", Icons.Outlined.Group, friendNews, "new") { tab = 2 }
+                OnlineTab(tab == 0, "Games", myTurns, "your turn") { tab = 0 }
+                OnlineTab(tab == 1, "Lobby", 0, "") { tab = 1 }
+                OnlineTab(tab == 2, "Friends", friendNews, "new") { tab = 2 }
             }
             when (tab) {
-                0 -> GamesTab(games, me, previews, busy, onOpenProfile, onNew = { onOpenSetup(null) }) { game ->
-                    if (game.status == "lobby") onOpenSetup(game.id) else open(game)
+                0 -> GamesTab(games, me, previews, busy, onNew = { onOpenSetup(null) }) { game ->
+                    if (game.status == "lobby") onOpenSetup(game.id) else open(game.id, known = game)
                 }
                 1 -> LobbyTab(lobbyGames, me, previews, busy, onOpenProfile, onJoinByCode = { showJoinByCode = true }, onOpenSetup = onOpenSetup) {
-                    open(it, spectate = true)
+                    open(it.id, spectate = true, known = it)
                 }
                 else -> FriendsTab(friends, enabled = !busy, change = ::change, onOpenChat = onOpenChat, onOpenProfile = onOpenProfile)
             }
@@ -349,15 +363,17 @@ fun OnlineScreen(
     }
 }
 
-/** A tab with its icon and a count badge (none at 0); the badge is read out with the label. */
+/** A tab with a count badge (none at 0); the badge is read out with the label. */
 @Composable
-private fun OnlineTab(selected: Boolean, label: String, icon: ImageVector, count: Int, what: String, onClick: () -> kotlin.Unit) {
+private fun OnlineTab(selected: Boolean, label: String, count: Int, what: String, onClick: () -> kotlin.Unit) {
     Tab(
         selected = selected,
         onClick = onClick,
-        text = { Text(label) },
-        icon = {
-            BadgedBox(badge = { if (count > 0) Badge { Text("$count") } }) { Icon(icon, contentDescription = null) }
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label)
+                if (count > 0) Badge(Modifier.padding(start = 6.dp)) { Text("$count") }
+            }
         },
         modifier = Modifier.semantics { contentDescription = label + if (count > 0) ", $count $what" else "" },
     )
@@ -372,7 +388,6 @@ private fun ColumnScope.GamesTab(
     me: String,
     previews: Map<String, Path?>,
     busy: Boolean,
-    onOpenProfile: (String) -> kotlin.Unit,
     onNew: () -> kotlin.Unit,
     onOpen: (GameInfoDto) -> kotlin.Unit,
 ) {
@@ -390,7 +405,7 @@ private fun ColumnScope.GamesTab(
             fun section(title: String, list: List<GameInfoDto>) {
                 if (list.isEmpty()) return
                 item(key = "h$title") { Heading("$title · ${list.size}") }
-                items(list, key = { it.id }) { game -> GameCard(game, me, previews[game.mapName], enabled = !busy, onOpenProfile = onOpenProfile) { onOpen(game) } }
+                items(list, key = { it.id }) { game -> GameCard(game, me, previews[game.mapName], enabled = !busy) { onOpen(game) } }
             }
             section("Your turn", mine.sortedBy { it.turnDeadline ?: Long.MAX_VALUE })
             section("Waiting", waiting)
@@ -405,7 +420,7 @@ private fun ColumnScope.GamesTab(
                         Icon(if (showFinished) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (showFinished) items(done, key = { it.id }) { game -> GameCard(game, me, previews[game.mapName], enabled = !busy, onOpenProfile = onOpenProfile) {} }
+                if (showFinished) items(done, key = { it.id }) { game -> GameCard(game, me, previews[game.mapName], enabled = !busy) {} }
             }
         }
         if (games.isNotEmpty()) {
@@ -435,17 +450,10 @@ private fun ColumnScope.LobbyTab(
     // running games the server lets me watch; version 0: no save old enough for spectators yet
     val watchable = lobbyGames.filter { it.status == "running" && it.version > 0 }
     LazyColumn(Modifier.weight(0.5f), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-        item(key = "hOpen") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Heading("Open games · ${joinable.size}", Modifier.weight(1f))
-                TextButton(onClick = onJoinByCode, enabled = !busy) {
-                    Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                    Text("Code")
-                }
-            }
-        }
+        item(key = "hOpen") { Heading("Open games · ${joinable.size}") }
         if (joinable.isEmpty()) item(key = "none") { EmptyState(Icons.Filled.Public, "No open games right now", Modifier.padding(vertical = 0.dp)) }
-        items(joinable, key = { it.id }) { game -> LobbyCard(game, previews[game.mapName], enabled = !busy, onOpenProfile = onOpenProfile) { onOpenSetup(game.id) } }
+        items(joinable, key = { it.id }) { game -> LobbyCard(game, me, previews[game.mapName], enabled = !busy) { onOpenSetup(game.id) } }
+        item(key = "code") { TextButton(onClick = onJoinByCode, enabled = !busy) { Text("Join with an invite code") } }
         if (watchable.isNotEmpty()) item(key = "hWatch") { Heading("Live · ${watchable.size}") }
         items(watchable, key = { "w" + it.id }) { game -> WatchCard(game, me, previews[game.mapName], enabled = !busy) { onWatch(game) } }
     }
@@ -559,124 +567,107 @@ private fun rememberTurn(game: GameInfoDto, me: String): TurnView? {
     return TurnView(turn.nation, turn.username, turn.ai, mine = !turn.ai && turn.username == me, time = clock ?: game.turnSince?.let { since(now - it) }, clocked = clock != null)
 }
 
-/** The pill at the top right of a game card: whose turn and the time, or the result of a finished game. */
+/** One line on how a game stands: whose turn and the time, how far a setup is, or the result of a finished game. */
 @Composable
-private fun TurnPill(game: GameInfoDto, me: String) {
-    when (game.status) {
-        "running" -> {
-            val turn = rememberTurn(game, me) ?: return
-            when {
-                turn.ai -> StatusPill("AI", Icons.Filled.SmartToy)
-                // the timer shows time left, the hourglass how long a turn without a clock has lasted
-                turn.mine -> StatusPill(listOfNotNull("Your turn", turn.time).joinToString(" · "), if (turn.clocked) Icons.Filled.Timer else Icons.Filled.HourglassTop, strong = true)
-                else -> StatusPill(listOfNotNull(turn.username ?: displayName(turn.nation), turn.time).joinToString(" · "), if (turn.clocked) Icons.Filled.Timer else Icons.Filled.HourglassTop)
-            }
+private fun gameStatus(game: GameInfoDto, me: String): String = when (game.status) {
+    "running" -> rememberTurn(game, me)?.let { turn ->
+        val who = when {
+            turn.ai -> "AI to move"
+            turn.mine -> "Your turn"
+            else -> "${turn.username ?: displayName(turn.nation)} to move"
         }
-        "lobby" -> {
-            // my setup: how far the players are; free seats first, as they hold the start up longest
-            val free = game.seats.count { it.kind == "OPEN" }
-            val humans = game.seats.filter { it.kind == "HUMAN" }
-            if (free > 0) StatusPill("$free free", Icons.Filled.Group) else StatusPill("${humans.count { it.ready }}/${humans.size} ready", Icons.Filled.Check)
-        }
-        "finished" -> {
-            val myNations = game.seats.filter { it.username == me }.map { it.nation }
-            val text = when {
-                // as in the stats: giving up stays a resignation even if the team won later
-                game.seats.any { it.username == me && it.resigned } -> "Resigned"
-                game.winners.isEmpty() -> "No winner"
-                game.winners.any { it in myNations } -> "Won"
-                myNations.isNotEmpty() -> "Lost"
-                else -> game.winners.joinToString { displayName(it) }
-            }
-            StatusPill(text, Icons.Filled.EmojiEvents, strong = text == "Won")
-        }
-        else -> StatusPill(game.status.replaceFirstChar { it.uppercase() }, Icons.Filled.ErrorOutline, warning = true)
+        // a clock counts down, a turn without one shows how long it has lasted
+        listOfNotNull(who, turn.time?.let { if (turn.clocked) "$it left" else "for $it" }).joinToString(" · ")
+    }.orEmpty()
+    "lobby" -> {
+        // free seats first, as they hold the start up longest
+        val free = game.seats.count { it.kind == "OPEN" }
+        val humans = game.seats.filter { it.kind == "HUMAN" }
+        if (free > 0) "$free free · ${visibilityLabel(game)}" else "${humans.count { it.ready }}/${humans.size} ready"
     }
+    "finished" -> {
+        val myNations = game.seats.filter { it.username == me }.map { it.nation }
+        when {
+            // as in the stats: giving up stays a resignation even if the team won later
+            game.seats.any { it.username == me && it.resigned } -> "Resigned"
+            game.winners.isEmpty() -> "No winner"
+            game.winners.any { it in myNations } -> "Won"
+            myNations.isNotEmpty() -> "Lost"
+            else -> "Won by " + game.winners.joinToString { displayName(it) }
+        }
+    }
+    else -> game.status.replaceFirstChar { it.uppercase() }
 }
 
-/** The head of a game card: map picture, game and map name, and the status pill on the right. */
+/** A game as one plain row: map picture, name, [status] and the map and round; [action] is an optional button on the right. */
 @Composable
-private fun CardHead(game: GameInfoDto, preview: Path?, pill: @Composable () -> kotlin.Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun GameRow(
+    game: GameInfoDto,
+    preview: Path?,
+    status: String,
+    statusColor: Color = Color.Unspecified,
+    statusIcon: ImageVector? = null,
+    action: @Composable () -> kotlin.Unit = {},
+) {
+    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
         MapThumb(preview, 52.dp)
-        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(game.gameName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // the colour of "Won" and "Lost" is chosen from the plain status in GameCard
+            val line = if (game.rated && status.isNotEmpty()) "Rated · $status" else status
+            if (line.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    statusIcon?.let { Icon(it, contentDescription = null, tint = statusColor, modifier = Modifier.size(18.dp).padding(end = 4.dp)) }
+                    Text(line, style = MaterialTheme.typography.bodyMedium, color = statusColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
             val details = listOfNotNull(
                 mapTitle(game.mapName).takeUnless { it.equals(game.gameName, ignoreCase = true) },
                 game.round.takeIf { it > 0 }?.let { "Round $it" },
             ).joinToString(" · ")
-            Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (details.isNotEmpty()) {
+                Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        pill()
+        action()
     }
 }
 
 /** One of my games; a tap opens a lobby game's setup or a running game. My turn stands out in the primary colours. */
 @Composable
-private fun GameCard(game: GameInfoDto, me: String, preview: Path?, enabled: Boolean, onOpenProfile: (String) -> kotlin.Unit, onOpen: () -> kotlin.Unit) {
+private fun GameCard(game: GameInfoDto, me: String, preview: Path?, enabled: Boolean, onOpen: () -> kotlin.Unit) {
     val tappable = (game.status == "running" || game.status == "lobby") && enabled
     val colors = if (isMyTurn(game, me)) {
         CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     } else {
         CardDefaults.cardColors()
     }
+    val status = gameStatus(game, me)
+    // colour plus a trophy, so the outcome never depends on colour alone
+    val (statusColor, statusIcon) = when (status) {
+        "Won" -> FREE_SEAT to Icons.Filled.EmojiEvents
+        "Lost" -> MaterialTheme.colorScheme.error to null
+        else -> Color.Unspecified to null
+    }
     Card(Modifier.fillMaxWidth().then(if (tappable) Modifier.clickable(onClick = onOpen) else Modifier), colors = colors) {
-        Column(Modifier.padding(10.dp)) {
-            CardHead(game, preview) { TurnPill(game, me) }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                Box(Modifier.weight(1f)) { SeatStrip(game, activeNation = game.turn?.nation?.takeIf { game.status == "running" }, showReady = game.status == "lobby", onOpenProfile = onOpenProfile) }
-                if (game.status == "lobby") VisibilityIcon(game)
-            }
-            game.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        }
+        GameRow(game, preview, status, statusColor, statusIcon)
+        game.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) }
     }
 }
 
-/** Who may join a lobby game, as an icon (named for TalkBack). */
+/** A lobby game I hold no seat in; Join (or a tap) opens its setup, where a free seat is taken. */
 @Composable
-private fun VisibilityIcon(game: GameInfoDto) {
-    val icon = when (game.visibility) {
-        "public" -> Icons.Filled.Public
-        "friends" -> Icons.Filled.Group
-        else -> Icons.Filled.Lock
-    }
-    Icon(icon, contentDescription = visibilityLabel(game), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
-}
-
-/** A lobby game I hold no seat in; a tap opens its setup, where a free seat is taken. */
-@Composable
-private fun LobbyCard(game: GameInfoDto, preview: Path?, enabled: Boolean, onOpenProfile: (String) -> kotlin.Unit, onOpen: () -> kotlin.Unit) {
+private fun LobbyCard(game: GameInfoDto, me: String, preview: Path?, enabled: Boolean, onOpen: () -> kotlin.Unit) {
     Card(Modifier.fillMaxWidth().then(if (enabled) Modifier.clickable(onClick = onOpen) else Modifier)) {
-        Column(Modifier.padding(10.dp)) {
-            CardHead(game, preview) { StatusPill("${game.seats.count { it.kind == "OPEN" }} free", Icons.Filled.Group, strong = true) }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                Box(Modifier.weight(1f)) { SeatStrip(game, activeNation = null, showReady = true, onOpenProfile = onOpenProfile) }
-                VisibilityIcon(game)
-            }
-        }
+        GameRow(game, preview, gameStatus(game, me)) { Button(onClick = onOpen, enabled = enabled) { Text("Join") } }
     }
 }
 
-/** A running game anyone may watch: one compact row with whose turn it is and the eye button. */
+/** A running game anyone may watch: whose turn it is and the Watch button. */
 @Composable
 private fun WatchCard(game: GameInfoDto, me: String, preview: Path?, enabled: Boolean, onWatch: () -> kotlin.Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            MapThumb(preview, 40.dp)
-            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Text(game.gameName, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val turn = rememberTurn(game, me)
-                val who = turn?.let { if (it.ai) "AI" else it.username ?: displayName(it.nation) }
-                Text(
-                    listOfNotNull(game.round.takeIf { it > 0 }?.let { "Round $it" }, who?.let { "$it to move" }).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            IconButton(onClick = onWatch, enabled = enabled) { Icon(Icons.Filled.Visibility, contentDescription = "watch ${game.gameName}") }
-        }
+        GameRow(game, preview, gameStatus(game, me)) { OutlinedButton(onClick = onWatch, enabled = enabled) { Text("Watch") } }
     }
 }
 

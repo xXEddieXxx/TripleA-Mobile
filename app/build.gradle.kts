@@ -3,6 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Push (debug builds) needs the Firebase config, which is never committed (.gitignore). Without it the app builds and
+// runs without push: PushPlatform finds no FirebaseApp and gives no token.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
 android {
     namespace = "org.triplea.mobile.app"
     compileSdk = 37
@@ -110,4 +114,6 @@ dependencies {
     implementation(libs.slf4j.simple)
 
     debugImplementation(libs.compose.ui.tooling)
+    // push for online play, which only debug builds have; release builds stay free of Firebase and its permissions
+    debugImplementation(libs.firebase.messaging)
 }

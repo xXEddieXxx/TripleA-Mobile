@@ -54,6 +54,8 @@ data class TimeControlDto(val type: String, val baseMs: Long, val incrementMs: L
  * then plays the seat until the player returns, and after [resignAfterMissedTurns] missed turns in a
  * row (0: never) the player is resigned and the AI keeps the seat. With [allowSpectators] users who can see
  * the game may watch it while it runs, with a delay.
+ * v3: [rated] games change the players' Elo ratings when they finish; they need a [timeControl] (else 400) and, at
+ * Ready, human players on two teams (else 409).
  */
 @Serializable
 data class CreateGameRequest(
@@ -65,6 +67,7 @@ data class CreateGameRequest(
     val aiTakesOver: Boolean = true,
     val resignAfterMissedTurns: Int = 3,
     val allowSpectators: Boolean = true,
+    val rated: Boolean = false,
 )
 
 /** Correspondence games: [days] of vacation (at most 14 per game in total); the player's clock does not run meanwhile. */
@@ -119,6 +122,10 @@ data class TurnsDto(val turns: List<TurnDto>, val unreadDirect: Int = 0)
  * when the current turn started.
  * [vsAi] (v3, running and ended games): every human started on one team, so they play together against the AI; such
  * games count in [ProfileDto.aiStats], not in the player-versus-player [ProfileDto.stats].
+ * [rated] (v3) as in [CreateGameRequest]; [ratingChanges] (v3, finished rated games only): username → change of their
+ * rating by this game.
+ * [unlocks] (v3, finished games): username → what this game unlocked for them: the badge ids awarded at its finish
+ * ([Achievements]), then the icon ids whose tier its win with a nation reached ([IconUnlocks]).
  */
 @Serializable
 data class GameInfoDto(
@@ -146,6 +153,9 @@ data class GameInfoDto(
     val turnDeadline: Long? = null,
     val turnSince: Long? = null,
     val vsAi: Boolean = false,
+    val rated: Boolean = false,
+    val ratingChanges: Map<String, Int> = emptyMap(),
+    val unlocks: Map<String, List<String>> = emptyMap(),
 )
 
 /** v3: the player to move in a running game: [nation], its player's [username] (null if none) and whether the [ai] plays it. */
@@ -155,6 +165,7 @@ data class TurnInfoDto(val nation: String, val username: String? = null, val ai:
 /**
  * PATCH /games/{id} (v3, creator, lobby only): the options to change; null keeps one. [noTimeControl]
  * removes the clocks (then [timeControl] must be null). Every change resets everyone's Ready.
+ * [rated]: true needs a time control after the change (400 otherwise).
  */
 @Serializable
 data class UpdateGameRequest(
@@ -164,6 +175,7 @@ data class UpdateGameRequest(
     val aiTakesOver: Boolean? = null,
     val resignAfterMissedTurns: Int? = null,
     val allowSpectators: Boolean? = null,
+    val rated: Boolean? = null,
 )
 
 /**
@@ -229,9 +241,17 @@ data class DeleteAccountRequest(val password: String)
 @Serializable
 data class FeaturesDto(val email: Boolean)
 
-/** v3, `GET /account`: the caller's account; [email] is the confirmed address, null if none. */
+/** v3, `GET /account`: the caller's account; [email] is the confirmed address, null if none; [notifyByEmail]: open battle decisions are mailed. */
 @Serializable
-data class AccountDto(val username: String, val email: String? = null)
+data class AccountDto(val username: String, val email: String? = null, val notifyByEmail: Boolean = false)
+
+/** v3, `PUT /me/devices`: registers or refreshes this device's push [token] for the caller; `DELETE /me/devices/{token}` removes it. */
+@Serializable
+data class DeviceRequest(val token: String, val platform: String = "android")
+
+/** v3, `PUT /account/notifications`: battle decisions by e-mail; true needs a confirmed address (400 otherwise). */
+@Serializable
+data class NotificationsRequest(val notifyByEmail: Boolean)
 
 /**
  * v3, `POST /account/email`: mails a 6-digit code to [email]; the address is stored once the code is confirmed.
@@ -261,7 +281,11 @@ data class ChangePasswordRequest(val oldPassword: String, val newPassword: Strin
  * `flag:Germans`, `unit:fighter`, default `emblem:default`); [status] 0 to 60 characters. [recentGames]: at most 10
  * ended games, newest first, only those the caller may replay. [stats]: games against other players only;
  * [aiStats]: games where all humans played together against the AI ([GameInfoDto.vsAi]), kept apart so wins against
- * the AI do not raise the win rate.
+ * the AI do not raise the win rate. [rating] (v3): the Elo rating (1200 at the start); [ratedGames]: finished rated
+ * games (provisional while fewer than 20). [achievements] (v3): the badges earned, oldest first; [winsByNation]: wins with
+ * each of [Achievements.NATIONS] (all eight, zeros included), which unlock the nation's unit icons ([IconUnlocks]); null
+ * from an older server (the app then treats every icon as unlocked). [maps] (v3): one entry per scenario of
+ * [Achievements.SCENARIOS] on which the user finished a game (absent: not played).
  */
 @Serializable
 data class ProfileDto(
@@ -271,7 +295,23 @@ data class ProfileDto(
     val stats: StatsDto,
     val recentGames: List<RecentGameDto> = emptyList(),
     val aiStats: StatsDto = StatsDto(),
+    val rating: Int = 1200,
+    val ratedGames: Int = 0,
+    val achievements: List<AchievementDto> = emptyList(),
+    val winsByNation: Map<String, Int>? = null,
+    val maps: List<MapProgressDto> = emptyList(),
 )
+
+/** v3: a badge of [Achievements.catalog] a user earned, and when ([unlockedAt], epoch ms). */
+@Serializable
+data class AchievementDto(val id: String, val unlockedAt: Long)
+
+/**
+ * v3: a user's progress on scenario [key] ([Scenario.key]): [wins] games won there and the nations of [Scenario.nations]
+ * they won with ([wonWith], sorted). The scenario's full nation list comes from the catalog.
+ */
+@Serializable
+data class MapProgressDto(val key: String, val wins: Int, val wonWith: List<String>)
 
 /**
  * v3: counted over the games the user held a seat in that ended after they started: [played] = [won] + [lost] +
@@ -295,7 +335,8 @@ data class StatsDto(
 /**
  * v3: an ended game of a profile. [nations]: the ones the user played; [result]: won, lost, resigned, abandoned or draw;
  * [endedAt] epoch ms; [replay]: its final save is still kept (`GET /games/{id}/replay`, 365 days after the end);
- * [vsAi]: a game against the AI ([GameInfoDto.vsAi]).
+ * [vsAi]: a game against the AI ([GameInfoDto.vsAi]). [ratingChange]: the change of the user's rating by this game,
+ * null for an unrated one.
  */
 @Serializable
 data class RecentGameDto(
@@ -307,8 +348,17 @@ data class RecentGameDto(
     val endedAt: Long,
     val replay: Boolean,
     val vsAi: Boolean = false,
+    val ratingChange: Int? = null,
 )
 
 /** v3, `PUT /account/profile`: null keeps a field. [icon] must be on the allow-list (else 400); [status] is trimmed, 0 to 60 characters, no control characters. */
 @Serializable
 data class ProfileUpdateRequest(val icon: String? = null, val status: String? = null)
+
+/** v3, `GET /leaderboard`: the 50 highest ratings of players with at least 5 rated games, highest first. */
+@Serializable
+data class LeaderboardDto(val entries: List<LeaderboardEntryDto>)
+
+/** One player of [LeaderboardDto]; [icon] as in [ProfileDto]. */
+@Serializable
+data class LeaderboardEntryDto(val username: String, val icon: String, val rating: Int, val ratedGames: Int)

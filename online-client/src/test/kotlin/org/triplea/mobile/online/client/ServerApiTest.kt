@@ -39,6 +39,39 @@ class ServerApiTest {
     }
 
     @Test
+    fun `rated option and the leaderboard`() {
+        store.tokens = TokensDto("a1", "r1", 900, "alice")
+        server.enqueue(json(200, """{"id":"g1","mapName":"minimap","gameName":"Minimap","status":"lobby","seats":[],"version":0,"round":0,"step":null,"currentPlayer":null,"rated":true}"""))
+        server.enqueue(json(200, """{"entries":[{"username":"bob","icon":"emblem:default","rating":1312,"ratedGames":25}]}"""))
+
+        assertThat(api.patchGame("g1", UpdateGameRequest(rated = true)).rated).isTrue()
+        assertThat(api.leaderboard().entries.single().rating).isEqualTo(1312)
+
+        val patch = server.takeRequest()
+        assertThat(patch.method to patch.url.encodedPath).isEqualTo("PATCH" to "/games/g1")
+        assertThat(patch.body!!.utf8()).isEqualTo("""{"rated":true}""")
+        assertThat(server.takeRequest().url.encodedPath).isEqualTo("/leaderboard")
+    }
+
+    @Test
+    fun `a device token is registered and removed`() {
+        store.tokens = TokensDto("a1", "r1", 900, "alice")
+        server.enqueue(MockResponse.Builder().code(204).build())
+        server.enqueue(MockResponse.Builder().code(204).build())
+
+        api.registerDevice("tok-1")
+        api.unregisterDevice("tok-1")
+
+        val put = server.takeRequest()
+        assertThat(put.method).isEqualTo("PUT")
+        assertThat(put.url.encodedPath).isEqualTo("/me/devices")
+        assertThat(put.body!!.utf8()).isEqualTo("""{"token":"tok-1"}""")
+        val delete = server.takeRequest()
+        assertThat(delete.method).isEqualTo("DELETE")
+        assertThat(delete.url.encodedPath).isEqualTo("/me/devices/tok-1")
+    }
+
+    @Test
     fun `a 401 refreshes once and retries with the new token`() {
         store.tokens = TokensDto("a1", "r1", 900, "alice")
         server.enqueue(json(401, """{"error":"expired"}"""))

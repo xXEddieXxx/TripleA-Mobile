@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
@@ -147,8 +148,8 @@ private fun visibilityIcon(value: String) = when (value) {
 private class TimeControlChoice(val type: String, val label: String, val icon: ImageVector, val bases: List<Int>, val unit: String, val unitMs: Long, val increments: List<Int>)
 
 private val timeControls = listOf(
-    TimeControlChoice("blitz", "Blitz", Icons.Filled.Bolt, listOf(3, 5, 10), "Minutes", 60_000, listOf(0, 2, 5, 10, 30)),
-    TimeControlChoice("rapid", "Rapid", Icons.Filled.Timer, listOf(15, 30, 60), "Minutes", 60_000, listOf(0, 10, 30, 60)),
+    TimeControlChoice("blitz", "Blitz", Icons.Filled.Bolt, listOf(3, 5, 10), "Minutes per turn", 60_000, listOf(0, 2, 5, 10, 30)),
+    TimeControlChoice("rapid", "Rapid", Icons.Filled.Timer, listOf(15, 30, 60), "Minutes per turn", 60_000, listOf(0, 10, 30, 60)),
     TimeControlChoice("correspondence", "Daily", Icons.Filled.CalendarMonth, listOf(1, 2, 3, 5, 7, 14), "Days per turn", 86_400_000, emptyList()),
 )
 
@@ -167,7 +168,8 @@ private fun clockLabel(control: TimeControlDto?): String =
     when {
         control == null -> "No clock"
         control.type == "correspondence" -> "${control.baseMs / 86_400_000} d/turn"
-        else -> control.type.replaceFirstChar { it.uppercase() } + " ${control.baseMs / 60_000}+${control.incrementMs / 1000}"
+        else -> control.type.replaceFirstChar { it.uppercase() } + " ${control.baseMs / 60_000} min/turn" +
+            (if (control.incrementMs > 0) " +${control.incrementMs / 1000}s" else "")
     }
 
 private fun clockIcon(control: TimeControlDto?) = control?.let { c -> timeControls.firstOrNull { it.type == c.type }?.icon } ?: Icons.Filled.TimerOff
@@ -265,6 +267,7 @@ fun OnlineSetupScreen(
                 aiTakesOver = old?.aiTakesOver ?: true,
                 resignAfterMissedTurns = old?.resignAfterMissedTurns ?: 3,
                 allowSpectators = old?.allowSpectators ?: true,
+                rated = old?.rated ?: false,
             ),
         )
         // nobody else joined the old game (the button is only offered then), so it goes; if that fails the
@@ -402,7 +405,14 @@ fun OnlineSetupScreen(
                     }
                 }
                 OptionChip(clockLabel(current.timeControl), clockIcon(current.timeControl), editable) { showClock = true }
+                // rated needs a clock (else a losing player could stall the game); joiners see it read-only
+                OptionChip(if (current.rated) "Rated" else "Unrated", Icons.Filled.Leaderboard, editable && (current.rated || current.timeControl != null)) {
+                    patch(current, UpdateGameRequest(rated = !current.rated))
+                }
                 if (creator) OptionChip("More", Icons.Filled.Tune, editable) { showMore = true }
+            }
+            if (creator && lobby && current.timeControl == null) {
+                Text("Needs a time control", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             current.inviteCode?.let { code -> InviteCodeRow("${current.id}:$code") }
             val taken = current.seats.count { it.kind != "OPEN" }
@@ -487,7 +497,7 @@ fun OnlineSetupScreen(
     if (showClock) {
         ClockDialog(shown.timeControl, onDismiss = { showClock = false }) { control ->
             showClock = false
-            patch(shown, if (control == null) UpdateGameRequest(noTimeControl = true) else UpdateGameRequest(timeControl = control))
+            patch(shown, if (control == null) UpdateGameRequest(noTimeControl = true, rated = false.takeIf { shown.rated }) else UpdateGameRequest(timeControl = control))
         }
     }
     if (showMore) MoreDialog(shown, onDismiss = { showMore = false }) { showMore = false; patch(shown, it) }

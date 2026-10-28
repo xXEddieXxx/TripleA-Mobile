@@ -75,10 +75,14 @@ class OnlineGameTest {
         attacker.askPlaceable = wire::placeable
         wire.tamper("Russians", Ask.Move::class, Reply.Undo(-1), Reply.Undo(99))
         wire.tamper("Russians", Ask.Battle::class, Reply.Done)
+        val casualtyTerritories = mutableListOf<String?>()
         wire.tamper(
             "Russians",
             Ask.Casualties::class,
-            { ask -> (ask as Ask.Casualties).selectFrom.first().let { Reply.Casualties(listOf(it, it), emptyList(), false) } },
+            { ask ->
+                casualtyTerritories += (ask as Ask.Casualties).territory
+                ask.selectFrom.first().let { Reply.Casualties(listOf(it, it), emptyList(), false) }
+            },
             { _ -> Reply.Casualties(emptyList(), emptyList(), false) },
         )
         val session = startGame(wire, host)
@@ -101,6 +105,8 @@ class OnlineGameTest {
         assertThat(attacker.undos).isEqualTo(1)
         assertThat(attacker.infantryBackAfterUndo).describedAs("infantry in red north 1 after the undo").isEqualTo(2)
         assertThat(attacker.casualtyChoices).isGreaterThanOrEqualTo(1)
+        // the notification names the battle
+        assertThat(casualtyTerritories).containsExactly("blue north 2")
         assertThat(host.map.getTerritoryOrNull("blue north 2")!!.owner).isEqualTo(russians)
         assertThat(attacker.placeable).anySatisfy { assertThat(it.isError).isFalse(); assertThat(it.units).isNotEmpty() }
         assertThat(attacker.events).contains("battleStarted", "diceRolled", "stepChanged")

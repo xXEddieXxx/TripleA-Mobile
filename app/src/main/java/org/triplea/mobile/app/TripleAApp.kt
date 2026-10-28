@@ -6,6 +6,7 @@ import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.triplea.mobile.MobileEngine
+import org.triplea.mobile.app.online.Notifications
 import org.triplea.mobile.app.render.ImageCache
 import games.strategy.triplea.ResourceLoader
 
@@ -40,6 +41,8 @@ object AppServices {
         MobileEngine.configure(rootDir)
         MobileEngine.setEngineAssetsFolder(engineAssetsDir)
         AppSettings.init(appContext)
+        // online play (and its notifications) exists in debug builds only: release builds get no channels
+        if (BuildConfig.DEBUG) Notifications.channels(appContext)
     }
 
     /** Unpacks the bundled maps and engine images on first start. Safe to call repeatedly. */

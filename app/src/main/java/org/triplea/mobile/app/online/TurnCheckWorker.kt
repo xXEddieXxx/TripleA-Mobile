@@ -1,12 +1,6 @@
 package org.triplea.mobile.app.online
 
-import android.app.ActivityManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
 import androidx.work.Constraints
@@ -20,13 +14,11 @@ import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 import org.slf4j.LoggerFactory
 import org.triplea.mobile.app.AppSettings
-import org.triplea.mobile.app.MainActivity
-import org.triplea.mobile.app.R
 import org.triplea.mobile.app.game.GameController
 
 /**
  * Polls GET /me/turns every 15 minutes (WorkManager's minimum, only on a network, only while logged in)
- * and shows one notification per game whose waiting question is new since the last check (questions
+ * and shows one notification per game (a tap opens that game) whose waiting question is new since the last check (questions
  * are kept per game in prefs). The game open on the screen is skipped. Unread private messages give one
  * "New message from <name>" per friend whose unread count rose since the last check (every check saves the
  * counts; reading the chat in the app resets that friend's count to 0).
@@ -55,7 +47,7 @@ class TurnCheckWorker(context: Context, params: WorkerParameters) : Worker(conte
         // who the unread private messages are from; null when the list failed (the old counts are kept)
         val senders = if (checked.unreadDirect == 0) emptyList() else runCatching { api.friends().filter { it.unread > 0 } }.getOrNull()
         // a question not notified yet; the game on the screen right now needs none
-        val playing = (GameController.session as? OnlineSession)?.gameId?.takeIf { inForeground() }
+        val playing = (GameController.session as? OnlineSession)?.gameId?.takeIf { Notifications.inForeground() }
         val fresh = turns.filter { notified[it.gameId] != it.questionId && it.gameId != playing }
         // a sender whose unread count rose since the last check; reading the chat in the app resets the saved count (markRead)
         // shortcut: a chat read on another device keeps the old count until a check sees 0, so a smaller burst before that is missed
@@ -78,48 +70,28 @@ class TurnCheckWorker(context: Context, params: WorkerParameters) : Worker(conte
             kept
         }
         val freshSenders = kept.filter { it.unread.toLong() > (notified[DM + it.username] as? Long ?: 0L) }
-        freshSenders.forEach { notify(DM + it.username, "New message from ${it.username}", "${it.unread} unread") }
+        freshSenders.forEach {
+            Notifications.show(applicationContext, Notifications.TURNS, DM + it.username, "New message from ${it.username}", "${it.unread} unread")
+        }
         if (fresh.isEmpty()) return Result.success()
         val names = runCatching { api.games().associate { it.id to it.gameName } }.getOrDefault(emptyMap())
-        fresh.forEach { notify(it.gameId, "Your turn: ${names[it.gameId] ?: "Online game"}", "${it.nation} is waiting for you") }
-        return Result.success()
-    }
-
-    private fun inForeground(): Boolean =
-        ActivityManager.RunningAppProcessInfo().also { ActivityManager.getMyMemoryState(it) }.importance ==
-            ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-
-    /** One notification per [tag] (a game id or DM + sender); a newer one replaces it. */
-    private fun notify(tag: String, title: String, text: String) {
-        val context = applicationContext
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Your turn", NotificationManager.IMPORTANCE_DEFAULT))
-        val open = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .build()
-        try {
-            NotificationManagerCompat.from(context).notify(tag, NOTIFICATION_ID, notification)
-        } catch (e: SecurityException) {
-            log.info("Notification permission withdrawn", e)
+        fresh.forEach {
+            Notifications.show(
+                applicationContext,
+                Notifications.TURNS,
+                it.gameId,
+                "Your turn: ${names[it.gameId] ?: "Online game"}",
+                "${it.nation} is waiting for you",
+                it.gameId,
+            )
         }
+        return Result.success()
     }
 
     companion object {
         private val log = LoggerFactory.getLogger(TurnCheckWorker::class.java)
         private const val WORK = "turn-check"
         private const val PREFS = "turn-check"
-        private const val CHANNEL = "turns"
-        private const val NOTIFICATION_ID = 1
         /** Prefs key and notification tag prefix of a private-chat sender (game ids never start with it). */
         private const val DM = "dm:"
         /** Guards the check's read-compare-write of the prefs against markRead and stop. */

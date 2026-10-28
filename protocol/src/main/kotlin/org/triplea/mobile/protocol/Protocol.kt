@@ -16,7 +16,7 @@ const val MAX_MESSAGE_CHARS = 64 * 1024
 
 /** The one JSON configuration both sides use. */
 object ProtocolJson {
-    val json =Json { classDiscriminator = "type" }
+    val json =Json { classDiscriminator = "type"; ignoreUnknownKeys = true }
 
     fun encode(message: ServerMessage): String = json.encodeToString(ServerMessage.serializer(), message)
 

@@ -386,6 +386,7 @@ class RemoteHumanUi(
         val question = Ask.Casualties(
             selectFrom.wireIds(), count, message, dice?.toDto(), hit.name,
             defaultCasualties.killed.wireIds(), defaultCasualties.damaged.wireIds(), battleId.toString(), allowMultipleHitsPerUnit,
+            data.acquireReadLock().use { data.battleDelegate.battleTracker.getPendingBattle(battleId)?.territory?.name },
         )
         return askUntilValid(question) { reply ->
             val answer = reply.expect<Reply.Casualties>()

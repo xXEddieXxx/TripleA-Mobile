@@ -146,3 +146,50 @@ data class ChatError(val channel: String, val reason: String) : ServerMessage
 @Serializable
 @SerialName("friends_changed")
 data class FriendsChanged(val username: String) : ServerMessage
+
+/**
+ * v3: an out-of-turn question for the user's seat [nation] in [gameId] waits for them (hybrid window or live mode). Sent to
+ * every connection of the user, also to one that connects while it is open. [kind] comes from the [Ask] ([kindOf]);
+ * [deadline]: when the window ends (epoch ms), null without one. Closed by [DefenderNoticeClosed].
+ */
+@Serializable
+@SerialName("defender_notice")
+data class DefenderNotice(val gameId: String, val questionId: Long, val nation: String, val kind: String, val deadline: Long? = null) : ServerMessage {
+    companion object {
+        /** casualties, scramble, retreat, kamikaze, offer, or confirm for every other ask. */
+        fun kindOf(ask: Ask): String = when (ask) {
+            is Ask.Casualties -> "casualties"
+            is Ask.Scramble -> "scramble"
+            is Ask.Retreat -> "retreat"
+            is Ask.Kamikaze -> "kamikaze"
+            is Ask.AcceptAction -> "offer"
+            else -> "confirm"
+        }
+
+        /** What the player is asked to do: the banner, the push and the mail say it. */
+        fun label(kind: String): String = when (kind) {
+            "casualties" -> "Choose casualties"
+            "scramble" -> "Scramble aircraft"
+            "retreat" -> "Retreat or stay"
+            "kamikaze" -> "Kamikaze attack"
+            "offer" -> "Answer an offer"
+            else -> "Confirm"
+        }
+
+        /** The territory [ask] is about, where it names one. */
+        fun territoryOf(ask: Ask): String? = when (ask) {
+            is Ask.Retreat -> ask.battleTerritory
+            is Ask.Scramble -> ask.scrambleTo
+            is Ask.Confirm -> ask.territory
+            is Ask.Casualties -> ask.territory
+            is Ask.SelectUnits -> ask.territory
+            is Ask.Kamikaze -> ask.targets.keys.singleOrNull()
+            else -> null
+        }
+    }
+}
+
+/** v3: the [DefenderNotice] of [questionId] is over (answered, window ended, game ended). */
+@Serializable
+@SerialName("defender_notice_closed")
+data class DefenderNoticeClosed(val gameId: String, val questionId: Long) : ServerMessage

@@ -50,6 +50,8 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.onConsumedWindowInsetsChanged
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -192,6 +194,7 @@ import org.triplea.mobile.app.game.CasualtyRequest
 import org.triplea.mobile.app.game.ConfirmRequest
 import org.triplea.mobile.app.game.EndTurnRequest
 import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.game.GameResult
 import org.triplea.mobile.app.game.GameSession
 import org.triplea.mobile.app.game.HistoryBlock
 import org.triplea.mobile.app.game.HistoryEvent
@@ -1063,7 +1066,9 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     // keep floating elements away from rounded display corners and camera cutouts (fullscreen has no bar insets);
     // the landscape map runs under visible system bars too, so there they count as well
     val cornerInset = roundedCornerInset()
-    val barsAndCutout = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    // minus what a parent consumed: the defender banner above the app takes the status bar
+    var consumedInsets by remember { mutableStateOf(WindowInsets(0)) }
+    val barsAndCutout = WindowInsets.systemBars.union(WindowInsets.displayCutout).exclude(consumedInsets)
     val edgeInsets = (if (landscape) barsAndCutout else WindowInsets.displayCutout).asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
     val edgeStart = maxOf(edgeInsets.calculateStartPadding(layoutDirection), cornerInset, 8.dp)
@@ -1165,7 +1170,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 onTap = ::onTap,
                 onDoubleTap = ::onDoubleTap,
                 onLongPress = ::onDoubleTap,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().onConsumedWindowInsetsChanged { consumedInsets = it },
             )
 
             // top left: round / player / step (landscape only, portrait has the app bar) and the hint
@@ -1618,6 +1623,10 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
     unitPicker?.let { UnitPickerDialog(it, images) }
     messageDialog?.let { MessageDialog(it.title, it.text) { messageDialog = null } }
+    var resultSeen by remember(session) { mutableStateOf(false) }
+    gameOver?.takeIf { !it.replay && !resultSeen }?.let { result ->
+        ResultDialog(result, session, images, onLeave = onQuit, onStay = { resultSeen = true })
+    }
     if (showMoves) {
         MovesDialog(
             title = if (pending is PlaceRequest) "Placements this phase" else "Moves this phase",
@@ -1996,7 +2005,7 @@ class PhaseEndConfirm(val title: String, val message: String, val button: String
 private fun PhaseActions(
     session: GameSession,
     pendingRequest: UiRequest<*>?,
-    gameOver: String?,
+    gameOver: GameResult?,
     hasSelection: Boolean,
     onClearSelection: () -> kotlin.Unit,
     onUndo: () -> kotlin.Unit,

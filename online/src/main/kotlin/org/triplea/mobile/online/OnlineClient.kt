@@ -185,7 +185,7 @@ class OnlineClient(private val ui: HumanPlayerUi, private val events: GameEventL
         val names = Names(data)
         when (val e = gameEvent.event) {
             is Event.Message -> events.message(e.title, e.text)
-            is Event.GameEnded -> if (e.aborted) events.gameAborted(e.message) else events.gameEnded(e.message)
+            is Event.GameEnded -> if (e.aborted) events.gameAborted(e.message) else events.gameEnded(e.message, e.winners)
             is Event.StepChanged -> events.gameStepChanged(e.step, e.displayName, e.player?.let(names::player), e.round)
             is Event.BattleStarted ->
                 events.battleStarted(

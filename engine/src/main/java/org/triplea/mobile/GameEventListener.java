@@ -22,6 +22,11 @@ public interface GameEventListener {
 
   default void gameEnded(final String message) {}
 
+  /** The game ended with these winning nations (empty for none); listeners that only want the sentence keep {@link #gameEnded(String)}. */
+  default void gameEnded(final String message, final List<String> winners) {
+    gameEnded(message);
+  }
+
   /** The game stopped without a result (an online game aborted on the server). */
   default void gameAborted(final String message) {
     gameEnded(message);
