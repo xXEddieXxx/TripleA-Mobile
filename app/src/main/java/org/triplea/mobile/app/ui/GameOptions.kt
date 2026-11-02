@@ -50,7 +50,8 @@ import games.strategy.engine.data.properties.StringProperty
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GameOptionsScreen(data: GameData, onBack: () -> Unit) {
-    val properties = remember(data) { data.properties.editableProperties.toList() }
+    // A map that declares an option twice (Suez Crisis, NWO Eastern Front) lists it twice; the LazyColumn keys must be unique.
+    val properties = remember(data) { data.properties.editableProperties.distinct() }
     val bids = remember(properties) { properties.filter { it.name.endsWith(" bid", ignoreCase = true) } }
     val others = remember(properties) { properties.filterNot { it.name.endsWith(" bid", ignoreCase = true) } }
     BackHandler(onBack = onBack)
