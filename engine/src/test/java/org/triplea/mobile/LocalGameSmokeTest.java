@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -89,30 +88,6 @@ class LocalGameSmokeTest {
         .isEqualTo(gameData.getSequence().getRound());
     assertThat(MobileEngine.listSaveGames()).contains(save);
 
-    session.stop();
-  }
-
-  @Test
-  void hardBetaAiPlaysARound() {
-    final Path xml = MobileEngine.listInstalledGames().get(0).getXmlPath();
-    final GameData gameData = MobileEngine.parseGame(xml).orElseThrow();
-    final Map<String, PlayerKind> kinds =
-        gameData.getPlayerList().getPlayers().stream()
-            .collect(Collectors.toMap(GamePlayer::getName, p -> PlayerKind.AI_HARD_BETA));
-    final LocalGameSession session =
-        LocalGameSession.create(gameData, kinds, new NoInputUi(), new NoOpEvents());
-
-    session.setUpForSteps();
-    int steps = 0;
-    while (gameData.getSequence().getRound() < 2 && steps < 200 && !session.isGameOver()) {
-      session.runNextStep();
-      steps++;
-    }
-    assertThat(gameData.getSequence().getRound()).isGreaterThanOrEqualTo(2);
-    // the launch found the beta type by its label, and a save remembers it
-    assertThat(gameData.getPlayerList().getPlayers())
-        .allSatisfy(
-            p -> assertThat(PlayerKind.fromWhoAmI(p.getWhoAmI())).contains(PlayerKind.AI_HARD_BETA));
     session.stop();
   }
 

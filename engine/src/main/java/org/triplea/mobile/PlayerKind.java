@@ -15,8 +15,6 @@ public enum PlayerKind {
   AI_EASY("Easy (AI)"),
   AI_FAST("Fast (AI)"),
   AI_HARD("Hard (AI)"),
-  /** The hard AI with behaviour still under evaluation upstream; same label as the desktop's. */
-  AI_HARD_BETA("Hard Beta (AI)"),
   /** A nation that buys, moves and attacks nothing; handy to keep a side out of a hot seat game. */
   AI_NONE(PlayerTypes.DOES_NOTHING_PLAYER_LABEL);
 
@@ -61,19 +59,9 @@ public enum PlayerKind {
       case AI_EASY -> PlayerTypes.WEAK_AI;
       case AI_FAST -> PlayerTypes.FAST_AI;
       case AI_HARD -> PlayerTypes.PRO_AI;
-      case AI_HARD_BETA -> PRO_AI_BETA;
       case AI_NONE -> DOES_NOTHING_AI;
     };
   }
-
-  /** Built like the desktop's HeadedPlayerTypes, which lists it only with "Show Beta Features". */
-  public static final PlayerTypes.Type PRO_AI_BETA =
-      new PlayerTypes.Type(AI_HARD_BETA.label) {
-        @Override
-        public Player newPlayerWithName(final String name) {
-          return new ProAi(name, getLabel(), true);
-        }
-      };
 
   /** The engine has the class but no player type for it; the desktop client builds it the same way. */
   public static final PlayerTypes.Type DOES_NOTHING_AI =
@@ -99,7 +87,6 @@ public enum PlayerKind {
       case AI_EASY -> new WeakAi(name, kind.label);
       case AI_FAST -> new FastAi(name, kind.label);
       case AI_HARD -> new ProAi(name, kind.label);
-      case AI_HARD_BETA -> new ProAi(name, kind.label, true);
       case AI_NONE -> new DoesNothingAi(name, kind.label);
       case HUMAN -> throw new IllegalArgumentException("not an AI kind: " + kind);
     };

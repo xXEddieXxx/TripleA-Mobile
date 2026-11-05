@@ -40,9 +40,8 @@ purchases.
 
 ## Features
 
-- **Play against the computer** with three AI levels (Easy, Fast, Hard) plus the desktop's
-  experimental Hard Beta AI, or set a nation to "Does Nothing" so it only defends itself and
-  stays out of the way.
+- **Play against the computer** with three AI levels (Easy, Fast, Hard), or set a nation to
+  "Does Nothing" so it only defends itself and stays out of the way.
 - **Play with friends on one phone**: pass the device around, hot seat style.
 - **Play by file**: save your game, share the save file through any chat or mail app, and your
   friend continues the game on their own phone. A replay in the history tab shows on the map
