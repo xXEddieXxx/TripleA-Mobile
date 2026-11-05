@@ -12,6 +12,8 @@ import games.strategy.engine.data.Unit;
 import games.strategy.engine.data.changefactory.ChangeFactory;
 import games.strategy.engine.framework.GameDataManager;
 import games.strategy.engine.framework.GameDataUtils;
+import games.strategy.engine.random.IRandomSource;
+import games.strategy.engine.random.PlainRandomSource;
 import games.strategy.triplea.delegate.battle.BattleResults;
 import games.strategy.triplea.delegate.battle.BattleTracker;
 import games.strategy.triplea.delegate.battle.MustFightBattle;
@@ -25,7 +27,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nonnull;
 import lombok.Setter;
 
-public class BattleCalculator implements IBattleCalculator {
+// mobile: public for the app's battle calculator screen
+public class BattleCalculator {
   @Nonnull private final GameData gameData;
   // Use a single TuvCostsCalculator so its computations are cached.
   private final TuvCostsCalculator tuvCalculator = new TuvCostsCalculator();
@@ -35,6 +38,8 @@ public class BattleCalculator implements IBattleCalculator {
   @Setter private int retreatAfterXUnitsLeft = -1;
   @Setter private String attackerOrderOfLosses = null;
   @Setter private String defenderOrderOfLosses = null;
+  // Injectable so tests can supply a seeded or scripted source for reproducible simulations.
+  @Setter private IRandomSource randomSource = new PlainRandomSource();
   private volatile boolean cancelled = false;
   private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
@@ -49,7 +54,6 @@ public class BattleCalculator implements IBattleCalculator {
     gameData.getProperties().set(EDIT_MODE, false);
   }
 
-  @Override
   public AggregateResults calculate(
       final GamePlayer attacker,
       final GamePlayer defender,
@@ -84,7 +88,7 @@ public class BattleCalculator implements IBattleCalculator {
       gameData.performChange(
           ChangeFactory.addUnits(location2, mergeUnitCollections(attackingUnits, defendingUnits)));
       final long start = System.currentTimeMillis();
-      final AggregateResults aggregateResults = new AggregateResults(runCount);
+      final ListBackedAggregateResults aggregateResults = new ListBackedAggregateResults(runCount);
       final BattleTracker battleTracker = new BattleTracker();
       final List<Unit> attackerOrderOfLosses =
           OrderOfLosses.getUnitListByOrderOfLoss(
@@ -105,7 +109,8 @@ public class BattleCalculator implements IBattleCalculator {
                 retreatAfterRound,
                 retreatAfterXUnitsLeft,
                 retreatWhenOnlyAirLeft,
-                tuvCalculator);
+                tuvCalculator,
+                randomSource);
         final MustFightBattle battle =
             new MustFightBattle(location2, attacker2, gameData, battleTracker);
         battle.setHeadless(true);

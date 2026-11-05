@@ -28,6 +28,16 @@ Notable changes compared to the desktop engine:
 - `MapData.getTerritoryAt` takes a filter for the current game's territory names: a map folder
   shared by several games (world_at_war) has polygons of other games on top of this game's ones,
   which otherwise swallow the tap ("Lower Burma" over "Burma").
+- APIs newer than Java 17 in upstream code are replaced (`List.getFirst()` by `get(0)`,
+  `BigDecimal.TWO` by `BigDecimal.valueOf(2)`). Replacements from the 2026-11 sync on carry a
+  `// mobile:` comment; older ones (in `ProPurchaseAi`, `AbstractPlaceDelegate`) do not.
+- `ProNationalObjectiveUtils.boards` is a 4-entry LRU map instead of upstream's `WeakHashMap`,
+  which leaked every GameData copy the Hard Beta AI simulates on maps with national objectives.
+- The desktop's opt-in bounded-context battle calculator (`battle-calc-core`,
+  `BoundedContextBattleCalculator`, `odds/calculator/adapter`, `LazyBattleCalculator`,
+  `BattleCalculatorFactory`) is not ported: `ProAi` always uses `ConcurrentBattleCalculator`.
+- The "Hard Beta (AI)" player type, which the desktop shows only with "Show Beta Features", is
+  always offered (`PlayerKind.AI_HARD_BETA`).
 - Small fixes for SonarQube findings, each marked with a `// mobile:` comment: `Integer.compare`
   in comparators, a mutable copy in `FinishedBattle.unitsLostInPrecedingBattle` and
   `ProBattleUtils`, `BigDecimal.compareTo` in `MovableUnitsFilter`, linear regexes in

@@ -91,13 +91,15 @@ final class EditValidator {
               Matches.unitIsCarrier().and(Matches.alliedUnit(player));
           final Predicate<Unit> friendlyAirUnits =
               Matches.unitIsAir().and(Matches.alliedUnit(player));
+          final List<List<Unit>> unitPartitions =
+              territory.partitionUnitsBy(List.of(friendlyCarriers, friendlyAirUnits));
           // Determine transport capacity
+          // mobile: get(0)/get(1) instead of the Java 21 getFirst()/getLast()
           final int carrierCapacityTotal =
-              AirMovementValidator.carrierCapacity(
-                      territory.getMatches(friendlyCarriers), territory)
+              AirMovementValidator.carrierCapacity(unitPartitions.get(0), territory)
                   + AirMovementValidator.carrierCapacity(units, territory);
           final int carrierCost =
-              AirMovementValidator.carrierCost(territory.getMatches(friendlyAirUnits))
+              AirMovementValidator.carrierCost(unitPartitions.get(1))
                   + AirMovementValidator.carrierCost(units);
           if (carrierCapacityTotal < carrierCost) {
             return "Can't add more air units to water without sufficient space";

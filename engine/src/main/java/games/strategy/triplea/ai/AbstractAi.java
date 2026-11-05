@@ -8,6 +8,8 @@ import games.strategy.engine.data.Resource;
 import games.strategy.engine.data.Territory;
 import games.strategy.engine.data.Unit;
 import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.UnitUtils;
 import games.strategy.triplea.attachments.PlayerAttachment;
 import games.strategy.triplea.attachments.PoliticalActionAttachment;
 import games.strategy.triplea.attachments.TerritoryAttachment;
@@ -15,7 +17,9 @@ import games.strategy.triplea.delegate.DiceRoll;
 import games.strategy.triplea.delegate.GameStepPropertiesHelper;
 import games.strategy.triplea.delegate.Matches;
 import games.strategy.triplea.delegate.PoliticsDelegate;
+import games.strategy.triplea.delegate.RocketsFireHelper;
 import games.strategy.triplea.delegate.battle.BattleDelegate;
+import games.strategy.triplea.delegate.battle.BattleTracker;
 import games.strategy.triplea.delegate.battle.IBattle.BattleType;
 import games.strategy.triplea.delegate.data.BattleListing;
 import games.strategy.triplea.delegate.data.CasualtyDetails;
@@ -32,6 +36,7 @@ import games.strategy.triplea.settings.ClientSetting;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -42,6 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.triplea.java.Interruptibles;
@@ -70,13 +76,49 @@ public abstract class AbstractAi extends AbstractBasePlayer {
     super(name, playerLabel);
   }
 
+  /**
+   * Whether bomber, bombard and rocket targets are picked by value. Off by default, where the first
+   * option wins and rockets are scored by raw production.
+   */
+  protected boolean choosesBombingTargetsByValue() {
+    return false;
+  }
+
   @Override
   public Territory selectBombardingTerritory(
       final Unit unit,
       final Territory unitTerritory,
       final Collection<Territory> territories,
       final boolean noneAvailable) {
-    return CollectionUtils.getAny(territories);
+    if (!choosesBombingTargetsByValue()) {
+      return CollectionUtils.getAny(territories);
+    }
+    final GamePlayer bombarder = unit.getOwner();
+    final BattleTracker battleTracker = unit.getData().getBattleDelegate().getBattleTracker();
+    return chooseBombardTerritory(territories, t -> unhitDefenders(t, bombarder, battleTracker));
+  }
+
+  /**
+   * Picks the territory where shore bombardment is least likely to be wasted: the one with the most
+   * defenders that the other bombarding ships have not already been sent against, then by name.
+   */
+  static Territory chooseBombardTerritory(
+      final Collection<Territory> territories, final ToIntFunction<Territory> unhitDefenders) {
+    return territories.stream()
+        .min(
+            Comparator.<Territory>comparingInt(t -> -unhitDefenders.applyAsInt(t))
+                .thenComparing(Territory::getName))
+        .orElse(null);
+  }
+
+  private static int unhitDefenders(
+      final Territory territory, final GamePlayer bombarder, final BattleTracker battleTracker) {
+    final int defenders = territory.getUnitCollection().countMatches(Matches.enemyUnit(bombarder));
+    final int alreadyBombarding =
+        Optional.ofNullable(battleTracker.getPendingBattle(territory, BattleType.NORMAL))
+            .map(battle -> battle.getBombardingUnits().size())
+            .orElse(0);
+    return defenders - alreadyBombarding;
   }
 
   @Override
@@ -107,7 +149,71 @@ public abstract class AbstractAi extends AbstractBasePlayer {
   @Override
   public Territory whereShouldRocketsAttack(
       final Collection<Territory> candidates, final Territory from) {
-    return CollectionUtils.getAny(candidates);
+    final Territory planned = plannedRocketTarget(from);
+    if (planned != null && candidates.contains(planned)) {
+      return planned;
+    }
+    final GamePlayer rocketOwner = getGamePlayer();
+    final ToIntFunction<Territory> worth =
+        rocketOwner == null || !choosesBombingTargetsByValue()
+            ? TerritoryAttachment::getProduction
+            : t -> rocketDamagePotential(t, rocketOwner);
+    return candidates.stream()
+        .min(
+            Comparator.<Territory>comparingInt(t -> -worth.applyAsInt(t))
+                .thenComparing(Territory::getName))
+        .orElse(null);
+  }
+
+  /**
+   * How much damage one more rocket can still do to {@code target}, which is what hitting it is
+   * worth. Damage is capped by what the maps' rules let a territory lose, not by its production
+   * alone.
+   */
+  static int rocketDamagePotential(final Territory target, final GamePlayer rocketOwner) {
+    final GameData data = target.getData();
+    if (Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data.getProperties())) {
+      return target.getUnitCollection().getMatches(Matches.enemyUnit(rocketOwner)).stream()
+          .mapToInt(u -> u.getHowMuchMoreDamageCanThisUnitTake(target))
+          .max()
+          .orElse(0);
+    }
+    final int production = TerritoryAttachment.getProduction(target);
+    if (Properties.getWW2V2(data.getProperties())
+        || Properties.getLimitRocketAndSbrDamageToProduction(data.getProperties())) {
+      if (Properties.getPuCap(data.getProperties())
+          || Properties.getLimitRocketDamagePerTurn(data.getProperties())) {
+        return Math.max(0, production - data.getMoveDelegate().pusAlreadyLost(target));
+      }
+    }
+    return production;
+  }
+
+  /**
+   * The engine asks launcher by launcher, so each call re-plans every launcher and returns the
+   * target planned for {@code from}; the plan is deterministic, so the answers fit together.
+   */
+  private @Nullable Territory plannedRocketTarget(final @Nullable Territory from) {
+    if (from == null || getGamePlayer() == null) {
+      return null;
+    }
+    final GameData data = from.getData();
+    final GamePlayer player = getGamePlayer();
+    final Map<Territory, Set<Territory>> reach = new HashMap<>();
+    for (final Territory launcher : RocketsFireHelper.getTerritoriesWithRockets(data, player)) {
+      final Set<Territory> targets =
+          RocketsFireHelper.getTargetsWithinRange(launcher, data, player);
+      if (!targets.isEmpty()) {
+        reach.put(launcher, targets);
+      }
+    }
+    return RocketTargetPlanner.plan(
+            reach,
+            data.getTechTracker().getRocketNumberPerTerritory(player),
+            choosesBombingTargetsByValue()
+                ? t -> rocketDamagePotential(t, player)
+                : TerritoryAttachment::getProduction)
+        .get(from);
   }
 
   @Override
@@ -160,7 +266,16 @@ public abstract class AbstractAi extends AbstractBasePlayer {
     if (factories.isEmpty()) {
       return CollectionUtils.getAny(potentialTargets);
     }
-    return CollectionUtils.getAny(factories);
+    if (!choosesBombingTargetsByValue()) {
+      return CollectionUtils.getAny(factories);
+    }
+    // Each point of damage costs the owner a unit of production, until the factory has none left.
+    return factories.stream()
+        .min(
+            Comparator.<Unit>comparingInt(
+                    f -> -UnitUtils.getHowMuchCanUnitProduce(f, territory, true, true))
+                .thenComparing(f -> f.getId().toString()))
+        .orElseThrow();
   }
 
   @Override
@@ -232,30 +347,6 @@ public abstract class AbstractAi extends AbstractBasePlayer {
     }
     // politics from ally? accept
     if (Matches.isAllied(this.getGamePlayer()).test(playerSendingProposal)) {
-      return true;
-    }
-    // would we normally be allies?
-    final List<String> allies =
-        List.of(
-            Constants.PLAYER_NAME_AMERICANS,
-            Constants.PLAYER_NAME_AUSTRALIANS,
-            Constants.PLAYER_NAME_BRITISH,
-            Constants.PLAYER_NAME_CANADIANS,
-            Constants.PLAYER_NAME_CHINESE,
-            Constants.PLAYER_NAME_FRENCH,
-            Constants.PLAYER_NAME_RUSSIANS);
-    if (allies.contains(this.getGamePlayer().getName())
-        && allies.contains(playerSendingProposal.getName())) {
-      return true;
-    }
-    final List<String> axis =
-        List.of(
-            Constants.PLAYER_NAME_GERMANS,
-            Constants.PLAYER_NAME_ITALIANS,
-            Constants.PLAYER_NAME_JAPANESE,
-            Constants.PLAYER_NAME_PUPPET_STATES);
-    if (axis.contains(this.getGamePlayer().getName())
-        && axis.contains(playerSendingProposal.getName())) {
       return true;
     }
     final Collection<String> myAlliances =
