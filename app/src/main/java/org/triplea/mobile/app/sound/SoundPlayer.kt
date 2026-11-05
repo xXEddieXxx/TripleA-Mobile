@@ -31,9 +31,10 @@ object SoundPlayer {
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "sound-player").apply { isDaemon = true } }
     private val active: MutableSet<MediaPlayer> = Collections.synchronizedSet(HashSet())
 
-    /** Resolved clip files per (loader identity, clip path). */
+    /** Resolved clip files per clip path, for [cachedLoader] and [cachedTheme]. */
     private val cache = ConcurrentHashMap<String, List<Path>>()
     @Volatile private var cachedLoader: ResourceLoader? = null
+    @Volatile private var cachedTheme: String? = null
 
     fun categoryOf(clipName: String): SoundCategory = when {
         clipName.startsWith("battle_") || clipName.startsWith("bombing_") -> SoundCategory.BATTLE
@@ -55,14 +56,17 @@ object SoundPlayer {
         if (!enabled) return
         executor.execute {
             try {
-                if (cachedLoader !== loader) {
+                // a theme picked in the settings during a game must not keep the old theme's clips
+                if (cachedLoader !== loader || cachedTheme != settings.soundTheme) {
                     cache.clear()
                     cachedLoader = loader
+                    cachedTheme = settings.soundTheme
                 }
-                val files = (if (playerName != null) resolve(loader, clipName + "_" + playerName) else emptyList())
-                    .ifEmpty { resolve(loader, clipName) }
+                val files = (if (playerName != null) resolve(loader, clipName + "_" + playerName, settings.soundTheme) else emptyList())
+                    .ifEmpty { resolve(loader, clipName, settings.soundTheme) }
                 if (files.isEmpty()) return@execute
                 val file = files.random()
+                Log.d(TAG, "$clipName -> $file")
                 startPlayback(file, settings.soundVolume)
             } catch (e: Exception) {
                 Log.w(TAG, "Cannot play $clipName", e)
@@ -105,10 +109,10 @@ object SoundPlayer {
     }
 
     /** The clip files for a sound path, following the desktop resolution rules. */
-    private fun resolve(loader: ResourceLoader, pathName: String): List<Path> =
+    private fun resolve(loader: ResourceLoader, pathName: String, theme: String): List<Path> =
         cache.getOrPut(pathName) {
             val properties = runCatching { loader.loadPropertyFile("sounds.properties") }.getOrNull()
-            val themeOverride = AppSettings.current.soundTheme.takeIf { it.isNotBlank() }
+            val themeOverride = theme.takeIf { it.isNotBlank() }
             val era = themeOverride ?: properties?.getProperty("Sound.Default.Folder")?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_ERA
             val override = if (themeOverride == null) properties?.getProperty(pathName)?.trim() else null
             val paths = if (!override.isNullOrEmpty()) {
