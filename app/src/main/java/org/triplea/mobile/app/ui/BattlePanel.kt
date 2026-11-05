@@ -57,7 +57,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -778,16 +781,22 @@ private fun groupByStrength(units: List<Unit>, side: SideStrength?, dying: Set<U
         .sortedWith(compareBy<UnitGroup> { it.strength }.thenBy { it.type.name })
         .groupBy { it.strength }
 
-/** A die face with pips; hits are drawn red like in the desktop client. */
+/** A die face with pips, or the number above 6 (d12 maps), as in the desktop client; hits are drawn red. */
 @Composable
 fun Die(value: Int, hit: Boolean, size: Int = 22) {
     val face = if (hit) Color(0xFFD32F2F) else Color(0xFFF5F5F5)
     val pip = if (hit) Color.White else Color(0xFF212121)
+    val textMeasurer = rememberTextMeasurer()
     Canvas(Modifier.size(size.dp)) {
         val s = this.size.width
         val radius = s * 0.18f
         drawRoundRect(color = face, size = Size(s, s), cornerRadius = CornerRadius(radius, radius))
         drawRoundRect(color = Color(0x66000000), size = Size(s, s), cornerRadius = CornerRadius(radius, radius), style = Stroke(width = s * 0.05f))
+        if (value > 6) {
+            val text = textMeasurer.measure(value.toString(), TextStyle(color = pip, fontSize = (s * 0.55f).toSp(), fontWeight = FontWeight.Bold))
+            drawText(text, topLeft = Offset((s - text.size.width) / 2f, (s - text.size.height) / 2f))
+            return@Canvas
+        }
         val r = s * 0.09f
         val a = s * 0.25f
         val b = s * 0.5f
