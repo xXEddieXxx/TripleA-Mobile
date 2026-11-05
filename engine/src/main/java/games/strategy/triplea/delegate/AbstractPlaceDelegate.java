@@ -1745,10 +1745,10 @@ public abstract class AbstractPlaceDelegate extends BaseTripleADelegate
   private static Optional<@Nls String> validateNewAirCanLandOnCarriers(
       final Territory to, final Collection<Unit> units, final GamePlayer player) {
     int cost = AirMovementValidator.carrierCost(units);
-    List<Unit> unitsOwnedByPlayer = to.getMatches(Matches.unitIsOwnedBy(player));
-    cost += AirMovementValidator.carrierCost(unitsOwnedByPlayer);
+    cost += AirMovementValidator.carrierCost(to.getMatches(Matches.unitIsOwnedBy(player)));
     int capacity = AirMovementValidator.carrierCapacity(units, to);
-    capacity += AirMovementValidator.carrierCapacity(unitsOwnedByPlayer, to);
+    capacity +=
+        AirMovementValidator.carrierCapacity(to.getMatches(Matches.unitIsOwnedBy(player)), to);
     if (cost > capacity) {
       return Optional.of("Not enough new carriers to land all the fighters");
     }

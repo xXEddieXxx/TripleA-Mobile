@@ -5,9 +5,7 @@ import games.strategy.engine.data.GamePlayer;
 import games.strategy.engine.data.GameState;
 import games.strategy.engine.data.Route;
 import games.strategy.engine.data.Territory;
-import games.strategy.engine.data.properties.GameProperties;
 import games.strategy.engine.data.util.BreadthFirstSearch;
-import games.strategy.triplea.Properties;
 import games.strategy.triplea.ai.pro.ProData;
 import games.strategy.triplea.attachments.TerritoryAttachment;
 import games.strategy.triplea.delegate.Matches;
@@ -39,7 +37,6 @@ public final class ProTerritoryValueUtils {
     final int isEnemyFactory =
         ProMatches.territoryHasInfraFactoryAndIsEnemyLand(player).test(t) ? 1 : 0;
     double value = 3.0 * TerritoryAttachment.getProduction(t) * (isEnemyFactory + 1);
-    value += 3.0 * victoryCityValue(proData, t);
     if (ProUtils.isNeutralLand(t)) {
       final double strength =
           ProBattleUtils.estimateStrength(
@@ -51,24 +48,6 @@ public final class ProTerritoryValueUtils {
     }
 
     return value;
-  }
-
-  /**
-   * What a victory city is worth in PUs when a victory-city win condition is on, so holding or
-   * taking one counts toward ending the game; 0 outside Hard Beta or with no such condition.
-   */
-  static double victoryCityValue(final ProData proData, final Territory t) {
-    if (!proData.isBeta()) {
-      return 0;
-    }
-    final GameProperties props = t.getData().getProperties();
-    if (!Properties.getTotalVictory(props)
-        && !Properties.getHonorableSurrender(props)
-        && !Properties.getProjectionOfPower(props)) {
-      return 0;
-    }
-    return TerritoryAttachment.get(t).map(TerritoryAttachment::getVictoryCity).orElse(0)
-        * ProCasualtyUtils.VICTORY_CITY_VALUE;
   }
 
   /** Returns the value of each territory in {@code territoriesToCheck}. */
@@ -133,30 +112,28 @@ public final class ProTerritoryValueUtils {
           && !data.getMap().getNeighbors(t, Matches.territoryIsWater()).isEmpty()) {
 
         // Determine sea value based on nearby convoy production
+        double nearbySeaProductionValue = 0;
         final Set<Territory> nearbySeaTerritories =
             data.getMap().getNeighbors(t, 4, ProMatches.territoryCanMoveSeaUnits(player, true));
         final List<Territory> nearbyEnemySeaTerritories =
             CollectionUtils.getMatches(
                 nearbySeaTerritories,
                 ProMatches.territoryIsEnemyOrCantBeHeld(player, territoriesThatCantBeHeld));
-        final double nearbySeaProductionValue =
-            calculateTerritoryValueToTargets(
-                t, nearbyEnemySeaTerritories, player, data, TerritoryAttachment::getProduction);
+        calculateTerritoryValueToTargets(
+            t, nearbyEnemySeaTerritories, player, data, TerritoryAttachment::getProduction);
 
         // Determine sea value based on nearby enemy sea units
+        double nearbyEnemySeaUnitValue = 0;
         final List<Territory> nearbyEnemySeaUnitTerritories =
             CollectionUtils.getMatches(
                 nearbySeaTerritories, Matches.territoryHasEnemyUnits(player));
-        final double nearbyEnemySeaUnitValue =
-            calculateTerritoryValueToTargets(
-                t,
-                nearbyEnemySeaUnitTerritories,
-                player,
-                data,
-                targetTerritory ->
-                    targetTerritory
-                        .getUnitCollection()
-                        .countMatches(Matches.unitIsEnemyOf(player)));
+        calculateTerritoryValueToTargets(
+            t,
+            nearbyEnemySeaUnitTerritories,
+            player,
+            data,
+            targetTerritory ->
+                targetTerritory.getUnitCollection().countMatches(Matches.unitIsEnemyOf(player)));
 
         // Set final values
         final double value = 100 * nearbySeaProductionValue + nearbyEnemySeaUnitValue;
@@ -191,6 +168,9 @@ public final class ProTerritoryValueUtils {
       final int distance = optionalRoute.get().numberOfSteps();
       if (distance > 0) {
         territoryValue += toTargetValueFunction.applyAsInt(targetTerritory) / Math.pow(2, distance);
+        territoryValue +=
+            targetTerritory.getUnitCollection().countMatches(Matches.unitIsEnemyOf(player))
+                / Math.pow(2, distance);
       }
     }
     return territoryValue;
@@ -223,7 +203,7 @@ public final class ProTerritoryValueUtils {
     return maxLandMassSize;
   }
 
-  static Map<Territory, Double> findEnemyCapitalsAndFactoriesValue(
+  private static Map<Territory, Double> findEnemyCapitalsAndFactoriesValue(
       final GamePlayer player,
       final int maxLandMassSize,
       final List<Territory> territoriesThatCantBeHeld,
@@ -257,12 +237,11 @@ public final class ProTerritoryValueUtils {
         factoryProduction = TerritoryAttachment.getProduction(t);
       }
 
-      // A liberated capital lost again pays its owner's income to the captor
-      final double playerProduction =
-          ProUtils.capitalValue(t, data)
-              + (territoriesThatCantBeHeld.contains(t)
-                  ? 0
-                  : ProUtils.liberationValue(t, player, data));
+      // Get player production if capital
+      double playerProduction = 0;
+      if (TerritoryAttachment.get(t).map(TerritoryAttachment::isCapital).orElse(false)) {
+        playerProduction = ProUtils.getPlayerProduction(t.getOwner(), data);
+      }
 
       // Calculate value
       final int isNeutral = ProUtils.isNeutralLand(t) ? 1 : 0;
@@ -331,10 +310,7 @@ public final class ProTerritoryValueUtils {
       final int distance =
           data.getMap().getDistance(t, nearbyEnemyTerritory, territoryToNeighborCondition);
       if (distance > 0) {
-        double value =
-            TerritoryAttachment.getProduction(nearbyEnemyTerritory)
-                + victoryCityValue(proData, nearbyEnemyTerritory)
-                + ProNationalObjectiveUtils.value(proData, player, nearbyEnemyTerritory);
+        double value = TerritoryAttachment.getProduction(nearbyEnemyTerritory);
         if (ProUtils.isNeutralLand(nearbyEnemyTerritory)) {
           // find neutral value
           value = findTerritoryAttackValue(proData, player, nearbyEnemyTerritory) / 3;
@@ -425,10 +401,7 @@ public final class ProTerritoryValueUtils {
       if (distance > 0 && distance <= 3) {
         if (ProMatches.territoryIsEnemyOrCantBeHeld(player, territoriesThatCantBeHeld)
             .test(nearbyLandTerritory)) {
-          double value =
-              TerritoryAttachment.getProduction(nearbyLandTerritory)
-                  + victoryCityValue(proData, nearbyLandTerritory)
-                  + ProNationalObjectiveUtils.value(proData, player, nearbyLandTerritory);
+          double value = TerritoryAttachment.getProduction(nearbyLandTerritory);
           if (ProUtils.isNeutralLand(nearbyLandTerritory)) {
             value = findTerritoryAttackValue(proData, player, nearbyLandTerritory);
           }

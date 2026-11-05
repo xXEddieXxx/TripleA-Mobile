@@ -28,16 +28,11 @@ import org.triplea.java.collections.IntegerMap;
 /** The result of an AI purchase analysis for a single production rule and unit type. */
 public class ProPurchaseOption {
 
-  // Raised to the 30th power with the rest of the efficiency, so a unit that is lost after one
-  // use needs roughly 20% more strength per PU than a reusable one to rank alongside it.
-  private static final double SINGLE_USE_FACTOR = 0.85;
-
   @Getter private final ProductionRule productionRule;
   @Getter private final UnitType unitType;
   private final GamePlayer player;
   @Getter private final int cost;
   @Getter private final IntegerMap<Resource> costs;
-  private final double efficiencyCost;
   @Getter private final boolean isConstruction;
   @Getter private final String constructionType;
   @Getter private final int constructionTypePerTurn;
@@ -67,7 +62,6 @@ public class ProPurchaseOption {
   @Getter private boolean isAttackSupport;
   @Getter private boolean isDefenseSupport;
   @Getter private final boolean consumesUnits;
-  @Getter private final boolean isSingleUse;
 
   ProPurchaseOption(
       final ProductionRule productionRule,
@@ -81,9 +75,6 @@ public class ProPurchaseOption {
     final Resource pus = data.getResourceList().getResourceOrThrow(Constants.PUS);
     cost = productionRule.getCosts().getInt(pus);
     costs = productionRule.getCosts();
-    // A rule with no PU cost (eg: a map paid in other resources) would divide the efficiencies by
-    // zero; fall back to the total of all its costs, and to 1 for a free rule.
-    efficiencyCost = Math.max(1, cost > 0 ? cost : costs.totalValues());
     isConstruction = unitAttachment.isConstruction();
     constructionType = unitAttachment.getConstructionType();
     constructionTypePerTurn = unitAttachment.getConstructionsPerTerrPerTypePerTurn();
@@ -95,15 +86,9 @@ public class ProPurchaseOption {
     if (isInfra) {
       hitPoints = 0;
     }
-    attack =
-        (double) unitAttachment.getAttack(player)
-            * unitAttachment.getAttackRolls(player)
-            * quantity;
+    attack = (double) unitAttachment.getAttack(player) * quantity;
     amphibAttack = attack + 0.5 * unitAttachment.getIsMarine() * quantity;
-    defense =
-        (double) unitAttachment.getDefense(player)
-            * unitAttachment.getDefenseRolls(player)
-            * quantity;
+    defense = (double) unitAttachment.getDefense(player) * quantity;
     transportCost = unitAttachment.getTransportCost() * quantity;
     carrierCost = unitAttachment.getCarrierCost() * quantity;
     isAir = unitAttachment.isAir();
@@ -113,7 +98,7 @@ public class ProPurchaseOption {
     isLandTransport = unitAttachment.isLandTransport();
     isCarrier = unitAttachment.getCarrierCapacity() > 0;
     carrierCapacity = unitAttachment.getCarrierCapacity() * quantity;
-    transportEfficiency = (double) unitAttachment.getTransportCapacity() / efficiencyCost;
+    transportEfficiency = (double) unitAttachment.getTransportCapacity() / cost;
     if (hitPoints == 0) {
       costPerHitPoint = Double.POSITIVE_INFINITY;
     } else {
@@ -123,19 +108,19 @@ public class ProPurchaseOption {
         (hitPoints
                 + 0.2 * attack * 6 / data.getDiceSides()
                 + 0.2 * defense * 6 / data.getDiceSides())
-            / efficiencyCost;
+            / cost;
     attackEfficiency =
         (1 + hitPoints)
             * (hitPoints
                 + attack * 6 / data.getDiceSides()
                 + 0.5 * defense * 6 / data.getDiceSides())
-            / efficiencyCost;
+            / cost;
     defenseEfficiency =
         (1 + hitPoints)
             * (hitPoints
                 + 0.5 * attack * 6 / data.getDiceSides()
                 + defense * 6 / data.getDiceSides())
-            / efficiencyCost;
+            / cost;
     maxBuiltPerPlayer = unitAttachment.getMaxBuiltPerPlayer();
 
     // Support fields
@@ -151,10 +136,6 @@ public class ProPurchaseOption {
       }
     }
     consumesUnits = !unitAttachment.getConsumesUnits().isEmpty();
-    isSingleUse =
-        unitAttachment.isSuicideOnHit()
-            || (unitAttachment.getIsSuicideOnAttack() && movement > 0)
-            || unitAttachment.getIsSuicideOnDefense();
   }
 
   @Override
@@ -226,18 +207,6 @@ public class ProPurchaseOption {
         0.75, 1.25, supportAttackFactor, supportDefenseFactor, distanceFactor, data);
   }
 
-  /** Like {@link #getDefenseEfficiency} but without crediting attack support this unit gives. */
-  public double getDefenseEfficiencyWithoutAttackSupport(
-      final int enemyDistance,
-      final GameData data,
-      final List<Unit> ownedLocalUnits,
-      final List<Unit> unitsToPlace) {
-    final double supportDefenseFactor =
-        calculateSupportFactor(ownedLocalUnits, unitsToPlace, data, true);
-    final double distanceFactor = calculateLandDistanceFactor(enemyDistance);
-    return calculateEfficiency(0.75, 1.25, 0, supportDefenseFactor, distanceFactor, data);
-  }
-
   /**
    * Returns the sea defense efficiency for the specified units if this purchase option is selected.
    */
@@ -286,7 +255,7 @@ public class ProPurchaseOption {
             ((2 * hitPoints) + attackValue + defenseValue)
                 * hitPointPerUnitFactor
                 * transportCostFactor
-                / efficiencyCost,
+                / cost,
             30)
         / quantity;
   }
@@ -417,7 +386,6 @@ public class ProPurchaseOption {
       final double seaFactor,
       final GameData data) {
     final double hitPointPerUnitFactor = (3 + (double) hitPoints / quantity);
-    final double reuseFactor = isSingleUse ? SINGLE_USE_FACTOR : 1;
     final double attackValue =
         attackFactor * (attack + supportAttackFactor * quantity) * 6 / data.getDiceSides();
     final double defenseValue =
@@ -427,8 +395,7 @@ public class ProPurchaseOption {
                 * hitPointPerUnitFactor
                 * distanceFactor
                 * seaFactor
-                * reuseFactor
-                / efficiencyCost,
+                / cost,
             30)
         / quantity;
   }
