@@ -1,6 +1,7 @@
 name: Android dev build
 
-# Builds the debug APK on every push to main (and on demand) and publishes it:
+# Builds the debug APK on every push to dev (and on demand) and publishes it. main holds only what
+# is picked for the next release, so pushing it must not replace the dev build:
 #  - as a workflow artifact (kept 30 days, see the run's summary page)
 #  - as the rolling "dev" pre-release, so there is always a stable download link:
 #    https://github.com/<owner>/<repo>/releases/tag/dev
@@ -15,7 +16,7 @@ name: Android dev build
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   workflow_dispatch:
 
 permissions:
