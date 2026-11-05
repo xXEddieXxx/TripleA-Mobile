@@ -15,6 +15,10 @@ import java.util.zip.ZipInputStream
 object MapInstaller {
     private const val TAG = "MapInstaller"
     private const val BUNDLE_VERSION = "2"
+    private const val SOUNDS_ZIP = "engine/engine_sounds.zip"
+    // own version: raising BUNDLE_VERSION would unpack bundled maps over downloaded updates of them
+    // 3: the desktop's sound pack (assets release 53)
+    private const val SOUNDS_VERSION = "3"
 
     fun installAll(context: Context, mapsFolder: Path, engineAssetsFolder: Path) {
         val assets = context.assets
@@ -80,11 +84,14 @@ object MapInstaller {
 
     private fun install(context: Context, assetPath: String, target: Path) {
         val marker = target.resolve(".bundled_version_" + assetPath.substringAfterLast('/').removeSuffix(".zip"))
-        if (Files.exists(marker) && runCatching { String(Files.readAllBytes(marker), Charsets.UTF_8).trim() }.getOrNull() == BUNDLE_VERSION) {
+        val version = if (assetPath == SOUNDS_ZIP) SOUNDS_VERSION else BUNDLE_VERSION
+        if (Files.exists(marker) && runCatching { String(Files.readAllBytes(marker), Charsets.UTF_8).trim() }.getOrNull() == version) {
             return
         }
         Log.i(TAG, "Unpacking $assetPath to $target")
         try {
+            // one clip per folder is picked at random, so clips dropped from the pack must not linger
+            if (assetPath == SOUNDS_ZIP) target.resolve("sounds").toFile().deleteRecursively()
             Files.createDirectories(target)
             context.assets.open(assetPath).use { input ->
                 ZipInputStream(input.buffered()).use { zip ->
@@ -106,7 +113,7 @@ object MapInstaller {
                     }
                 }
             }
-            Files.write(marker, BUNDLE_VERSION.toByteArray(Charsets.UTF_8))
+            Files.write(marker, version.toByteArray(Charsets.UTF_8))
             // the plain marker keeps bundled maps recognisable in the map browser
             Files.write(target.resolve(".bundled_version"), BUNDLE_VERSION.toByteArray(Charsets.UTF_8))
         } catch (e: IOException) {
