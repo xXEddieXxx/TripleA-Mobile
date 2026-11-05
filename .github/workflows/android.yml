@@ -1,6 +1,6 @@
 name: Android dev build
 
-# Builds the debug APK on every push to dev (and on demand) and publishes it. main holds only what
+# Builds the debug APK on every push to develop (and on demand) and publishes it. main holds only what
 # is picked for the next release, so pushing it must not replace the dev build:
 #  - as a workflow artifact (kept 30 days, see the run's summary page)
 #  - as the rolling "dev" pre-release, so there is always a stable download link:
@@ -16,7 +16,8 @@ name: Android dev build
 
 on:
   push:
-    branches: [dev]
+    # not "dev": that name is the rolling pre-release's tag, a branch of that name is ambiguous
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
