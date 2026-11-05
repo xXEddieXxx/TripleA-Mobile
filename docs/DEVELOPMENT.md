@@ -169,10 +169,11 @@ build loads in the release build.
 
 ## Dev builds
 
-Branches: `dev` has everything, including experimental work. `main` holds only the commits picked
-for the next release (`git cherry-pick` from `dev`); the Release workflow is started on `main`.
+Branches: `develop` has everything, including experimental work. `main` holds only the commits
+picked for the next release (`git cherry-pick` from `develop`); the Release workflow is started on
+`main`. The branch is not called `dev` because the rolling pre-release below owns the tag `dev`.
 
-Every push to `dev` runs `.github/workflows/android.yml`: engine tests, debug APK, and a rolling
+Every push to `develop` runs `.github/workflows/android.yml`: engine tests, debug APK, and a rolling
 pre-release named **dev** with the APK attached twice: once with the date and commit in its name
 (`triplea-mobile-dev-<date>-<commit>.apk`) and once as `triplea-mobile-dev.apk`, so the dev link
 in the README always points at the newest build. The release page is
