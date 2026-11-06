@@ -50,6 +50,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.PlayerKind
 import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.AppSettings
+import org.triplea.mobile.app.forum.ForumAccount
+import org.triplea.mobile.forum.NodeBbClient.GameThread
+import org.triplea.mobile.forum.PbfProperties
+import androidx.compose.material3.OutlinedTextField
 
 /**
  * Game selection and player assignment. With [saveFile] set, the save game is loaded instead of
@@ -57,8 +62,23 @@ import org.triplea.mobile.app.game.GameController
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) {
+fun SetupScreen(
+    saveFile: Path?,
+    onGameStarted: () -> Unit,
+    onBack: () -> Unit,
+    forumThread: GameThread? = null,
+    newForumGame: Boolean = false,
+    onRegisterDiceEmail: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
+    val forumGame = forumThread != null || newForumGame
+    var myEmail by remember { mutableStateOf(AppSettings.current.diceEmail) }
+    var otherEmail by remember { mutableStateOf("") }
+    var emailWarning by remember { mutableStateOf<String?>(null) }
+    var threadTitle by remember { mutableStateOf("") }
+    var firstPost by remember { mutableStateOf("") }
+    var createdThread by remember { mutableStateOf<GameThread?>(null) }
+    var threadHeldBack by remember { mutableStateOf(false) }
     var games by remember { mutableStateOf<List<MobileEngine.InstalledGame>>(emptyList()) }
     var gameData by remember { mutableStateOf<GameData?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -101,7 +121,31 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
         val anyRemembered = remembered.values.any { it != null }
         data.playerList.players.forEachIndexed { index, player ->
             kinds[player.name] = remembered[player.name]
-                ?: if (index == 0 && !anyRemembered) PlayerKind.HUMAN else defaultAi
+                ?: if (forumGame || (index == 0 && !anyRemembered)) PlayerKind.HUMAN else defaultAi
+        }
+        if (forumGame) {
+            threadTitle = data.gameName
+            val saved = listOf(PbfProperties.DICE_EMAIL_1, PbfProperties.DICE_EMAIL_2)
+                .map { data.properties.get(it, "") }.filter { it.isNotBlank() }
+            if (saved.isNotEmpty()) {
+                val mine = saved.firstOrNull { it.equals(myEmail, ignoreCase = true) }
+                if (myEmail.isBlank()) {
+                    // no email remembered yet: the player confirms which one is theirs
+                    myEmail = saved[0]
+                    otherEmail = saved.getOrElse(1) { "" }
+                    emailWarning = "Is ${saved[0]} your dice email? Swap or correct the fields if not; yours is remembered."
+                } else if (mine == null) {
+                    // joining a game you have not rolled in yet: your email takes over one of the two
+                    emailWarning = "You have not rolled in this game yet (its dice emails: ${saved.joinToString()}). " +
+                        "Enter your email and keep the opponent's, so every roll is mailed to both of you."
+                    otherEmail = saved[0]
+                } else {
+                    emailWarning = null
+                    otherEmail = saved.firstOrNull { !it.equals(mine, ignoreCase = true) } ?: ""
+                }
+            } else if (forumThread != null && saveFile != null) {
+                emailWarning = "This save has no dice server emails. Enter both, so every roll is mailed to both players."
+            }
         }
     }
 
@@ -166,6 +210,23 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                 result
             }
             LazyColumn(Modifier.weight(1f)) {
+                if (forumGame) {
+                    item(key = "forum") {
+                        ForumGameFields(
+                            newGame = newForumGame,
+                            threadTitle = threadTitle,
+                            onThreadTitle = { threadTitle = it },
+                            firstPost = firstPost,
+                            onFirstPost = { firstPost = it },
+                            myEmail = myEmail,
+                            onMyEmail = { myEmail = it },
+                            otherEmail = otherEmail,
+                            onOtherEmail = { otherEmail = it },
+                            warning = emailWarning,
+                            onRegister = onRegisterDiceEmail,
+                        )
+                    }
+                }
                 groups.forEach { (alliance, players) ->
                     if (alliance.isNotBlank()) {
                         item(key = "alliance-$alliance") {
@@ -210,10 +271,25 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
                 TextButton(onClick = { showOptions = true }) { Text("Options & bids") }
                 Button(
                     onClick = {
+                        if (forumGame && (!myEmail.contains('@') || !otherEmail.contains('@'))) {
+                            error = "Enter both dice server emails: every roll is mailed to both players."
+                            return@Button
+                        }
+                        if (threadHeldBack) {
+                            error = ThreadHeldBack().message
+                            return@Button
+                        }
                         loading = true
                         scope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { GameController.startSession(data, kinds.toMap(), fromSave = saveFile != null) }
+                                runCatching {
+                                    // a thread opened by an earlier Start is reused, never opened twice
+                                    val thread = if (forumGame) {
+                                        prepareForumGame(data, forumThread ?: createdThread, threadTitle, firstPost, myEmail.trim(), otherEmail.trim())
+                                            .also { createdThread = it }
+                                    } else null
+                                    GameController.startSession(data, kinds.toMap(), fromSave = saveFile != null, forumThread = thread)
+                                }.onFailure { if (it is ThreadHeldBack) threadHeldBack = true }
                             }
                             loading = false
                             ok.onSuccess { onGameStarted() }
@@ -225,6 +301,68 @@ fun SetupScreen(saveFile: Path?, onGameStarted: () -> Unit, onBack: () -> Unit) 
         }
         if (gameData == null && !loading) {
             OutlinedButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("Back") }
+        }
+    }
+}
+
+/**
+ * Writes the dice emails into the game, remembers the player's own, and for a new game opens its
+ * forum thread. Returns the thread the game posts to. Call from a background thread.
+ */
+private fun prepareForumGame(
+    data: GameData,
+    existing: GameThread?,
+    title: String,
+    firstPost: String,
+    myEmail: String,
+    otherEmail: String,
+): GameThread {
+    data.properties.set(PbfProperties.DICE_EMAIL_1, myEmail)
+    data.properties.set(PbfProperties.DICE_EMAIL_2, otherEmail)
+    // the field the player confirmed with Start as theirs (the setup asks when it had to guess)
+    AppSettings.update { it.copy(diceEmail = myEmail) }
+    if (existing != null) return existing
+    // a new game starts on the forum the Play by Forum screen showed
+    val forum = ForumAccount.selected.value
+    val client = ForumAccount.client(forum) ?: throw IllegalStateException("Sign in to ${forum.label} under Play by Forum first.")
+    val content = firstPost.ifBlank { "New ${data.gameName} game. Who joins?" }
+    return client.startThread(title.ifBlank { data.gameName }, content).orElseThrow { ThreadHeldBack() }
+}
+
+/** The forum queued the new thread for a moderator: it has no id to post to yet. */
+private class ThreadHeldBack :
+    IllegalStateException("The forum holds the new thread for a moderator. Open it from Play by Forum once it is approved.")
+
+@Composable
+private fun ForumGameFields(
+    newGame: Boolean,
+    threadTitle: String,
+    onThreadTitle: (String) -> Unit,
+    firstPost: String,
+    onFirstPost: (String) -> Unit,
+    myEmail: String,
+    onMyEmail: (String) -> Unit,
+    otherEmail: String,
+    onOtherEmail: (String) -> Unit,
+    warning: String?,
+    onRegister: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Play by Forum", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        if (newGame) {
+            OutlinedTextField(threadTitle, onThreadTitle, Modifier.fillMaxWidth(), label = { Text("Thread title") }, singleLine = true)
+            OutlinedTextField(firstPost, onFirstPost, Modifier.fillMaxWidth(), label = { Text("First post (optional)") }, maxLines = 3)
+        }
+        OutlinedTextField(myEmail, onMyEmail, Modifier.fillMaxWidth(), label = { Text("Your dice email") }, singleLine = true)
+        OutlinedTextField(otherEmail, onOtherEmail, Modifier.fillMaxWidth(), label = { Text("Opponent's dice email") }, singleLine = true)
+        warning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Both emails must be registered with the dice server.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRegister) { Text("Register") }
         }
     }
 }

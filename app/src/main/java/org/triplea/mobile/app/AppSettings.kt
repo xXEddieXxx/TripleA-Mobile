@@ -65,6 +65,9 @@ data class Settings(
     val soundOther: Boolean = true,
     /** Sound era folder override ("" = what the map or the engine default says). */
     val soundTheme: String = "",
+    // play by forum
+    /** The player's own dice server email, filled into every new forum game. */
+    val diceEmail: String = "",
 )
 
 /** Holds the current [Settings], persists them and pushes the engine relevant ones into [ClientSetting]. */
@@ -111,6 +114,7 @@ object AppSettings {
             soundPlacement = prefs.getBoolean("soundPlacement", defaults.soundPlacement),
             soundOther = prefs.getBoolean("soundOther", defaults.soundOther),
             soundTheme = prefs.getString("soundTheme", defaults.soundTheme) ?: defaults.soundTheme,
+            diceEmail = prefs.getString("diceEmail", defaults.diceEmail) ?: defaults.diceEmail,
         )
         // builds before the map followed AI moves stored 0 for everyone: switch those to the new
         // default once; a 0 set on purpose afterwards is kept
@@ -160,6 +164,7 @@ object AppSettings {
             putBoolean("soundPlacement", next.soundPlacement)
             putBoolean("soundOther", next.soundOther)
             putString("soundTheme", next.soundTheme)
+            putString("diceEmail", next.diceEmail)
         }
         applyToEngine(next)
     }

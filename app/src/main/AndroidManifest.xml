@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- "your turn" notifications of forum games, checked every half hour, also after a restart -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- the check waits for a network; JobScheduler refuses such a job without it -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".TripleAApp"
@@ -61,6 +66,11 @@
                 <data android:mimeType="application/x-gzip" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".forum.ForumTurnJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <!-- shares save games with other apps (the share sheet); nothing else is exposed -->
         <provider

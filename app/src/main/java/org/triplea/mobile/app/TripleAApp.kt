@@ -35,6 +35,7 @@ object AppServices {
         MobileEngine.configure(rootDir)
         MobileEngine.setEngineAssetsFolder(engineAssetsDir)
         AppSettings.init(appContext)
+        org.triplea.mobile.app.forum.ForumAccount.init(appContext)
     }
 
     /** Unpacks the bundled maps and engine images on first start. Safe to call repeatedly. */

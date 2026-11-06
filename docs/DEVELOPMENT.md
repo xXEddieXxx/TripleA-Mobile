@@ -7,7 +7,7 @@ Technical documentation for TripleA Mobile. For an overview of the app, see the
 
 | Module    | What it is                                                                                   |
 |-----------|----------------------------------------------------------------------------------------------|
-| `engine/` | The TripleA game engine (delegates, data model, XML parser, AI), stripped of Swing/AWT, networking, lobby, chat and forum posting. Plain Java 17 library, runs on the JVM and on Android. |
+| `engine/` | The TripleA game engine (delegates, data model, XML parser, AI), stripped of Swing/AWT, networking, lobby, chat and desktop forum posting (Play by Forum has its own client in `org.triplea.mobile.forum`). Plain Java 17 library, runs on the JVM and on Android. |
 | `app/`    | The Android application (Kotlin, Jetpack Compose). Map rendering, phase interaction, dialogs. |
 
 ### Engine
@@ -23,7 +23,11 @@ Notable changes compared to the desktop engine:
 - `javax.swing.tree.*` (used by the game history) is replaced by `org.triplea.tree.*`.
 - `ResourceLoader` uses plain file lookups instead of a `URLClassLoader`.
 - `ClientSetting` is an in-memory stub holding only the settings the engine reads.
-- Websocket message types, `PbemMessagePoster` and `Chat` are compile-time stubs.
+- Websocket message types, `PbemMessagePoster` and `Chat` are compile-time stubs. Play by Forum
+  does not post through `PbemMessagePoster`: the app posts while the game thread waits at the
+  end-turn step (see *Play by Forum* below).
+- `games.strategy.triplea.ui.history.HistoryLog` keeps only the turn summary text of the desktop
+  class (no Swing dialog, no territory/dice/production summaries); it builds the forum post.
 - Language level and library usage are Java 17 (no `List.getFirst()` etc.).
 - `MapData.getTerritoryAt` takes a filter for the current game's territory names: a map folder
   shared by several games (world_at_war) has polygons of other games on top of this game's ones,
@@ -47,6 +51,19 @@ The mobile specific API lives in `org.triplea.mobile`:
 - `MobilePlayer` – the human `Player` implementation (port of the desktop `TripleAPlayer`)
 - `GameEventListener` / `MobileDisplay` – battle and message events
 - `UnitImageNames` – unit icon file naming rules
+- `forum.*` – Play by Forum on the two NodeBB forums desktop posts to, `Forum`
+  (forums.triplea-game.org: games in category 45; www.axisandallies.org/forums: new games in
+  "Play Boardgames" 16, games anywhere below "Play Online Axis & Allies" 65; each with desktop's
+  `FORUM_POSTER_NAME`, so saves cross between desktop and mobile; every `GameThread` carries its
+  forum): `NodeBbClient` (port of desktop
+  `NodeBbGameThreads` from the `feat/modern-ui` branch: games, threads, save downloads, uploads,
+  replies, new threads; plus editing and deleting the player's own posts and loading post
+  pictures), `ForumMarkdown` (the editor's Markdown as HTML, for the preview), `MartiDice` (dice.triplea-game.org as `IRandomSource`, never a local
+  fallback), `PbfPost` (desktop's exact post title, text and save name), `TurnPoster` (upload
+  once, retry the reply), `PbfProperties` (desktop's game property names) and `Http` (the one
+  network seam, `HttpURLConnection`; forum requests follow no redirect so the session cookie
+  stays on the forum). Tests in `engine/src/test/java/org/triplea/mobile/forum` answer from fixed
+  JSON.
 
 `engine/src/test` contains a smoke test that runs an AI-only game on the minimap for three rounds
 and round-trips a save game.
@@ -59,6 +76,31 @@ and round-trips a save game.
   engine read lock whenever the game data changes
 - `MapView` – Compose canvas with pinch zoom/pan, tile drawing and tap-to-territory hit testing
 - `GameScreen` / `Dialogs` – phase panel and the dialogs for engine questions
+- `forum/` – Play by Forum: `ForumLoginScreen` (the forum's login page in a WebView; the
+  `express.sid` cookie is kept by `ForumAccount`, AES-GCM encrypted with an Android Keystore
+  key), `ForumGamesScreen` (my games with a "your turn" guess as desktop makes it, browse
+  the first 3 pages of the forum's game category, a switch between the two forums, each with its
+  own sign-in, search and a 60-day inactive filter via `GameSearch`), `ForumThreadScreen` (posts on cards with their pictures, a "new posts" line,
+  pull to refresh, quote / edit / delete per post, a reply kept as a draft per thread with
+  pictures and the player's own saves attached, Join (Start game in a one-page thread without a
+  save: the setup's game list and dice emails, the first turn posted to that thread), open a save with a
+  missing-map download; each save asks Watch or Join: Watch is `GameController.watchSave`, a
+  session whose game loop is never started, so nothing is asked, rolled or posted),
+  `ForumTurnSheet` (end-turn review: Keep playing or Send; the same dialog posts the game as it
+  stands from the game menu's "Post save to forum", desktop's "Manual Gamesave Post" with the
+  turn so far, not marking the turn posted; "Ask opponent" in every must-answer dialog and in the
+  battle window footer opens it with the question quoted and a screenshot (`ForumScreenshot`,
+  PixelCopy of the game window) attached, then offers to stop until the answer; the save is taken
+  while the engine waits for the answer and resumes at that question, see
+  `HumanPlayerFlowTest.saveWhileAskedResumesAtTheQuestion`), `ForumEditor` (the shared Markdown
+  editor: toolbar, preview, @mention of the thread's players), `ForumTurnJob` (a JobScheduler
+  job every 30 minutes while signed in: one "your turn" notification per unseen last post of a
+  game active in the last 60 days; the tap opens the thread), `ForumThreadState` (drafts, last
+  post seen, last notified) and
+  `ForumSaves` (which thread a downloaded save belongs to). A forum game's setup writes both dice
+  emails; `GameController` sets `FORUM_POSTER_NAME`/`FORUM_POSTER_TOPIC_ID` and the dice source.
+  At Send it marks the turn posted, saves as `triplea_<topic>_<round><abc>.tsvg`, uploads and
+  replies, as desktop does.
 
 ## Building
 
@@ -182,8 +224,17 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
 - Save games are Java serialized; they are read through `SafeObjectInputStream`, which only
   resolves engine, JDK and Guava classes, so a crafted save cannot instantiate arbitrary classes.
 - Game XML is parsed with DTDs and external entities disabled.
-- The app asks for no permissions beyond INTERNET and VIBRATE and stores everything in its
-  private app folder.
+- The app asks for no permissions beyond INTERNET, VIBRATE, POST_NOTIFICATIONS,
+  RECEIVE_BOOT_COMPLETED (the forum's "your turn" check survives a restart) and
+  ACCESS_NETWORK_STATE (JobScheduler refuses a job that waits for a network without it; on
+  Android 16 a missing one crashed the app at start once signed in) and stores
+  everything in its private app folder.
+- Post pictures load over https only; the session cookie goes with forum-hosted pictures only.
+  The Markdown preview escapes the player's text before it adds its own tags.
+- Play by Forum: each forum's session cookie is stored encrypted (Android Keystore AES-GCM),
+  never logged, sent only to the forum it belongs to (no redirects followed), and save games are only
+  downloaded from the forum's own host and path. The password never passes through the app: the
+  login is the forum's own page in a WebView.
 
 ## How a game runs
 
@@ -214,3 +265,8 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
   engine may still fail to load on the other side.
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.
+- Play by Forum covers forums.triplea-game.org and www.axisandallies.org/forums (no other NodeBB
+  forum; the axisandallies.org login is assumed to use NodeBB's default `express.sid` cookie), shows a post's
+  pictures below its text rather than in line, notifies a "your turn" from the same guess as the
+  games list (someone else posted last), and does not know which nations a player owns (desktop
+  does not either).

@@ -61,6 +61,14 @@ import org.triplea.mobile.app.Haptics
 import org.triplea.mobile.app.sound.SoundPlayer
 import org.triplea.sound.SoundPath
 import games.strategy.engine.data.GameStep
+import org.triplea.mobile.forum.Http
+import org.triplea.mobile.forum.MartiDice
+import org.triplea.mobile.forum.NodeBbClient
+import org.triplea.mobile.forum.PbfPost
+import org.triplea.mobile.forum.PbfProperties
+import org.triplea.mobile.app.forum.ForumSaves
+import games.strategy.triplea.delegate.remote.IAbstractForumPosterDelegate
+import games.strategy.triplea.ui.history.HistoryLog
 
 /** Round, step and active player as shown in the top bar. */
 data class GameStatus(
@@ -122,6 +130,24 @@ data class BattleState(
         val updated = if (attackerSide) current.copy(attackerLost = current.attackerLost + fresh) else current.copy(defenderLost = current.defenderLost + fresh)
         val rest = if (lossesByRound.lastOrNull()?.round == round) lossesByRound.dropLast(1) else lossesByRound
         return copy(lossesByRound = rest + updated)
+    }
+}
+
+/**
+ * The game as it stands, to post to its thread at any time: the nation on turn, round and turn so
+ * far; with a [question] (and its [screenshot]) when the opponent is asked to decide something.
+ */
+data class ManualForumPost(
+    val player: String,
+    val round: Int,
+    val summary: String,
+    val thread: NodeBbClient.GameThread,
+    val question: String = "",
+    val screenshot: Path? = null,
+) {
+    companion object {
+        /** Desktop's title for it, which the forum games list reads as a turn too. */
+        const val STEP_TITLE = "Manual Gamesave Post"
     }
 }
 
@@ -203,15 +229,63 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     var startedFromSave: Boolean = false
         private set
 
-    fun startSession(data: GameData, kinds: Map<String, PlayerKind>, fromSave: Boolean = false): LocalGameSession {
+    /** The forum thread of a play-by-forum game, null for a local game. */
+    @Volatile
+    var forumThread: NodeBbClient.GameThread? = null
+        private set
+
+    /** The nations played since the forum game was opened; the posted summary covers them all. */
+    private val forumNations = LinkedHashSet<GamePlayer>()
+
+    /** A save shown without playing it: the game loop never runs, nothing is rolled or posted. */
+    @Volatile
+    var watching: Boolean = false
+        private set
+
+    /** Opens a save to look at (map, history) without playing any nation. Call from a background thread. */
+    fun watchSave(data: GameData, forumThread: NodeBbClient.GameThread?): LocalGameSession {
         quit()
+        watching = true
+        startedFromSave = true
+        humanPlayers.clear()
+        this.forumThread = forumThread
+        _gameOver.value = null
+        _battle.value = null
+        // nobody plays: the loop is not started, so no nation is ever asked or run
+        val newSession = LocalGameSession.create(data, data.playerList.players.associate { it.name to PlayerKind.AI_NONE }, this, this)
+        newSession.addChangeListener { _dataVersion.value = _dataVersion.value + 1 }
+        session = newSession
+        updateStatus(data)
+        return newSession
+    }
+
+    fun startSession(
+        data: GameData,
+        kinds: Map<String, PlayerKind>,
+        fromSave: Boolean = false,
+        forumThread: NodeBbClient.GameThread? = null,
+    ): LocalGameSession {
+        quit()
+        watching = false
         startedFromSave = fromSave
         humanPlayers.clear()
         humanPlayers += kinds.filterValues { it == PlayerKind.HUMAN }.keys
         _gameOver.value = null
         _battle.value = null
         _status.value = GameStatus()
+        this.forumThread = forumThread
+        forumNations.clear()
+        if (forumThread != null) {
+            // desktop's names and types, so a desktop opponent posts to the same thread
+            data.properties.set(PbfProperties.FORUM_NAME, forumThread.forum().posterName)
+            data.properties.set(PbfProperties.TOPIC_ID, forumThread.topicId())
+        }
         val newSession = LocalGameSession.create(data, kinds, this, this)
+        val email1 = data.properties.get(PbfProperties.DICE_EMAIL_1, "")
+        if (forumThread != null && email1.isNotBlank()) {
+            val email2 = data.properties.get(PbfProperties.DICE_EMAIL_2, "")
+            newSession.serverGame.setRandomSource(MartiDice(Http.real(true), email1, email2) { ask(DiceFailedRequest(it ?: "")) })
+        }
         newSession.addChangeListener { _dataVersion.value = _dataVersion.value + 1 }
         session = newSession
         lastPhaseSoundPlayer = null
@@ -344,7 +418,90 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         ask(PlaceRequest(player, bid))
 
     override fun waitForEndTurn(player: GamePlayer) {
+        val thread = forumThread
+        val data = gameData
+        if (thread != null && data != null) {
+            // as desktop: no post for a step marked so, nor again for a turn already posted
+            val posted = (data.sequence.step.delegate as? IAbstractForumPosterDelegate)?.hasPostedTurnSummary == true
+            if (!posted && !GameStepPropertiesHelper.isSkipPosting(data)) {
+                // only nations played here: a loaded save starts at the opponent's posted end turn
+                forumNations += player
+                val (round, summary) = data.acquireReadLock().use {
+                    data.sequence.round to HistoryLog().apply { printFullTurn(data, false, forumNations) }.toString()
+                }
+                ask(ForumTurnRequest(player, round, summary, thread))
+                return
+            }
+        }
         ask(EndTurnRequest(player))
+    }
+
+    /**
+     * Marks the turn posted and saves it under desktop's name, as desktop does before it posts, so
+     * whoever loads the save goes on at once. Call from a background thread.
+     */
+    fun saveForumTurn(request: ForumTurnRequest): Path {
+        checkNotNull(gameData) { "No game running" }
+        val file = forumTurnFile(request)
+        markPosted(true)
+        try {
+            saveFresh(file)
+        } catch (e: Exception) {
+            markPosted(false)
+            throw e
+        }
+        ForumSaves.record(file, request.thread)
+        return file
+    }
+
+    /**
+     * Gives up sending for now: the turn's save is written again unmarked, so opening it later
+     * (load screen) shows the review again. Call from a background thread.
+     */
+    fun unsendForumTurn(request: ForumTurnRequest) {
+        markPosted(false)
+        saveGame(forumTurnFile(request))
+        ForumSaves.record(forumTurnFile(request), request.thread)
+    }
+
+    /**
+     * The post desktop's "Post PBEM/PBF Gamesave" makes: the nation whose step it is (or the
+     * null player between turns), the round and the whole turn so far. Null outside a played forum game.
+     */
+    fun manualForumPost(): ManualForumPost? {
+        val thread = forumThread ?: return null
+        val data = gameData ?: return null
+        if (watching) return null
+        return data.acquireReadLock().use {
+            val player = data.sequence.step?.playerId ?: data.playerList.nullPlayer
+            val summary = HistoryLog().apply { printFullTurn(data, true, GameStepPropertiesHelper.getTurnSummaryPlayers(data)) }.toString()
+            ManualForumPost(player.name, data.sequence.round, summary, thread)
+        }
+    }
+
+    /** Saves the game as it stands under desktop's name, unmarked: the turn goes on. Call from a background thread. */
+    fun saveManualForumPost(post: ManualForumPost): Path {
+        val file = MobileEngine.getSaveGamesFolder().resolve(PbfPost.saveName(post.thread.topicId(), post.round, post.player))
+        saveFresh(file)
+        ForumSaves.record(file, post.thread)
+        return file
+    }
+
+    /**
+     * Saves to the file or throws: the engine only logs a save it could not make (the game busy for
+     * 12 s), and an older file of the name would then be posted as if it were this one.
+     */
+    private fun saveFresh(file: Path) {
+        java.nio.file.Files.deleteIfExists(file)
+        saveGame(file)
+        check(java.nio.file.Files.exists(file)) { "The game could not be saved just now; try again." }
+    }
+
+    private fun forumTurnFile(request: ForumTurnRequest): Path = MobileEngine.getSaveGamesFolder()
+        .resolve(PbfPost.saveName(request.thread.topicId(), request.round, request.player.name))
+
+    private fun markPosted(posted: Boolean) {
+        (gameData?.sequence?.step?.delegate as? IAbstractForumPosterDelegate)?.setHasPostedTurnSummary(posted)
     }
 
     override fun notifyError(error: String) {

@@ -44,6 +44,7 @@ import org.triplea.mobile.app.AppServices
 fun HomeScreen(
     onNewGame: () -> Unit,
     onLoadGames: () -> Unit,
+    onPlayByForum: () -> Unit,
     onMapBrowser: () -> Unit,
     onSettings: () -> Unit,
     onHowToPlay: () -> Unit,
@@ -85,6 +86,8 @@ fun HomeScreen(
             OutlinedButton(onClick = onLoadGames, modifier = Modifier.fillMaxWidth()) {
                 Text(if (saves.isEmpty()) "Load game" else "Load game (${saves.size})")
             }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onPlayByForum, modifier = Modifier.fillMaxWidth()) { Text("Play by Forum") }
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onMapBrowser, modifier = Modifier.fillMaxWidth()) { Text("Map browser") }
             Spacer(Modifier.height(12.dp))

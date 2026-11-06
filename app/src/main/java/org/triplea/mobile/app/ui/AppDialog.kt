@@ -16,6 +16,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -35,6 +40,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+
+/**
+ * Set by the game screen in a forum game while the engine waits for an answer: posts the question
+ * (the text given) with a screenshot and the save to the game's thread, for the opponent to answer.
+ */
+val LocalAskOpponent = compositionLocalOf<((question: String) -> kotlin.Unit)?> { null }
+
+/** "Ask opponent", for the questions of a forum game the opponent should decide. */
+@Composable
+fun AskOpponentButton(question: String) {
+    val ask = LocalAskOpponent.current ?: return
+    TextButton(onClick = { ask(question) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+        Icon(Icons.Filled.Forum, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text("Ask opponent", Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge)
+    }
+}
 
 /**
  * The app's dialog frame, used by every pop-up so they all look and behave the same: a plain
@@ -92,6 +113,9 @@ fun AppDialog(
                     if (onDismiss != null) {
                         // the X closes without a choice; the buttons below confirm one
                         IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "close") }
+                    } else {
+                        // a question that must be answered: in a forum game the opponent may be the one to decide
+                        AskOpponentButton(listOfNotNull(title, subtitle?.takeIf { it.isNotBlank() }).joinToString("\n"))
                     }
                 }
                 Column(Modifier.weight(1f, fill = false).padding(horizontal = 20.dp)) { content() }

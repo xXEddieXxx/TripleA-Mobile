@@ -51,6 +51,20 @@ class BattleRequest(val player: GamePlayer, val battles: BattleListing) :
 
 class EndTurnRequest(val player: GamePlayer) : UiRequest<Boolean>()
 
+/** The dice server failed to roll; true retries, false ends the session without rolling locally. */
+class DiceFailedRequest(val message: String) : UiRequest<Boolean>()
+
+/**
+ * The end of a forum game's turn: completed with "keep playing" (the next nation is also the
+ * player's); Send posts and quits the session instead, which cancels the request.
+ */
+class ForumTurnRequest(
+    val player: GamePlayer,
+    val round: Int,
+    val summary: String,
+    val thread: org.triplea.mobile.forum.NodeBbClient.GameThread,
+) : UiRequest<kotlin.Unit>()
+
 class ConfirmRequest(
     val title: String,
     val question: String,
