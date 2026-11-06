@@ -36,14 +36,35 @@ import org.triplea.mobile.app.ui.LoadGameScreen
 import org.triplea.mobile.app.ui.MapBrowserScreen
 import org.triplea.mobile.app.ui.SettingsScreen
 import org.triplea.mobile.app.ui.SetupScreen
+import org.triplea.mobile.app.forum.DiceRegistrationScreen
+import org.triplea.mobile.app.forum.ForumAccount
+import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.forum.ForumGamesScreen
+import org.triplea.mobile.forum.Forum
+import org.triplea.mobile.app.forum.ForumLoginScreen
+import org.triplea.mobile.app.forum.ForumSaves
+import org.triplea.mobile.app.forum.ForumThreadScreen
+import org.triplea.mobile.app.forum.ForumTurnJob
+import org.triplea.mobile.forum.NodeBbClient
 
 /** Holds navigation arguments that are awkward to encode into a route string. */
 object NavArgs {
     @Volatile
     var saveFile: Path? = null
 
+    /** The forum thread the thread screen shows, and that a save opened from it belongs to. */
+    @Volatile
+    var forumThread: NodeBbClient.GameThread? = null
+
+    /** The setup screen starts a new play-by-forum game. */
+    @Volatile
+    var newForumGame: Boolean = false
+
     /** A save game handed to the app by another app (a chat, a mail); the load screen imports it. */
     val pendingImport = MutableStateFlow<Uri?>(null)
+
+    /** The forum thread a tapped "your turn" notification opens. */
+    val pendingThread = MutableStateFlow<NodeBbClient.GameThread?>(null)
 }
 
 class MainActivity : ComponentActivity() {
@@ -66,6 +87,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun takeImport(intent: Intent?) {
+        if (intent?.action == ForumTurnJob.ACTION_OPEN_THREAD) {
+            val topic = intent.getIntExtra(ForumTurnJob.EXTRA_TOPIC, 0)
+            val forum = Forum.entries.firstOrNull { it.name == intent.getStringExtra(ForumTurnJob.EXTRA_FORUM) } ?: Forum.TRIPLEA
+            if (topic > 0) {
+                NavArgs.pendingThread.value = NodeBbClient.GameThread.of(
+                    forum,
+                    topic,
+                    intent.getStringExtra(ForumTurnJob.EXTRA_SLUG).orEmpty(),
+                    intent.getStringExtra(ForumTurnJob.EXTRA_TITLE).orEmpty(),
+                )
+            }
+            return
+        }
         val uri: Uri? = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             // shared "to" the app: the file travels as a stream extra, not as the data URI
@@ -113,18 +147,85 @@ private fun AppNavigation() {
     LaunchedEffect(pendingImport) {
         if (pendingImport != null) navController.navigate("load") { launchSingleTop = true }
     }
+    val pendingThread by NavArgs.pendingThread.collectAsState()
+    LaunchedEffect(pendingThread) {
+        val thread = pendingThread ?: return@LaunchedEffect
+        // not into a running game: its forum turn would be lost; the notification just brings the app up
+        if (navController.currentDestination?.route != "game") {
+            NavArgs.forumThread = thread
+            navController.navigate("forum/thread")
+        }
+        NavArgs.pendingThread.value = null
+    }
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             HomeScreen(
                 onNewGame = {
                     NavArgs.saveFile = null
+                    NavArgs.forumThread = null
+                    NavArgs.newForumGame = false
                     navController.navigate("setup")
                 },
                 onLoadGames = { navController.navigate("load") },
+                onPlayByForum = { navController.navigate("forum") },
                 onMapBrowser = { navController.navigate("maps") },
                 onSettings = { navController.navigate("settings") },
                 onHowToPlay = { navController.navigate("howto") },
                 onAbout = { navController.navigate("about") },
+            )
+        }
+        composable("forum") {
+            ForumGamesScreen(
+                onSignIn = { navController.navigate("forum/login") },
+                onOpenThread = { thread ->
+                    NavArgs.forumThread = thread
+                    navController.navigate("forum/thread")
+                },
+                onNewGame = {
+                    NavArgs.saveFile = null
+                    NavArgs.forumThread = null
+                    NavArgs.newForumGame = true
+                    navController.navigate("setup")
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable("forum/thread") {
+            val thread = NavArgs.forumThread
+            if (thread == null) {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            } else {
+                ForumThreadScreen(
+                    thread = thread,
+                    onOpenSave = { save ->
+                        NavArgs.saveFile = save
+                        NavArgs.newForumGame = false
+                        navController.navigate("setup")
+                    },
+                    onWatch = { navController.navigate("game") },
+                    onSignIn = {
+                        // the login opens on the forum the thread is on
+                        ForumAccount.select(thread.forum())
+                        navController.navigate("forum/login")
+                    },
+                    onStartGame = {
+                        // the setup's game list and dice emails, the game then posting to this thread
+                        NavArgs.saveFile = null
+                        NavArgs.newForumGame = false
+                        navController.navigate("setup")
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+        }
+        composable("dice/register") {
+            DiceRegistrationScreen(onBack = { navController.popBackStack() })
+        }
+        composable("forum/login") {
+            ForumLoginScreen(
+                forum = ForumAccount.selected.value,
+                onSignedIn = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
             )
         }
         composable("about") {
@@ -138,6 +239,9 @@ private fun AppNavigation() {
                 onBack = { navController.popBackStack() },
                 onLoad = { save ->
                     NavArgs.saveFile = save
+                    // a save downloaded from a forum thread still posts to it
+                    NavArgs.forumThread = ForumSaves.threadFor(save)
+                    NavArgs.newForumGame = false
                     navController.navigate("setup")
                 },
             )
@@ -151,6 +255,9 @@ private fun AppNavigation() {
         composable("setup") {
             SetupScreen(
                 saveFile = NavArgs.saveFile,
+                forumThread = NavArgs.forumThread,
+                newForumGame = NavArgs.newForumGame,
+                onRegisterDiceEmail = { navController.navigate("dice/register") },
                 onGameStarted = {
                     navController.navigate("game") {
                         popUpTo("home") { inclusive = false }
@@ -162,9 +269,20 @@ private fun AppNavigation() {
         composable("game") {
             GameScreen(
                 onQuit = {
-                    navController.navigate("home") {
-                        popUpTo("home") { inclusive = true }
+                    // only from the game itself: a game ended by a sent turn has already moved to its thread
+                    if (navController.currentDestination?.route == "game") {
+                        navController.navigate("home") {
+                            popUpTo("home") { inclusive = true }
+                        }
                     }
+                },
+                onOpenForum = { thread ->
+                    NavArgs.forumThread = thread
+                    if (GameController.session == null) {
+                        // the turn is sent and the game over: home > forum > thread, so Back leads to the games
+                        navController.navigate("forum") { popUpTo("home") }
+                    }
+                    navController.navigate("forum/thread")
                 },
             )
         }

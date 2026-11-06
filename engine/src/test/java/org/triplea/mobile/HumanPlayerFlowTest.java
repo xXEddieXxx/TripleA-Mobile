@@ -12,6 +12,7 @@ import games.strategy.engine.data.Unit;
 import games.strategy.triplea.delegate.data.BattleListing;
 import games.strategy.triplea.delegate.data.FightBattleDetails;
 import games.strategy.triplea.ui.PlaceData;
+import games.strategy.triplea.ui.history.HistoryLog;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -77,10 +78,79 @@ class HumanPlayerFlowTest {
     assertThat(human.errors).as("engine rejected a human action").isEmpty();
   }
 
-  private static final class ScriptedHuman extends HumanPlayerUiAdapter {
+  @Test
+  void turnSummaryDescribesTheHumanTurn() {
+    final Path xml = MobileEngine.listInstalledGames().get(0).getXmlPath();
+    final GameData gameData = MobileEngine.parseGame(xml).orElseThrow();
+    final String humanNation = gameData.getPlayerList().getPlayers().get(0).getName();
+
+    final ScriptedHuman human = new ScriptedHuman();
+    final LocalGameSession session =
+        LocalGameSession.create(
+            gameData, Map.of(humanNation, PlayerKind.HUMAN), human, new GameEventListener() {});
+
+    session.setUpForSteps();
+    int steps = 0;
+    while (human.endTurns == 0 && steps < 100 && !session.isGameOver()) {
+      session.runNextStep();
+      steps++;
+    }
+    session.stop();
+
+    assertThat(human.turnSummary).isNotBlank().contains(humanNation);
+  }
+
+  /**
+   * A forum player asks the opponent and saves while the engine waits for their answer: the save
+   * is made, and loading it goes on at that same question, as the app's "Ask opponent" relies on.
+   */
+  @Test
+  void saveWhileAskedResumesAtTheQuestion() {
+    final Path xml = MobileEngine.listInstalledGames().get(0).getXmlPath();
+    final GameData gameData = MobileEngine.parseGame(xml).orElseThrow();
+    final String humanNation = gameData.getPlayerList().getPlayers().get(0).getName();
+    final Path save = userRoot.resolve("asked.tsvg");
+    final LocalGameSession[] running = new LocalGameSession[1];
+    final ScriptedHuman asking =
+        new ScriptedHuman() {
+          @Override
+          public Optional<IntegerMap<ProductionRule>> getPurchase(
+              final GamePlayer player, final boolean bid, final boolean keepCurrentPurchase) {
+            if (purchases == 0) {
+              running[0].saveGame(save);
+            }
+            return super.getPurchase(player, bid, keepCurrentPurchase);
+          }
+        };
+    running[0] =
+        LocalGameSession.create(
+            gameData, Map.of(humanNation, PlayerKind.HUMAN), asking, new GameEventListener() {});
+    running[0].setUpForSteps();
+    for (int steps = 0; asking.purchases == 0 && steps < 50; steps++) {
+      running[0].runNextStep();
+    }
+    final int askedRound = gameData.getSequence().getRound();
+    running[0].stop();
+
+    assertThat(save).exists();
+    final GameData loaded = MobileEngine.loadSaveGame(save).orElseThrow();
+    final ScriptedHuman resumed = new ScriptedHuman();
+    final LocalGameSession session =
+        LocalGameSession.create(
+            loaded, Map.of(humanNation, PlayerKind.HUMAN), resumed, new GameEventListener() {});
+    session.setUpForSteps();
+    session.runNextStep();
+    session.stop();
+
+    assertThat(resumed.purchases).as("the loaded save asks the same question first").isEqualTo(1);
+    assertThat(loaded.getSequence().getRound()).isEqualTo(askedRound);
+  }
+
+  private static class ScriptedHuman extends HumanPlayerUiAdapter {
     int purchases;
     int movePhases;
     int endTurns;
+    String turnSummary;
     final List<String> errors = new ArrayList<>();
 
     @Override
@@ -141,6 +211,11 @@ class HumanPlayerFlowTest {
 
     @Override
     public void waitForEndTurn(final GamePlayer player) {
+      if (endTurns == 0) {
+        final HistoryLog log = new HistoryLog();
+        log.printFullTurn(player.getData(), false, List.of(player));
+        turnSummary = log.toString();
+      }
       endTurns++;
     }
 

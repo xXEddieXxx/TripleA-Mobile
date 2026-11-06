@@ -1,0 +1,201 @@
+Engine as a JAR dependency - discussion (2026-11-05)
+=====================================================
+
+
+QUESTION
+--------
+The project depends on the engine. The maintainer told me that the current way needs some work
+for major updates:
+
+  "@Eddie the update burden is pretty real. WDYT of creating a JAR dependency on the game engine.
+  Then version changes would hopefully be just a version bump. We would need to do a CI update to
+  publish that JAR, and secondly backport the needed changes (IIRC there were a few things needed,
+  but not too many"
+
+What can you say to his idea?
+
+
+ANSWER
+------
+I'd tell him yes, it's the right direction, and the code mostly supports his "only a few things"
+estimate. But the CI job is the easy part. The real work is making the engine part of game-core
+free of Swing and AWT, so Android can use it straight from the JAR, and then keeping it that way.
+
+
+How far the mobile engine is from upstream
+
+Every file in engine/ compared with upstream at the tag it was synced from (2026-10.16.15815),
+ignoring whitespace:
+
+  Identical to upstream   614
+  Changed                  66
+  Mobile-only              26
+
+So about 87% is a plain copy. That copy step is the update burden he's talking about.
+
+The 26 mobile-only files:
+- 12 are org.triplea.mobile, the app's API on top of the engine. These stay in the mobile repo
+  whatever happens.
+- 8 replace AWT and Swing classes: org.triplea.geom.* and org.triplea.tree.*.
+- 4 are stand-ins for lobby and WebSocket classes, plus SafeObjectInputStream.
+
+The 66 changed files fall into four groups:
+- Desktop code rewritten or stubbed. The biggest diffs are ClientSetting (435 lines),
+  ResourceLoader (332), PbemMessagePoster (320), Chat (201), ClientFileSystemHelper (150),
+  FileUtils (127) and ServerGame (100).
+- Swing and AWT inside the engine itself:
+  - GameData imports games.strategy.ui.Util for an event-thread check.
+  - History is built on javax.swing.tree.
+  - MapData uses java.awt.Polygon and Point.
+  - The game property classes carry Swing editors.
+  Android has no java.awt or javax.swing.
+- Mobile features added to the engine:
+  - AirMovementValidator.airThatCannotLand, which warns that planes can't land.
+  - The MapData.getTerritoryAt filter.
+  - The camera hook in IDisplay.
+  - The autosave switch in ServerGame.
+  - A casualty-timing change in MustFightBattle.
+  These would have to go upstream.
+- Small Sonar fixes marked "// mobile:". These can be dropped or sent upstream.
+
+
+What a usable JAR needs upstream
+
+1. No Swing or AWT on the classes a game uses. That means GameData, History, MapData and the
+   property classes. This is most of the backport.
+2. Hooks the app can plug its own versions into for ClientSetting, ResourceLoader and
+   ClientFileSystemHelper, instead of mobile replacing those classes.
+3. Java 17 output. Since #14565 upstream builds with JDK 25. The engine code is already
+   Java 17-clean, which is why most files copy unchanged. Setting options.release = 17 on the
+   published modules keeps it that way: upstream CI fails at compile time instead of the app
+   crashing later on an older phone.
+4. A module that is only the engine. Today game-core depends on swing-lib, lobby-client,
+   websocket-client and game-relay-server. Publishing it as it is pulls all of that in. A
+   separate engine-only module avoids that. map-data, domain-data and xml-reader have no AWT
+   imports at all, and java-extras has two files, so those could be published first.
+5. A guard. game-core already uses ArchUnit. One rule saying engine packages must not depend on
+   java.awt or javax.swing keeps "just a version bump" true. Without it, any desktop refactor
+   can quietly bring Swing back, and mobile only finds out when the app runs.
+
+
+The CI part
+
+upload-http-client-jars.yml already publishes lobby-client-data to GitHub Packages, so this is
+mostly a copy. Trigger it on release tags rather than on every push to main, so mobile always
+pins a real release.
+
+One catch: GitHub Packages needs a token to download even public Maven packages. Anyone building
+the app, and its CI, would need a GITHUB_TOKEN. Maven Central or JitPack don't have that problem.
+
+There's a side benefit for save games. They already move between desktop and mobile when both
+run the same engine version, and a pinned JAR makes running the same version the normal case.
+
+
+A reply you could send
+
+  Agreed, I'd like that. I measured it: of the 706 engine files I copy, 614 are identical to
+  upstream, so the backport is real but bounded. What it takes: (1) get Swing/AWT out of the
+  engine classes (GameData's EDT check, History's swing.tree, AWT geometry in MapData, property
+  editors), plus an ArchUnit rule so it stays out; (2) hooks for ClientSetting / ResourceLoader /
+  ClientFileSystemHelper; (3) a handful of mobile engine features upstreamed; (4) an engine-only
+  module published on release tags with --release 17, by copying the lobby-client-data
+  workflow. Steps 1-3 shrink my diff even before the JAR exists, so we can go one PR at a time.
+  One question: GitHub Packages needs a token even for public packages. Would Maven Central or
+  JitPack be an option?
+
+Not checked: building the app against a published upstream JAR, so there could be problems not
+found yet, especially in the dependencies game-core pulls in. The 66 changed files were counted
+against the synced tag, not current upstream.
+
+
+QUESTION
+--------
+Why can't Swing or AWT be used on Android?
+
+
+ANSWER
+------
+Android runs Java code, but it doesn't ship the full Java standard library. Google built its own
+runtime (ART, the Android Runtime) with a smaller class library, and Swing and AWT were left out
+on purpose.
+
+Why they were left out
+- AWT is a wrapper around desktop windowing systems. It draws through native code into the
+  Windows, X11 or macOS window system. Android has none of those. Its screen is managed by its
+  own system (Activities and Views, drawn by Skia), so there is nothing for AWT to draw into.
+- Swing is built on AWT. Every Swing component is an AWT container, so without AWT there's no
+  Swing.
+- Android has its own UI toolkit instead: android.view and android.graphics, and now Jetpack
+  Compose, which this app uses.
+
+Even the harmless parts are missing. java.awt.Point, Polygon, Color and
+javax.swing.tree.DefaultMutableTreeNode are plain data classes that don't draw anything. They
+still live in the same desktop part of the JDK, and Android didn't take any of it. That's why the
+mobile engine has its own copies under new package names (org.triplea.geom.*,
+org.triplea.tree.*). You can't just ship the originals under their java.* names, because
+Android's build tools treat those packages as reserved for the platform.
+
+What happens if engine code uses them anyway
+- When compiling against Android: the classes don't exist, so the code doesn't compile.
+- When it comes in a prebuilt JAR: the Android build tools warn about missing classes, or stop
+  with an error unless you tell them to ignore it.
+- At runtime: nothing happens until the first time the code actually runs. Then the app crashes
+  with NoClassDefFoundError.
+
+What this means for the JAR idea: a class in the JAR that mentions Swing is harmless as long as
+Android never runs it, like the desktop UI classes. The problem is engine classes every game
+uses, such as GameData (Swing event-thread check), History (Swing tree) and MapData (AWT shapes).
+Those have to be Swing- and AWT-free upstream, otherwise mobile has to keep patching them.
+
+
+QUESTION
+--------
+So a solution would be to take out the UI code from the main engine and serve it as an API?
+
+
+ANSWER
+------
+Yes, roughly, with one correction: "API" here means Java interfaces inside the same program, not
+a service the UI calls over a network. The rule is that the UI may depend on the engine, but the
+engine must never depend on the UI.
+
+  today                              target
+
+  game-core                          engine          (no Swing/AWT, published as JAR)
+   |- engine --uses--> Swing           ^ defines interfaces: Player, IDisplay, settings, files...
+   '- desktop UI                       |
+                                       |-- desktop UI  (Swing, implements the interfaces)
+                                       '-- mobile app  (Compose, implements the same interfaces)
+
+Most of this split already exists upstream. The engine talks to whoever plays through
+interfaces. The desktop implements Player with TripleAPlayer and IDisplay with TripleADisplay.
+The mobile app implements the same ones with MobilePlayer and MobileDisplay, and its
+HumanPlayerUi follows the same idea. So this isn't a redesign. It means fixing the places where
+engine classes reach into Swing directly. Each one has a small, known fix:
+
+- GameData checks that it runs on the Swing UI thread
+    -> Remove the check or move it into the desktop code (for example, set it at startup).
+- History is a Swing DefaultTreeModel
+    -> The engine keeps a plain tree. The desktop's history panel wraps it in a Swing TreeModel.
+- MapData uses AWT's Polygon and Point
+    -> Small geometry classes owned by the engine (mobile already has org.triplea.geom). The
+       desktop converts to AWT when drawing.
+- Property classes create their own Swing editor
+    -> The engine keeps only the value. The desktop builds the editor from it.
+- ClientSetting, ResourceLoader, ClientFileSystemHelper
+    -> Interfaces with a desktop and a mobile implementation, chosen at startup.
+
+After that, the published JAR is just the engine module. The desktop and mobile apps each add
+their UI on top. An ArchUnit rule (engine must not depend on java.awt or javax.swing) keeps it
+from slipping back.
+
+Two points worth raising with the maintainer:
+- This can be done one PR at a time. Each fix also shrinks mobile's patch set right away, before
+  any JAR exists. Nothing has to land in one big refactor.
+- Save games must keep loading. Before changing any class that ends up in a save file, check
+  that old desktop saves still load. Mobile already writes the history as SerializedHistory, so
+  no Swing classes go into the file. Any other AWT object that can be in an existing save would
+  need a mapping from the old class name to the new one.
+
+Not checked: which AWT classes actually appear in upstream save files. The save-game check is
+the one that could turn a small PR into a breaking change for desktop players.

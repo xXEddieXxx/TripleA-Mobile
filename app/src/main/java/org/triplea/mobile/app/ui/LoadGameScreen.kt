@@ -67,7 +67,7 @@ import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.game.GameController
 
 /** A save game file with what the list shows about it. */
-private class SaveEntry(
+internal class SaveEntry(
     val path: Path,
     val name: String,
     val modified: Long,
@@ -76,7 +76,7 @@ private class SaveEntry(
     val info: Map<String, String>,
 )
 
-private fun readSaves(): List<SaveEntry> = MobileEngine.listSaveGames().map { path ->
+internal fun readSaves(): List<SaveEntry> = MobileEngine.listSaveGames().map { path ->
     val info = runCatching {
         val file = GameController.infoFileFor(path)
         if (Files.exists(file)) {

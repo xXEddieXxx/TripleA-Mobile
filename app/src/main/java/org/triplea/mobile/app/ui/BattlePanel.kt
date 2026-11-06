@@ -269,6 +269,13 @@ fun BattleWindow(
                 Spacer(Modifier.height(4.dp))
             }
 
+            // ---- forum game: the defender's choices (losses, retreat, submerge, ...) can go to the opponent
+            if (LocalAskOpponent.current != null && (question != null || casualtyRequest != null)) {
+                Row(Modifier.fillMaxWidth().padding(end = 6.dp), horizontalArrangement = Arrangement.End) {
+                    AskOpponentButton(battleQuestion(battle, casualtyRequest, question))
+                }
+            }
+
             // ---- footer, kept in view: every question of the battle is answered here
             when {
                 question is RetreatRequest -> {
@@ -325,6 +332,17 @@ fun BattleWindow(
             }
         }
     }
+}
+
+/** The open question of the battle in words, for the opponent to answer in the forum. */
+private fun battleQuestion(battle: BattleState, casualtyRequest: CasualtyRequest?, question: UiRequest<*>?): String {
+    val asked = when (question) {
+        is RetreatRequest -> question.message
+        is ConfirmRequest -> "${question.title}: ${question.question}"
+        is SelectUnitsRequest -> "${question.title}: ${question.message}"
+        else -> casualtyRequest?.let { "${it.hit.name}: choose ${it.count} ${if (it.count == 1) "loss" else "losses"}. ${it.message}" }.orEmpty()
+    }
+    return "${battle.title}, round ${battle.round}\n$asked".trim()
 }
 
 // ------------------------------------------------------------------ questions in the footer

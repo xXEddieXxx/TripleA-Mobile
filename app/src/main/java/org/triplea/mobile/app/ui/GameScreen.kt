@@ -174,6 +174,16 @@ import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppSettings
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.game.BattleRequest
+import org.triplea.mobile.app.game.DiceFailedRequest
+import androidx.compose.ui.platform.LocalContext
+import org.triplea.mobile.app.game.ForumTurnRequest
+import org.triplea.mobile.app.forum.DiceFailedDialog
+import org.triplea.mobile.app.forum.ForumSavePostDialog
+import org.triplea.mobile.app.forum.captureScreen
+import androidx.compose.runtime.CompositionLocalProvider
+import org.triplea.mobile.app.forum.ForumTurnSheet
+import org.triplea.mobile.app.game.ManualForumPost
+import org.triplea.mobile.forum.NodeBbClient.GameThread
 import org.triplea.mobile.app.game.BattleState
 import org.triplea.mobile.app.game.BattleStrength
 import org.triplea.mobile.app.game.BattleStrengths
@@ -217,7 +227,7 @@ private val SIDE_PANEL_WIDTH = 260.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GameScreen(onQuit: () -> kotlin.Unit) {
+fun GameScreen(onQuit: () -> kotlin.Unit, onOpenForum: (GameThread) -> kotlin.Unit) {
     val session: LocalGameSession = GameController.session ?: run {
         LaunchedEffect(Unit) { onQuit() }
         return
@@ -312,6 +322,27 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var unitPicker by remember(session) { mutableStateOf<UnitPickerSpec?>(null) }
     var showMenu by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var manualPost by remember { mutableStateOf<ManualForumPost?>(null) }
+    /** The question just posted to the opponent: offers to stop here until they answer. */
+    var askedThread by remember { mutableStateOf<GameThread?>(null) }
+    val askContext = LocalContext.current
+    // a forum game waiting for an answer: the question can go to the opponent, with a screenshot and the save
+    val canAsk = GameController.forumThread != null && !GameController.watching && pending != null &&
+        pending !is ForumTurnRequest && pending !is DiceFailedRequest
+    // kept between frames (a battle redraws this screen every frame): a new one would redraw every dialog that reads it
+    val askOpponent: ((String) -> kotlin.Unit)? = remember(canAsk) {
+        if (canAsk) {
+            { question: String ->
+                scope.launch {
+                    val screenshot = captureScreen(askContext)
+                    manualPost = withContext(Dispatchers.Default) { GameController.manualForumPost() }
+                        ?.copy(question = question, screenshot = screenshot)
+                }
+            }
+        } else {
+            null
+        }
+    }
     var showQuitDialog by remember { mutableStateOf(false) }
     // the phone's back button: same question as "Quit to menu"; pages on top have their own handler
     BackHandler(enabled = !showQuitDialog) { showQuitDialog = true }
@@ -987,6 +1018,17 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { showMenu = false; showSettings = true })
                 DropdownMenuItem(text = { Text("Game info") }, onClick = { showMenu = false; openGameInfo() })
                 DropdownMenuItem(text = { Text("Battle calculator") }, onClick = { showMenu = false; showCalc = true })
+                GameController.forumThread?.let { thread ->
+                    DropdownMenuItem(text = { Text("Forum thread") }, onClick = { showMenu = false; onOpenForum(thread) })
+                    if (!GameController.watching) {
+                        DropdownMenuItem(text = { Text("Post save to forum") }, onClick = {
+                            showMenu = false
+                            scope.launch {
+                                manualPost = withContext(Dispatchers.Default) { GameController.manualForumPost() }
+                            }
+                        })
+                    }
+                }
                 DropdownMenuItem(text = { Text("Quit to menu") }, onClick = { showMenu = false; showQuitDialog = true })
             }
         }
@@ -1120,7 +1162,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     steps = turnSteps,
                     currentStep = currentTurnStep,
                     optional = optionalPhase,
-                    suffix = if (!status.isHumanTurn && aiSeconds >= 5) "${aiSeconds}s" else "",
+                    suffix = when {
+                        GameController.watching -> "watching"
+                        !status.isHumanTurn && aiSeconds >= 5 -> "${aiSeconds}s"
+                        else -> ""
+                    },
                     // portrait has the app bar above the map; landscape reaches the top edge
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = if (landscape) edgeTop else 0.dp),
                 )
@@ -1179,7 +1225,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                             bottom = edgeBottom + if (actionsBelow) 60.dp else 8.dp,
                         ),
                 ) {
-                    BattleWindow(
+                    CompositionLocalProvider(LocalAskOpponent provides askOpponent) { BattleWindow(
                         battle = currentBattle,
                         images = images,
                         compact = landscape,
@@ -1192,7 +1238,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         colorOf = { name -> runCatching { Color(session.mapData.getPlayerColor(name).rgb) }.getOrNull() },
                         onDismiss = { hiddenBattleId = currentBattle.id },
                         modifier = Modifier.align(Alignment.TopCenter).heightIn(max = maxHeight),
-                    )
+                    ) }
                 }
             }
 
@@ -1446,7 +1492,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
     }
 
-    // dialogs driven by engine questions
+    // dialogs driven by engine questions; those that must be answered offer "Ask opponent" in a forum game
+    CompositionLocalProvider(LocalAskOpponent provides askOpponent) {
     when (val request = pending) {
         is PurchaseRequest -> {
             val capacity = remember(request) { MoveHelper.placementCapacity(session, request.player) }
@@ -1491,7 +1538,19 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             },
             images,
         )
+        is DiceFailedRequest -> DiceFailedDialog(request)
+        is ForumTurnRequest -> {
+            val context = LocalContext.current
+            ForumTurnSheet(request) { thread, heldBack ->
+                if (heldBack) {
+                    android.widget.Toast.makeText(context, "Turn sent. The forum holds it for a moderator.", android.widget.Toast.LENGTH_LONG).show()
+                }
+                GameController.quit()
+                onOpenForum(thread)
+            }
+        }
         else -> {}
+    }
     }
     unitPicker?.let { UnitPickerDialog(it, images) }
     messageDialog?.let { MessageDialog(it.title, it.text) { messageDialog = null } }
@@ -1511,6 +1570,37 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         )
     }
 
+    manualPost?.let { post ->
+        ForumSavePostDialog(post) { heldBack ->
+            manualPost = null
+            when (heldBack) {
+                null -> {}
+                true -> toast("Save posted. The forum holds it for a moderator.")
+                false -> toast("Save posted to the forum thread.")
+            }
+            if (heldBack != null && post.question.isNotEmpty()) askedThread = post.thread
+        }
+    }
+    askedThread?.let { thread ->
+        AlertDialog(
+            onDismissRequest = { askedThread = null },
+            title = { Text("Question posted") },
+            text = {
+                Text(
+                    "Stop here until your opponent answers? The game is saved at this question. Go on later with " +
+                        "Load game, or with \"Open save\" on your post in the thread; it keeps posting to the thread.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    askedThread = null
+                    GameController.quit()
+                    onOpenForum(thread)
+                }) { Text("Wait for the answer") }
+            },
+            dismissButton = { TextButton(onClick = { askedThread = null }) { Text("Keep playing") } },
+        )
+    }
     if (showSaveDialog) {
         SaveGameDialog(
             defaultName = "${session.gameData.gameName} R${status.round}".replace(Regex("[^A-Za-z0-9 _-]"), ""),
