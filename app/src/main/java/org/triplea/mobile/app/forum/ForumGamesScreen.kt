@@ -156,13 +156,15 @@ fun ForumGamesScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             // each forum with its own sign-in and games; a game always posts to its own forum
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Forum.entries.forEachIndexed { index, site ->
-                    SegmentedButton(
-                        selected = site == forum,
-                        onClick = { ForumAccount.select(site) },
-                        shape = SegmentedButtonDefaults.itemShape(index, Forum.entries.size),
-                    ) { Text(site.label, maxLines = 1) }
+            if (ForumAccount.shown.size > 1) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    ForumAccount.shown.forEachIndexed { index, site ->
+                        SegmentedButton(
+                            selected = site == forum,
+                            onClick = { ForumAccount.select(site) },
+                            shape = SegmentedButtonDefaults.itemShape(index, ForumAccount.shown.size),
+                        ) { Text(site.label, maxLines = 1) }
+                    }
                 }
             }
             if (!ForumAccount.hasSession(forum)) {

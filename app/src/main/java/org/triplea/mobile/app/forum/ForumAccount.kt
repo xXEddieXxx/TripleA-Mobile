@@ -36,6 +36,12 @@ object ForumAccount {
 
     private lateinit var prefs: SharedPreferences
 
+    /**
+     * The forums the app offers. www.axisandallies.org stays out until its Cloudflare protection lets
+     * the app's requests through (it answers each with a challenge); its support is kept, add it back here.
+     */
+    val shown: List<Forum> = listOf(Forum.TRIPLEA)
+
     private val sessions = java.util.concurrent.ConcurrentHashMap<Forum, String>()
     private val players = Forum.entries.associateWith { MutableStateFlow<NodeBbClient.Player?>(null) }
     private val _selected = MutableStateFlow(Forum.TRIPLEA)
@@ -55,7 +61,7 @@ object ForumAccount {
                 ?.let { stored -> runCatching { decrypt(stored) }.onFailure { Log.w(TAG, "Stored $forum session unreadable") }.getOrNull() }
                 ?.let { sessions[forum] = it }
         }
-        _selected.value = prefs.getString("selected", null)?.let { name -> Forum.entries.firstOrNull { it.name == name } } ?: Forum.TRIPLEA
+        _selected.value = prefs.getString("selected", null)?.let { name -> shown.firstOrNull { it.name == name } } ?: shown.first()
         if (sessions.isNotEmpty()) ForumTurnJob.schedule(context)
     }
 

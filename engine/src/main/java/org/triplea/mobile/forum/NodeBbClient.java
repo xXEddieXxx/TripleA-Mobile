@@ -115,6 +115,18 @@ public final class NodeBbClient {
       int pid,
       List<URI> pictures) {}
 
+  /**
+   * The forum's bot protection (Cloudflare) answered instead of the forum: it lets web browsers in
+   * only, so signing in again does not help.
+   */
+  public static final class BlockedException extends IOException {
+    private static final long serialVersionUID = 1L;
+
+    BlockedException(final String message) {
+      super(message);
+    }
+  }
+
   /** The forum refused the session: it ran out or was signed out elsewhere. */
   public static final class LoginNeededException extends IOException {
     private static final long serialVersionUID = 1L;
@@ -646,6 +658,11 @@ public final class NodeBbClient {
   Http.Response send(final Http.Request request) throws IOException {
     final Http.Response response = http.send(request);
     final int status = response.status();
+    if (status == 403 && isBotCheck(response)) {
+      throw new BlockedException(
+          site.getLabel()
+              + " lets only web browsers in: its bot protection (Cloudflare) refuses the app's requests.");
+    }
     if (status == 401 || status == 403) {
       throw new LoginNeededException("The forum asks for a valid login (HTTP " + status + ")" + reasonOf(response));
     }
@@ -653,6 +670,12 @@ public final class NodeBbClient {
       throw new IOException("The forum answered HTTP " + status + reasonOf(response));
     }
     return response;
+  }
+
+  /** Cloudflare marks the challenge page it sends instead of the forum's answer. */
+  private static boolean isBotCheck(final Http.Response response) {
+    return response.headers() != null
+        && response.headers().keySet().stream().anyMatch("cf-mitigated"::equalsIgnoreCase);
   }
 
   /** The reason NodeBB gives for a refusal, eg a post too short, after a colon; else nothing. */

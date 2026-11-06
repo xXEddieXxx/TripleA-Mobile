@@ -15,12 +15,11 @@ import org.triplea.mobile.app.ui.AppDialog
 /** What Play by Forum is and how a game runs, section by section. */
 private val HELP = listOf(
     "What it is" to
-        "Play a game over a forum thread on forums.triplea-game.org or www.axisandallies.org. Every turn is a " +
+        "Play a game over a forum thread on forums.triplea-game.org. Every turn is a " +
         "post with a summary and the save game; the next player opens the save, plays and posts back. " +
         "Desktop TripleA players can play the same games.",
     "Sign in" to
-        "Pick the forum at the top and tap Sign in. You log in on the forum's own page; the app keeps only the " +
-        "forum's session, never your password. Each forum has its own sign-in.",
+        "Tap Sign in. You log in on the forum's own page; the app keeps only the forum's session, never your password.",
     "Your games" to
         "My games lists the games you started, posted in or follow. \"Your turn\" means someone else posted last; " +
         "tap the chip to show only those, again for the games waiting for an opponent. Show inactive adds games " +

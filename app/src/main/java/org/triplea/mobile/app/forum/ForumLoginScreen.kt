@@ -4,8 +4,17 @@ import android.annotation.SuppressLint
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +40,8 @@ import org.triplea.mobile.forum.NodeBbClient
 @Composable
 fun ForumLoginScreen(forum: Forum, onSignedIn: () -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    /** The forum refuses the app's own requests (bot protection): signing in cannot finish. */
+    var blocked by remember { mutableStateOf<String?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -41,8 +52,19 @@ fun ForumLoginScreen(forum: Forum, onSignedIn: () -> Unit, onBack: () -> Unit) {
             )
         },
     ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+        blocked?.let {
+            Surface(color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) {
+                Text(
+                    "$it Your forum login worked, but the app cannot read your games there. Play on this forum from a " +
+                        "web browser or desktop TripleA for now.",
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
         AndroidView(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             factory = { context ->
                 WebView(context).apply {
                     settings.javaScriptEnabled = true
@@ -55,7 +77,10 @@ fun ForumLoginScreen(forum: Forum, onSignedIn: () -> Unit, onBack: () -> Unit) {
                             val cookie = sessionCookie(forum) ?: return
                             scope.launch {
                                 // a guest also has the cookie: only a signed-in session counts
-                                if (!signedIn && runCatching { ForumAccount.signIn(forum, cookie) }.getOrNull() != null) {
+                                val player = runCatching { ForumAccount.signIn(forum, cookie) }
+                                    .onFailure { if (it is NodeBbClient.BlockedException) blocked = it.message }
+                                    .getOrNull()
+                                if (!signedIn && player != null) {
                                     signedIn = true
                                     onSignedIn()
                                 }
@@ -66,6 +91,7 @@ fun ForumLoginScreen(forum: Forum, onSignedIn: () -> Unit, onBack: () -> Unit) {
                 }
             },
         )
+        }
     }
 }
 

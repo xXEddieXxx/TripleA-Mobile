@@ -52,6 +52,18 @@ class AxisAndAlliesForumTest {
   }
 
   @Test
+  void cloudflareChallengeIsNoLoginProblem() {
+    // what www.axisandallies.org answers the app since its bot protection checks the API too
+    final Http challenged =
+        request -> new Http.Response(403, "<html>Just a moment...</html>", Map.of("Cf-Mitigated", List.of("challenge")));
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> new NodeBbClient(challenged, Forum.AXIS_AND_ALLIES, "s").signedInPlayer())
+        .isInstanceOf(NodeBbClient.BlockedException.class)
+        .hasMessageContaining("bot protection");
+  }
+
+  @Test
   void desktopForumNamesAreKnown() {
     assertThat(Forum.ofPosterName("www.axisandallies.org/forums/")).contains(Forum.AXIS_AND_ALLIES);
     assertThat(Forum.ofPosterName("forums.triplea-game.org")).contains(Forum.TRIPLEA);

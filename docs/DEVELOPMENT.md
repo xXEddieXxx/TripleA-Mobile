@@ -266,7 +266,11 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.
 - Play by Forum covers forums.triplea-game.org and www.axisandallies.org/forums (no other NodeBB
-  forum; the axisandallies.org login is assumed to use NodeBB's default `express.sid` cookie), shows a post's
+  forum). www.axisandallies.org does not work from the app yet: its Cloudflare bot protection answers
+  every API request of the app with a challenge (403, `Cf-Mitigated: challenge`), so after the web
+  login the app shows that (`NodeBbClient.BlockedException`) instead of the games. Its login itself
+  works (`express.sid` below `/forums`); RSS feeds are challenged the same way. It is hidden for now:
+  `ForumAccount.shown` lists only the TripleA forum (the switch shows from two forums on). Shows a post's
   pictures below its text rather than in line, notifies a "your turn" from the same guess as the
   games list (someone else posted last), and does not know which nations a player owns (desktop
   does not either).
