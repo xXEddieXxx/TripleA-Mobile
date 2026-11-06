@@ -74,8 +74,9 @@ public interface Http {
           "multipart/form-data; boundary=" + boundary);
     }
 
+    // not URLEncoder.encode(String, Charset): Android has it from API 33 only, the app runs on 29
     private static String encode(final String value) {
-      return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
+      return com.google.common.net.UrlEscapers.urlFormParameterEscaper().escape(value);
     }
   }
 

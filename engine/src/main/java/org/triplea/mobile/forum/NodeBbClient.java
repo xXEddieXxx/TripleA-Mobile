@@ -6,7 +6,6 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -691,9 +690,12 @@ public final class NodeBbClient {
     }
   }
 
-  /** A name as one part of an address: a space as "%20", not as the "+" of forms. */
+  /**
+   * A name as one part of an address: a space as "%20", not as the "+" of forms. Not
+   * URLEncoder.encode(String, Charset): Android has it from API 33 only, the app runs on 29.
+   */
   private static String pathSegment(final String name) {
-    return URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+    return com.google.common.net.UrlEscapers.urlPathSegmentEscaper().escape(name);
   }
 
   static Optional<JsonObject> objectOf(final JsonObject parent, final String key) {
