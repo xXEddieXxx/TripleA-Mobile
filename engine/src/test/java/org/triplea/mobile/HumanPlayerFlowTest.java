@@ -9,6 +9,10 @@ import games.strategy.engine.data.ProductionRule;
 import games.strategy.engine.data.Resource;
 import games.strategy.engine.data.Territory;
 import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.history.HistoryNode;
+import games.strategy.triplea.delegate.EditDelegate;
+import games.strategy.triplea.delegate.remote.IEditDelegate;
 import games.strategy.triplea.delegate.data.BattleListing;
 import games.strategy.triplea.delegate.data.FightBattleDetails;
 import games.strategy.triplea.ui.PlaceData;
@@ -147,11 +151,59 @@ class HumanPlayerFlowTest {
   }
 
   private static class ScriptedHuman extends HumanPlayerUiAdapter {
+  @Test
+  void humanEditsDuringOwnMovePhase() {
+    final Path xml = MobileEngine.listInstalledGames().get(0).getXmlPath();
+    final GameData gameData = MobileEngine.parseGame(xml).orElseThrow();
+    final String humanNation = gameData.getPlayerList().getPlayers().get(0).getName();
+
+    final ScriptedHuman human = new ScriptedHuman();
+    final LocalGameSession session =
+        LocalGameSession.create(
+            gameData, Map.of(humanNation, PlayerKind.HUMAN), human, new GameEventListener() {});
+    human.session = session;
+
+    session.setUpForSteps();
+    int steps = 0;
+    while (human.movePhases == 0 && steps < 400 && !session.isGameOver()) {
+      session.runNextStep();
+      steps++;
+    }
+    session.stop();
+
+    assertThat(human.movePhases).as("human move phases").isPositive();
+    assertThat(human.refused).isEqualTo("Edit mode is not enabled");
+    assertThat(human.added).isNull();
+    assertThat(human.unitsAfter).isEqualTo(human.unitsBefore + 1);
+    assertThat(human.editModeOn).isTrue();
+    assertThat(historyText(gameData))
+        .contains("Turning on Edit Mode")
+        .contains("Adding units owned by");
+  }
+
+  private static String historyText(final GameData gameData) {
+    final StringBuilder text = new StringBuilder();
+    try (GameData.Unlocker ignored = gameData.acquireReadLock()) {
+      final var nodes = gameData.getHistory().getRoot().preorderEnumeration();
+      while (nodes.hasMoreElements()) {
+        text.append(((HistoryNode) nodes.nextElement()).toString()).append('\n');
+      }
+    }
+    return text.toString();
+  }
+
+  private static final class ScriptedHuman extends HumanPlayerUiAdapter {
     int purchases;
     int movePhases;
     int endTurns;
     String turnSummary;
     final List<String> errors = new ArrayList<>();
+    LocalGameSession session;
+    String refused;
+    String added;
+    int unitsBefore;
+    int unitsAfter;
+    boolean editModeOn;
 
     @Override
     public Optional<IntegerMap<ProductionRule>> getPurchase(
@@ -174,7 +226,35 @@ class HumanPlayerFlowTest {
     public Optional<MoveDescription> getMove(
         final GamePlayer player, final boolean nonCombat, final String stepName) {
       movePhases++;
+      if (session != null && movePhases == 1) {
+        editOnce(player);
+      }
       return Optional.empty();
+    }
+
+    /** Same call path as the app: the edit delegate proxy from the session, on the game thread. */
+    private void editOnce(final GamePlayer player) {
+      final GameData data = player.getData();
+      final IEditDelegate edit = session.getRemoteDelegate("edit", IEditDelegate.class);
+      final Territory t =
+          data.getMap().getTerritories().stream()
+              .filter(x -> !x.isWater() && x.getOwner().equals(player))
+              .findFirst()
+              .orElseThrow();
+      final UnitType type =
+          player.getProductionFrontier().getRules().stream()
+              .flatMap(r -> r.getResults().keySet().stream())
+              .filter(UnitType.class::isInstance)
+              .map(UnitType.class::cast)
+              .filter(u -> !u.getUnitAttachment().isSea() && !u.getUnitAttachment().isAir())
+              .findFirst()
+              .orElseThrow();
+      unitsBefore = t.getUnitCollection().size();
+      refused = edit.addUnits(t, type.create(1, player));
+      edit.setEditMode(true);
+      added = edit.addUnits(t, type.create(1, player));
+      unitsAfter = t.getUnitCollection().size();
+      editModeOn = EditDelegate.getEditMode(data.getProperties());
     }
 
     @Override

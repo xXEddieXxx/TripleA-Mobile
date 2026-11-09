@@ -14,6 +14,7 @@ import games.strategy.triplea.Constants
 import games.strategy.triplea.Properties
 import games.strategy.triplea.attachments.PlayerAttachment
 import games.strategy.triplea.attachments.TerritoryAttachment
+import games.strategy.triplea.delegate.EditDelegate
 import games.strategy.triplea.delegate.GameStepPropertiesHelper
 import games.strategy.triplea.delegate.Matches
 import games.strategy.triplea.delegate.TechTracker
@@ -554,6 +555,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
                 hit,
                 defaultCasualties,
                 allowMultipleHitsPerUnit,
+                EditDelegate.getEditMode(hit.data.properties),
             )
         )
     }

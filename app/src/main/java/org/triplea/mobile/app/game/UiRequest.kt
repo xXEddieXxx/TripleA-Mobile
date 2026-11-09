@@ -98,6 +98,11 @@ class CasualtyRequest(
     val hit: GamePlayer,
     val defaults: CasualtyList,
     val allowMultipleHitsPerUnit: Boolean,
+    /**
+     * Asked in edit mode: the engine passes every hit with no defaults and takes any answer, so
+     * (like the desktop chooser) any losses from none up to every listed unit can be confirmed.
+     */
+    val editMode: Boolean = false,
 ) : UiRequest<CasualtyDetails>()
 
 /** The politics phase: pick one of the valid political actions, or none to end the phase. */

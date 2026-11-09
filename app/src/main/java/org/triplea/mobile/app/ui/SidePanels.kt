@@ -2,6 +2,7 @@ package org.triplea.mobile.app.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -247,11 +248,19 @@ private fun NationBadge(images: ImageCache?, nation: String) {
     }
 }
 
-/** Every relation of the game as the desktop politics panel's matrix. */
+/**
+ * Every relation of the game as the desktop politics panel's matrix. With [onCellTap] the cells of
+ * two different nations can be tapped (the edit mode politics tool); [marked] cells get an outline.
+ */
 @Composable
-internal fun DiplomacyView(relationships: List<RelationshipLine>, images: ImageCache?) {
+internal fun DiplomacyView(
+    relationships: List<RelationshipLine>,
+    images: ImageCache?,
+    onCellTap: ((String, String) -> kotlin.Unit)? = null,
+    marked: Set<Pair<String, String>> = emptySet(),
+) {
     val nations = remember(relationships) { (relationships.map { it.player1 } + relationships.map { it.player2 }).distinct() }
-    RelationMatrix(relationships, nations, images)
+    RelationMatrix(relationships, nations, images, onCellTap, marked)
 }
 
 /**
@@ -259,7 +268,13 @@ internal fun DiplomacyView(relationships: List<RelationshipLine>, images: ImageC
  * name column stays in place while the cells scroll sideways, so every row keeps its nation.
  */
 @Composable
-private fun RelationMatrix(relationships: List<RelationshipLine>, nations: List<String>, images: ImageCache?) {
+private fun RelationMatrix(
+    relationships: List<RelationshipLine>,
+    nations: List<String>,
+    images: ImageCache?,
+    onCellTap: ((String, String) -> kotlin.Unit)?,
+    marked: Set<Pair<String, String>>,
+) {
     val byPair = remember(relationships) {
         relationships.flatMap { listOf((it.player1 to it.player2) to it, (it.player2 to it.player1) to it) }.toMap()
     }
@@ -278,10 +293,13 @@ private fun RelationMatrix(relationships: List<RelationshipLine>, nations: List<
                     Row {
                         nations.forEach { column ->
                             val line = byPair[row to column]
-                            Box(
-                                Modifier.size(MATRIX_CELL).padding(1.dp).background(line?.let { relationCellColor(it) } ?: Color.Transparent, MaterialTheme.shapes.extraSmall),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                            var cell = Modifier.size(MATRIX_CELL).padding(1.dp)
+                            if (row to column in marked || column to row in marked) {
+                                cell = cell.border(2.dp, MaterialTheme.colorScheme.onSurface, MaterialTheme.shapes.extraSmall)
+                            }
+                            cell = cell.background(line?.let { relationCellColor(it) } ?: Color.Transparent, MaterialTheme.shapes.extraSmall)
+                            if (onCellTap != null && line != null) cell = cell.clickable { onCellTap(row, column) }
+                            Box(cell, contentAlignment = Alignment.Center) {
                                 Text(line?.let { codes[it.type] } ?: "–", style = MaterialTheme.typography.labelSmall, color = line?.let { relationCellText(it) } ?: Color.Unspecified)
                             }
                         }
@@ -803,7 +821,7 @@ internal fun PlayerHeader(
             )
             if (compact) {
                 if (status.round > 0) {
-                    Text("Round ${status.round}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Round ${status.round}", style = MaterialTheme.typography.labelMedium, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f))
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically) {
                 if (status.stepName.isNotBlank()) {

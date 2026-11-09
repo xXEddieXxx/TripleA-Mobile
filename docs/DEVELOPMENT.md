@@ -252,6 +252,26 @@ fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
    is dropped when the replay closes and made anew for an event it does not contain. "Back to
    game", the back key or a battle window (the game needs the player) end the mode.
 
+## Edit mode
+
+Edit mode lets a player correct a game by hand, like the desktop "Edit Mode" tools: add and
+remove units, change a territory's owner, unit damage, PUs and other resources, technologies and
+political relationships. It also lets the player move own units freely, without movement limits.
+
+- The engine's edit delegate is unchanged. The app calls it through `EditHelper`
+  (`app/.../game/`); the tool strip and dialogs live in `EditTools.kt`. Every `EditHelper` call
+  takes the engine lock, so the dialogs run them off the main thread and show the engine's
+  refusal text, if any.
+- It is offered only at a phase-level human request (the map is free), and the engine switches it
+  off for AI turns.
+- In edit mode the engine's casualty questions kill nothing by default (desktop shows a free
+  chooser), so ending combat move and the battle list first ask to turn edit mode off (a lone
+  battle is fought without the list, `fightBattleIfOnlyOne`). Casualty questions still asked in
+  edit mode (AA fire, a hotseat defender) accept any losses from none up to every listed unit.
+- Only single-device games have it; Play by Forum games get it later, on `develop`.
+- Relationship changes in the politics dialog are not checked against the map's rules (as on
+  the desktop).
+
 ## Known gaps
 
 - Technology, repairs, scramble, kamikaze suicide attacks and the random start's "pick territory

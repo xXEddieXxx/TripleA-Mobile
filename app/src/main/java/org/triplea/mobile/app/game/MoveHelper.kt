@@ -5,6 +5,7 @@ import games.strategy.engine.data.MoveDescription
 import games.strategy.engine.data.Territory
 import games.strategy.engine.data.Unit
 import games.strategy.triplea.delegate.AbstractMoveDelegate
+import games.strategy.triplea.delegate.EditDelegate
 import games.strategy.triplea.delegate.GameStepPropertiesHelper
 import games.strategy.triplea.delegate.Matches
 import games.strategy.triplea.delegate.data.PlaceableUnits
@@ -108,14 +109,19 @@ object MoveHelper {
      * Units of the player in the territory that can still be moved: units with movement left, and
      * cargo aboard a transport. Loading uses up the movement of a 1-move infantry, but the engine
      * lets cargo unload regardless of its own movement (the transport carries it), so it stays
-     * selectable for an unload or amphibious assault in the same turn.
+     * selectable for an unload or amphibious assault in the same turn. In edit mode every own unit
+     * moves freely, whatever its movement left (other players' units are fixed with remove and add).
      */
     fun movableUnits(session: LocalGameSession, player: GamePlayer, territory: Territory): List<Unit> {
         session.gameData.acquireReadLock().use {
+            val editMode = EditDelegate.getEditMode(session.gameData.properties)
             return territory.units.filter {
                 // no infrastructure filter, as on the desktop: "isAA" units are infrastructure and still move
-                it.owner == player &&
-                    (Matches.unitHasMovementLeft().test(it) || (territory.isWater && Matches.unitIsBeingTransported().test(it)))
+                it.owner == player && (
+                    editMode ||
+                        Matches.unitHasMovementLeft().test(it) ||
+                        (territory.isWater && Matches.unitIsBeingTransported().test(it))
+                    )
             }
         }
     }
@@ -155,9 +161,10 @@ object MoveHelper {
     fun scrollerStops(session: LocalGameSession, player: GamePlayer, nonCombat: Boolean): List<Pair<Territory, List<Unit>>> {
         val combatMove = Matches.unitCanMoveDuringCombatMove()
         session.gameData.acquireReadLock().use {
+            val anyPhase = nonCombat || EditDelegate.getEditMode(session.gameData.properties)
             return session.gameData.map.territories.flatMap { territory ->
                 movableUnits(session, player, territory)
-                    .filter { nonCombat || combatMove.test(it) }
+                    .filter { anyPhase || combatMove.test(it) }
                     .groupBy { it.type }
                     .values.map { territory to it }
             }
@@ -189,6 +196,7 @@ object MoveHelper {
                 movesMade,
                 emptyMap(),
             )
+            // in edit mode the filter's MoveValidator skips the movement-left check (validateBasic), so no limit here
             val result = filter.filterUnitsThatCanMove(units)
             if (result.status == MovableUnitsFilter.FilterOperationResult.Status.NO_UNITS_CAN_MOVE) {
                 throw IllegalArgumentException(
