@@ -29,6 +29,18 @@ android {
         }
     }
 
+    // The dev workflow writes its stored key to dev.keystore: AGP ignores ~/.android/debug.keystore
+    // on the runner and made a new key per build, so no dev build installed over the one before.
+    val devKeystore = rootProject.file("dev.keystore")
+    if (devKeystore.exists()) {
+        signingConfigs.getByName("debug") {
+            storeFile = devKeystore
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             // R8 shrinks the AndroidX / Kotlin side; the engine is kept whole because it relies on

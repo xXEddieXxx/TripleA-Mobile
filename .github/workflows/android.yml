@@ -54,8 +54,8 @@ jobs:
         run: |
           # secrets cannot be tested in an "if:", so the check happens in the shell
           if [ -n "$DEV_KEYSTORE_B64" ]; then
-            mkdir -p ~/.android
-            echo "$DEV_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            # app/build.gradle.kts signs debug builds with this file when it exists
+            echo "$DEV_KEYSTORE_B64" | base64 -d > dev.keystore
             echo "using the stored debug keystore"
             echo "fixed=true" >> "$GITHUB_OUTPUT"
           else

@@ -227,7 +227,10 @@ pre-release named **dev** with the APK attached twice: once with the date and co
 in the README always points at the newest build. The release page is
 `https://github.com/xXEddieXxx/TripleA-Mobile/releases/tag/dev`. Android only updates an installed
 app when the new APK is signed with the same key; the workflow header explains how to store a
-fixed debug keystore as the secret `DEV_KEYSTORE_B64`.
+fixed debug keystore as the secret `DEV_KEYSTORE_B64`. The workflow writes it to `dev.keystore`
+in the project root, and `app/build.gradle.kts` signs debug builds with that file when it exists
+(AGP ignores `~/.android/debug.keystore` on the runner). Copy the same file there locally and your
+own debug builds install over the GitHub dev builds too.
 
 ## Security notes
 
