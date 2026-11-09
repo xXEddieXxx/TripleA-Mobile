@@ -52,8 +52,9 @@ The mobile specific API lives in `org.triplea.mobile`:
 - `GameEventListener` / `MobileDisplay` – battle and message events
 - `UnitImageNames` – unit icon file naming rules
 - `forum.*` – Play by Forum on the two NodeBB forums desktop posts to, `Forum`
-  (forums.triplea-game.org: games in category 45; www.axisandallies.org/forums: new games in
-  "Play Boardgames" 16, games anywhere below "Play Online Axis & Allies" 65; each with desktop's
+  (forums.triplea-game.org: games in category 45; www.axisandallies.org/forums: Browse and new
+  games in the game category the player picks, "Play Boardgames" 16, "League" 29, "Tournaments"
+  25 or "Team Games" 33, My games anywhere below "Play Online Axis & Allies" 65; each with desktop's
   `FORUM_POSTER_NAME`, so saves cross between desktop and mobile; every `GameThread` carries its
   forum): `NodeBbClient` (port of desktop
   `NodeBbGameThreads` from the `feat/modern-ui` branch: games, threads, save downloads, uploads,
@@ -309,11 +310,12 @@ political relationships. It also lets the player move own units freely, without 
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.
 - Play by Forum covers forums.triplea-game.org and www.axisandallies.org/forums (no other NodeBB
-  forum). www.axisandallies.org does not work from the app yet: its Cloudflare bot protection answers
-  every API request of the app with a challenge (403, `Cf-Mitigated: challenge`), so after the web
-  login the app shows that (`NodeBbClient.BlockedException`) instead of the games. Its login itself
-  works (`express.sid` below `/forums`); RSS feeds are challenged the same way. It is hidden for now:
-  `ForumAccount.shown` lists only the TripleA forum (the switch shows from two forums on). Shows a post's
+  forum). www.axisandallies.org's Cloudflare bot protection challenges every request without the
+  `nbb_human=1` cookie of its nodebb-plugin-proof-of-life (403, `Cf-Mitigated: challenge`), so
+  `NodeBbClient` sends that cookie with every request, as its admin suggested; a challenge still
+  shows as `NodeBbClient.BlockedException`. Its login uses `express.sid` below `/forums`. It runs an
+  older NodeBB that names "last answered first" `newest_to_oldest`, not `recently_replied`
+  (`Forum.recentlyRepliedSort`; an unknown sort lists the oldest topics first). Shows a post's
   pictures below its text rather than in line, notifies a "your turn" from the same guess as the
   games list (someone else posted last), and does not know which nations a player owns (desktop
   does not either).

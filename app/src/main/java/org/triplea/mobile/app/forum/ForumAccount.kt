@@ -36,18 +36,24 @@ object ForumAccount {
 
     private lateinit var prefs: SharedPreferences
 
-    /**
-     * The forums the app offers. www.axisandallies.org stays out until its Cloudflare protection lets
-     * the app's requests through (it answers each with a challenge); its support is kept, add it back here.
-     */
-    val shown: List<Forum> = listOf(Forum.TRIPLEA)
+    /** The forums the app offers; the switch between them shows from two on. */
+    val shown: List<Forum> = Forum.entries
 
     private val sessions = java.util.concurrent.ConcurrentHashMap<Forum, String>()
     private val players = Forum.entries.associateWith { MutableStateFlow<NodeBbClient.Player?>(null) }
     private val _selected = MutableStateFlow(Forum.TRIPLEA)
+    private val categories = Forum.entries.associateWith { MutableStateFlow(it.gameCategories.first()) }
 
     /** The forum the Play by Forum screen shows. */
     val selected: StateFlow<Forum> = _selected.asStateFlow()
+
+    /** The forum's game category Browse shows and a new game starts in. */
+    fun category(forum: Forum): StateFlow<Forum.Category> = categories.getValue(forum).asStateFlow()
+
+    fun selectCategory(forum: Forum, category: Forum.Category) {
+        categories.getValue(forum).value = category
+        prefs.edit { putInt("category.${forum.name}", category.id) }
+    }
 
     /** The signed-in player of the forum, null while signed out or not yet verified. */
     fun player(forum: Forum): StateFlow<NodeBbClient.Player?> = players.getValue(forum).asStateFlow()
@@ -60,6 +66,8 @@ object ForumAccount {
             prefs.getString(sessionKey(forum), null)
                 ?.let { stored -> runCatching { decrypt(stored) }.onFailure { Log.w(TAG, "Stored $forum session unreadable") }.getOrNull() }
                 ?.let { sessions[forum] = it }
+            val stored = prefs.getInt("category.${forum.name}", 0)
+            forum.gameCategories.firstOrNull { it.id == stored }?.let { categories.getValue(forum).value = it }
         }
         _selected.value = prefs.getString("selected", null)?.let { name -> shown.firstOrNull { it.name == name } } ?: shown.first()
         if (sessions.isNotEmpty()) ForumTurnJob.schedule(context)

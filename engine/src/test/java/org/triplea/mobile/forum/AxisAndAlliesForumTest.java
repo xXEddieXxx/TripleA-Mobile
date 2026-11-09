@@ -27,15 +27,19 @@ class AxisAndAlliesForumTest {
   private final NodeBbClient client = new NodeBbClient(forum, Forum.AXIS_AND_ALLIES, "s");
 
   @Test
-  void browseAndNewGamesUseItsGameCategoryBelowForums() throws IOException {
-    final List<GameThread> games = client.browse();
-    client.startThread("G40", "Who joins?");
+  void browseAndNewGamesUseTheChosenGameCategoryBelowForums() throws IOException {
+    final List<Forum.Category> categories = Forum.AXIS_AND_ALLIES.getGameCategories();
+    final List<GameThread> games = client.browse(categories.get(0));
+    client.startThread(categories.get(1), "G40", "Who joins?");
 
     assertThat(asked.get(0).url())
-        .isEqualTo("https://www.axisandallies.org/forums/api/category/16?sort=recently_replied&page=1");
+        .isEqualTo("https://www.axisandallies.org/forums/api/category/16?sort=newest_to_oldest&page=1");
+    // a new game in the League (29)
     assertThat(new String(asked.get(asked.size() - 1).body(), java.nio.charset.StandardCharsets.UTF_8))
-        .contains("\"cid\":16");
+        .contains("\"cid\":29");
     assertThat(games).singleElement().extracting(GameThread::forum).isEqualTo(Forum.AXIS_AND_ALLIES);
+    // its Cloudflare lets only requests with the proof-of-life cookie through
+    assertThat(asked).allSatisfy(r -> assertThat(r.headers().get("Cookie")).isEqualTo("express.sid=s; nbb_human=1"));
   }
 
   @Test

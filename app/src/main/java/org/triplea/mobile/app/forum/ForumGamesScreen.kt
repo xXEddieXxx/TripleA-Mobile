@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -112,7 +113,8 @@ fun ForumGamesScreen(
         }
     }
 
-    LaunchedEffect(forum, tab, reload, player) {
+    val category by ForumAccount.category(forum).collectAsState()
+    LaunchedEffect(forum, tab, reload, player, category) {
         error = null
         games = null
         if (!ForumAccount.hasSession(forum)) return@LaunchedEffect
@@ -120,7 +122,7 @@ fun ForumGamesScreen(
             val me = player ?: ForumAccount.verify(forum) ?: return@LaunchedEffect
             val client = ForumAccount.client(forum) ?: return@LaunchedEffect
             suspend fun load() = withContext(Dispatchers.IO) {
-                if (tab == 0) client.threadsOf(me).sortedByDescending { it.waitsFor(me) } else client.browse()
+                if (tab == 0) client.threadsOf(me).sortedByDescending { it.waitsFor(me) } else client.browse(category)
             }
             games = load()
             // while the list is shown: once a minute, quietly (no spinner; a failed try keeps the list)
@@ -186,6 +188,7 @@ fun ForumGamesScreen(
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("My games") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Browse") })
             }
+            if (tab == 1) GameCategoryChips(forum, Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp))
             val all = games
             // games the player stopped following leave My games; the "Stopped" chip shows only them
             val stoppedChanges by ForumThreadState.stoppedChanges.collectAsState()
@@ -290,6 +293,23 @@ fun ForumGamesScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** The forum's game categories to pick from (Browse, new games); nothing when it has only one. */
+@Composable
+fun GameCategoryChips(forum: Forum, modifier: Modifier = Modifier) {
+    if (forum.gameCategories.size < 2) return
+    val selected by ForumAccount.category(forum).collectAsState()
+    // wraps rather than scrolls: the picked category stays in sight
+    FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        forum.gameCategories.forEach { category ->
+            FilterChip(
+                selected = category == selected,
+                onClick = { ForumAccount.selectCategory(forum, category) },
+                label = { Text(category.label) },
+            )
         }
     }
 }

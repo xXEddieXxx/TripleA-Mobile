@@ -46,7 +46,7 @@ fun ForumThreadPicker(onPick: (GameThread) -> Unit, onDismiss: () -> Unit) {
             val me = ForumAccount.verify(forum) ?: error("Sign in to ${forum.label} under Play by Forum first.")
             val client = ForumAccount.client(forum) ?: error("Sign in to ${forum.label} under Play by Forum first.")
             withContext(Dispatchers.IO) {
-                (client.threadsOf(me) + client.browse()).distinctBy { it.topicId() }
+                (client.threadsOf(me) + client.browse(ForumAccount.category(forum).value)).distinctBy { it.topicId() }
                     // recently opened here first (never opened: 0), then by their last post
                     .sortedWith(compareByDescending<GameThread> { ForumThreadState.seen(it) }.thenByDescending { it.lastPost() })
             }

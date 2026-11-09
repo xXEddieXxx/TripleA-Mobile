@@ -1,6 +1,7 @@
 package org.triplea.mobile.forum;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.experimental.UtilityClass;
 
@@ -36,7 +37,8 @@ public class PbfPost {
    */
   public static Parts parts(final String text) {
     final List<String> lines =
-        text.lines().filter(l -> !l.isBlank() && !"Savegame".equals(l.strip())).toList();
+        // not String.lines(): Android below 14 lacks it and D8 does not backport it
+        Arrays.stream(text.split("\\R")).filter(l -> !l.isBlank() && !"Savegame".equals(l.strip())).toList();
     if (lines.isEmpty()) {
       return new Parts("", "", List.of());
     }

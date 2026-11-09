@@ -15,15 +15,17 @@ import org.triplea.mobile.app.ui.AppDialog
 /** What Play by Forum is and how a game runs, section by section. */
 private val HELP = listOf(
     "What it is" to
-        "Play a game over a forum thread on forums.triplea-game.org. Every turn is a " +
+        "Play a game over a forum thread on forums.triplea-game.org or www.axisandallies.org. Every turn is a " +
         "post with a summary and the save game; the next player opens the save, plays and posts back. " +
         "Desktop TripleA players can play the same games.",
     "Sign in" to
-        "Tap Sign in. You log in on the forum's own page; the app keeps only the forum's session, never your password.",
+        "Pick the forum at the top and tap Sign in. You log in on the forum's own page; the app keeps only the " +
+        "forum's session, never your password. Each forum has its own sign-in.",
     "Your games" to
         "My games lists the games you started, posted in or follow. \"Your turn\" means someone else posted last; " +
         "tap the chip to show only those, again for the games waiting for an opponent. Show inactive adds games " +
-        "without a post for 60 days. Browse lists the forum's open games to join. A game that is over, or that you " +
+        "without a post for 60 days. Browse lists the forum's open games to join; on AxisAndAllies.org pick " +
+        "the category (Play Boardgames, League, Tournaments, Team Games), a new game starts in that one too. A game that is over, or that you " +
         "are out of: tap the bell in its thread to stop following it; it leaves My games and sends no notifications " +
         "(the Stopped chip lists those games, the bell follows again).",
     "Start a game" to

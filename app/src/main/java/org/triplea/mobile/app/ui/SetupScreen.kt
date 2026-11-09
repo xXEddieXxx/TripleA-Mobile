@@ -66,6 +66,7 @@ import org.triplea.mobile.PlayerKind
 import org.triplea.mobile.app.game.GameController
 import org.triplea.mobile.app.AppSettings
 import org.triplea.mobile.app.forum.ForumAccount
+import org.triplea.mobile.app.forum.GameCategoryChips
 import org.triplea.mobile.app.forum.ForumThreadPicker
 import org.triplea.mobile.forum.NodeBbClient.GameThread
 import org.triplea.mobile.forum.PbfProperties
@@ -352,11 +353,12 @@ private fun prepareForumGame(
         settings.copy(diceEmail = myEmail, diceContacts = contacts)
     }
     if (existing != null) return existing
-    // a new game starts on the forum the Play by Forum screen showed
+    // a new game starts on the forum the Play by Forum screen showed, in the category picked
     val forum = ForumAccount.selected.value
     val client = ForumAccount.client(forum) ?: throw IllegalStateException("Sign in to ${forum.label} under Play by Forum first.")
     val content = firstPost.ifBlank { "New ${data.gameName} game. Who joins?" }
-    return client.startThread(title.ifBlank { data.gameName }, content).orElseThrow { ThreadHeldBack() }
+    return client.startThread(ForumAccount.category(forum).value, title.ifBlank { data.gameName }, content)
+        .orElseThrow { ThreadHeldBack() }
 }
 
 /** The forum queued the new thread for a moderator: it has no id to post to yet. */
@@ -392,6 +394,7 @@ private fun ForumGameFields(
             if (existingThread == null) {
                 OutlinedTextField(threadTitle, onThreadTitle, Modifier.fillMaxWidth(), label = { Text("Thread title") }, singleLine = true)
                 OutlinedTextField(firstPost, onFirstPost, Modifier.fillMaxWidth(), label = { Text("First post (optional)") }, maxLines = 3)
+                GameCategoryChips(ForumAccount.selected.collectAsState().value)
                 TextButton(onClick = { picking = true }) { Text("Use an existing thread instead") }
             } else {
                 // the game posts to this thread; no new thread is opened

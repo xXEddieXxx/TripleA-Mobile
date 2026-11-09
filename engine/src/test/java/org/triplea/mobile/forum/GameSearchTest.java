@@ -61,7 +61,7 @@ class GameSearchTest {
                     + " {\"tid\": 1, \"title\": \"A\", \"lastposttime\": 20}],"
                     + " \"pagination\": {\"pageCount\": 2}}");
 
-    final List<GameThread> found = new NodeBbClient(forum, Forum.TRIPLEA, "s").browse();
+    final List<GameThread> found = new NodeBbClient(forum, Forum.TRIPLEA, "s").browse(Forum.TRIPLEA.getGameCategories().get(0));
 
     assertThat(found).extracting(GameThread::topicId).containsExactly(1, 2);
     assertThat(forum.requests).hasSize(2);

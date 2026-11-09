@@ -39,6 +39,12 @@ import org.apache.commons.text.StringEscapeUtils;
 public final class NodeBbClient {
   public static final String SESSION_COOKIE = "express.sid";
 
+  /**
+   * The cookie of axisandallies.org's nodebb-plugin-proof-of-life: its Cloudflare rule lets requests
+   * that carry it through, all others get a challenge. Its admin offered it to the app.
+   */
+  private static final String PROOF_OF_LIFE_COOKIE = "nbb_human=1";
+
   /** Pages of the player's own posts read for games they did not start. */
   private static final int POST_PAGES = 3;
 
@@ -165,18 +171,20 @@ public final class NodeBbClient {
   }
 
   /**
-   * The Play by Forum category's games of its first pages, the last answered first, without pinned
-   * notes; enough for the search to find games that are a few weeks old.
+   * The game category's games of its first pages, the last answered first, without pinned notes;
+   * enough for the search to find games that are a few weeks old.
    */
-  public List<GameThread> browse() throws IOException {
+  public List<GameThread> browse(final Forum.Category gameCategory) throws IOException {
     final Map<Integer, GameThread> games = new LinkedHashMap<>();
     for (int page = 1; page <= BROWSE_PAGES; page++) {
       // the order named: the forum orders by the signed-in player's own setting otherwise
       final JsonObject category =
           read(
               "api/category/"
-                  + site.getGameCategory()
-                  + "?sort=recently_replied&page="
+                  + gameCategory.id()
+                  + "?sort="
+                  + site.getRecentlyRepliedSort()
+                  + "&page="
                   + page);
       // a topic that moved up between two pages is listed twice: keep the first
       categoryGames(category, site).forEach(game -> games.putIfAbsent(game.topicId(), game));
@@ -372,14 +380,15 @@ public final class NodeBbClient {
   }
 
   /**
-   * Starts a game thread in the Play by Forum category.
+   * Starts a game thread in the game category.
    *
    * @return the new thread; empty when a moderator must approve it first
    */
-  public Optional<GameThread> startThread(final String title, final String content)
+  public Optional<GameThread> startThread(
+      final Forum.Category gameCategory, final String title, final String content)
       throws IOException {
     final JsonObject body = new JsonObject();
-    body.addProperty("cid", site.getGameCategory());
+    body.addProperty("cid", gameCategory.id());
     body.addProperty("title", title);
     body.addProperty("content", content);
     final Http.Response response =
@@ -395,7 +404,7 @@ public final class NodeBbClient {
   private Map<String, String> writeHeaders() throws IOException {
     final String token = stringOf(read("api/config"), "csrf_token");
     return Map.of(
-        "Cookie", SESSION_COOKIE + "=" + session,
+        "Cookie", cookie().get("Cookie"),
         "x-csrf-token", token);
   }
 
@@ -452,8 +461,9 @@ public final class NodeBbClient {
   /** Whether the topic or post lies in the Play by Forum category, one below it, or one named so. */
   private static boolean isPlayByForum(final JsonObject topicOrPost, final Forum site) {
     final int category = site.getPlayByForumCategory();
-    return intOf(topicOrPost, "cid") == category
-        || intOf(topicOrPost, "cid") == site.getGameCategory()
+    final int cid = intOf(topicOrPost, "cid");
+    return cid == category
+        || site.getGameCategories().stream().anyMatch(game -> game.id() == cid)
         || objectOf(topicOrPost, "category")
             .filter(
                 found ->
@@ -644,7 +654,7 @@ public final class NodeBbClient {
   }
 
   Map<String, String> cookie() {
-    return Map.of("Cookie", SESSION_COOKIE + "=" + session);
+    return Map.of("Cookie", SESSION_COOKIE + "=" + session + "; " + PROOF_OF_LIFE_COOKIE);
   }
 
   JsonObject read(final String path) throws IOException {

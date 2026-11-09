@@ -40,7 +40,7 @@ class NodeBbClientWriteTest {
     assertThat(url).isEqualTo("/assets/uploads/files/1-triplea_101_6ger.tsvg");
     final Http.Request upload = forum.requests.get(forum.requests.size() - 1);
     assertThat(upload.headers())
-        .containsEntry("Cookie", "express.sid=" + SESSION)
+        .containsEntry("Cookie", "express.sid=" + SESSION + "; nbb_human=1")
         .containsEntry("x-csrf-token", "token-1");
     assertThat(upload.contentType()).startsWith("multipart/form-data; boundary=");
     assertThat(new String(upload.body(), StandardCharsets.ISO_8859_1))
@@ -81,7 +81,7 @@ class NodeBbClientWriteTest {
     assertThat(reply.method()).isEqualTo("POST");
     assertThat(reply.contentType()).isEqualTo("application/json");
     assertThat(reply.headers())
-        .containsEntry("Cookie", "express.sid=" + SESSION)
+        .containsEntry("Cookie", "express.sid=" + SESSION + "; nbb_human=1")
         .containsEntry("x-csrf-token", "token-1");
     assertThat(FakeForum.text(reply)).isEqualTo("{\"content\":\"Your turn!\"}");
   }
@@ -111,7 +111,7 @@ class NodeBbClientWriteTest {
         "{\"response\": {\"tid\": 120, \"slug\": \"120/global-1940\","
             + " \"title\": \"Global 1940: Ann vs Bob\"}}");
 
-    assertThat(client.startThread("Global 1940: Ann vs Bob", "Who joins?"))
+    assertThat(client.startThread(Forum.TRIPLEA.getGameCategories().get(0), "Global 1940: Ann vs Bob", "Who joins?"))
         .map(GameThread::topicId)
         .contains(120);
     assertThat(FakeForum.text(forum.requests.get(forum.requests.size() - 1)))
@@ -152,13 +152,13 @@ class NodeBbClientWriteTest {
     reader.picture(URI.create(FakeForum.URL + "assets/uploads/files/b.png"));
 
     assertThat(asked.get(0).headers()).isEmpty();
-    assertThat(asked.get(1).headers()).containsEntry("Cookie", "express.sid=" + SESSION);
+    assertThat(asked.get(1).headers()).containsEntry("Cookie", "express.sid=" + SESSION + "; nbb_human=1");
   }
 
   @Test
   void heldBackThreadHasNoIdYet() throws IOException {
     forum.answer("api/v3/topics", 202, "{\"response\": {\"queued\": true}}");
 
-    assertThat(client.startThread("Held", "x")).isEmpty();
+    assertThat(client.startThread(Forum.TRIPLEA.getGameCategories().get(0), "Held", "x")).isEmpty();
   }
 }

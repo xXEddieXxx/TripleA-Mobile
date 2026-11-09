@@ -210,7 +210,7 @@ class NodeBbClientReadTest {
         .allSatisfy(
             request -> {
               assertThat(request.method()).isEqualTo("GET");
-              assertThat(request.headers()).containsEntry("Cookie", "express.sid=" + SESSION);
+              assertThat(request.headers()).containsEntry("Cookie", "express.sid=" + SESSION + "; nbb_human=1");
             })
         .extracting(Http.Request::url)
         .contains(FakeForum.URL + "api/user/ann-lee/posts?page=3");
