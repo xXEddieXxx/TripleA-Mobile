@@ -579,9 +579,9 @@ private fun UnitStatCells(ua: UnitAttachment, player: GamePlayer) {
 }
 
 /** The unit groups of the purchase dialog and the unit overview, in display order. */
-private val UNIT_KINDS = listOf("Land", "Air", "Sea", "Other")
+internal val UNIT_KINDS = listOf("Land", "Air", "Sea", "Other")
 
-private fun unitKind(type: UnitType?): String {
+internal fun unitKind(type: UnitType?): String {
     val ua = type?.unitAttachment
     return when {
         ua == null -> "Other"
@@ -1035,8 +1035,12 @@ fun BattleListDialog(request: BattleRequest) {
 /** The player's running choice of losses for a [CasualtyRequest]: counts per unit group. */
 class CasualtyChoice(val request: CasualtyRequest) {
     val groups: Map<UnitGroupKey, List<Unit>> = request.selectFrom.groupBy { groupKey(it) }
-    /** Every hit must be assigned: as damage to a unit that can take it, or as a loss. */
-    val hitsNeeded: Int = request.count
+    /**
+     * Every hit must be assigned: as damage to a unit that can take it, or as a loss. In edit mode
+     * the most that can be chosen: every unit lost and every damage taken (any amount up to it confirms).
+     */
+    val hitsNeeded: Int =
+        if (request.editMode) groups.entries.sumOf { (key, units) -> units.size + damageCapacity(key) } else request.count
     /** Hits marked as damage per group (a battleship's first hit) and as losses per group. */
     val damaged: SnapshotStateMap<UnitGroupKey, Int> = mutableStateMapOf()
     val killed: SnapshotStateMap<UnitGroupKey, Int> = mutableStateMapOf()
@@ -1053,7 +1057,7 @@ class CasualtyChoice(val request: CasualtyRequest) {
         else groups.getValue(key).sumOf { (it.unitAttachment.hitPoints - 1 - it.hits).coerceAtLeast(0) }
 
     val total: Int get() = damaged.values.sum() + killed.values.sum()
-    val complete: Boolean get() = total == hitsNeeded
+    val complete: Boolean get() = request.editMode || total == hitsNeeded
 
     fun confirm() {
         val killedUnits = ArrayList<Unit>()

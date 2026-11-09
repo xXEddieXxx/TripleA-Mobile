@@ -22,6 +22,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -110,6 +111,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -163,6 +165,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -180,6 +185,7 @@ import org.triplea.mobile.app.game.BattleStrengths
 import org.triplea.mobile.app.game.CasualtyNoticeRequest
 import org.triplea.mobile.app.game.CasualtyRequest
 import org.triplea.mobile.app.game.ConfirmRequest
+import org.triplea.mobile.app.game.EditHelper
 import org.triplea.mobile.app.game.EndTurnRequest
 import org.triplea.mobile.app.game.GameController
 import org.triplea.mobile.app.game.HistoryBlock
@@ -321,6 +327,38 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var showCalc by remember { mutableStateOf(false) }
     /** The calculator waits for a tap on the map that chooses its territory. */
     var calcPicking by remember { mutableStateOf(false) }
+    // edit mode lives in the game data (saved with the game, switched off by the engine for AI turns)
+    // collected here, not as state: only a change of the flag recomposes the screen
+    // the step or player changing also re-reads it: the engine switches the flag off for AI turns without a data change
+    val editMode by produceState(false, session) {
+        merge(
+            GameController.dataVersion.map { },
+            GameController.status.map { it.stepName to it.playerName }.distinctUntilChanged().map { },
+        ).collect {
+            value = withContext(Dispatchers.Default) { runCatching { EditHelper.isEditMode(session) }.getOrDefault(false) }
+        }
+    }
+    var replayIndex by remember(session) { mutableStateOf<Int?>(null) }
+    val inHistory = replayIndex != null
+    /** The map is free for edits: not while a battle or another question waits (null is the gap between requests) or in the history. */
+    val editTools = editMode && !inHistory && (pending == null || EditHelper.editAllowed(pending))
+    /** The territory tool waiting for taps on the map. */
+    var editTool by remember(session) { mutableStateOf<EditTool?>(null) }
+    /** The territory the active tool's dialog is open for. */
+    var editTerritory by remember(session) { mutableStateOf<Territory?>(null) }
+    /** The player tool (PUs, techs, politics) whose dialog is open, with the player it opens on. */
+    var editPlayerTool by remember(session) { mutableStateOf<Pair<EditTool, GamePlayer>?>(null) }
+    val techEnabled by produceState(false, session) {
+        value = withContext(Dispatchers.Default) { runCatching { EditHelper.techEnabled(session) }.getOrDefault(false) }
+    }
+    val editToolsNow by rememberUpdatedState(editTools)
+    LaunchedEffect(editTools) {
+        if (!editTools) {
+            editTool = null
+            editTerritory = null
+            editPlayerTool = null
+        }
+    }
     // the attacker picked in the calculator holds for the turn; the next nation's turn starts with that nation
     var calcAttacker by remember(session, status.playerName) { mutableStateOf<String?>(null) }
     var gameNotes by remember { mutableStateOf<String?>(null) }
@@ -337,8 +375,6 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var aiMove by remember(session) { mutableStateOf<GameController.AiMove?>(null) }
     /** A replay of the history on the map: the items in play order and the one shown right now. */
     var replayList by remember(session) { mutableStateOf<List<ReplayItem>>(emptyList()) }
-    var replayIndex by remember(session) { mutableStateOf<Int?>(null) }
-    val inHistory = replayIndex != null
     LaunchedEffect(session) {
         GameController.aiMoves.collectLatest { move ->
             // with the pause at 0 the AI plays at full speed and the map stays where it is
@@ -359,6 +395,8 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     var lastAutosaveRound by remember(session) { mutableIntStateOf(0) }
     var hiddenBattleId by remember(session) { mutableStateOf<UUID?>(null) }
     var phaseEndConfirm by remember(session) { mutableStateOf<PhaseEndConfirm?>(null) }
+    /** Ending combat move in edit mode: the end of the phase, waiting behind the edit-mode battle warning. */
+    var editModeEndMove by remember(session) { mutableStateOf<(() -> kotlin.Unit)?>(null) }
 
     // a short banner whenever the phase or the player changes, so transitions are noticeable
     var banner by remember(session) { mutableStateOf<PhaseBanner?>(null) }
@@ -663,6 +701,12 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
             showCalc = true
             return
         }
+        if (editTool != null && editToolsNow) {
+            // a territory tool is active: the tap opens its dialog instead of selecting or moving
+            selectedTerritory = name
+            editTerritory = territory
+            return
+        }
         when (val request = pending) {
             is MoveRequest -> {
                 val from = moveFrom
@@ -692,6 +736,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
 
     fun onDoubleTap(tap: MapTap) {
         if (replayIndex != null) return // the unit menu works on the live game
+        if (editTool != null && editToolsNow) return onTap(tap)
         val name = tap.territory ?: return
         val territory = MoveHelper.territory(session, name) ?: return
         openUnitMenu(territory)
@@ -975,10 +1020,43 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         }
     }
 
+    fun switchEditMode(on: Boolean, then: () -> kotlin.Unit = {}) {
+        scope.launch {
+            withContext(Dispatchers.Default) { runCatching { EditHelper.setEditMode(session, on) } }
+                .onSuccess { then() }
+                .onFailure { toast(it.message ?: "Edit mode could not be switched") }
+        }
+    }
+
+    /** The active tool again puts it away; a player tool opens its dialog and does not stay active. */
+    fun selectEditTool(tool: EditTool) {
+        when {
+            tool == editTool -> editTool = null
+            tool.needsTerritory -> editTool = tool
+            else -> scope.launch {
+                val name = status.playerName
+                val player = withContext(Dispatchers.Default) {
+                    runCatching { session.gameData.acquireReadLock().use { session.gameData.playerList.getPlayerId(name) } }.getOrNull()
+                }
+                // edit mode may have ended during the lookup; no stale dialog over a battle question
+                if (!editToolsNow) return@launch
+                if (player == null) toast("No player to edit for $name") else editPlayerTool = tool to player
+            }
+        }
+    }
+
     val menu: @Composable () -> kotlin.Unit = {
         Box {
             IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "menu") }
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                // offered while the map is free in a human's own phase; while on, always, so it can be switched off
+                if (editMode || EditHelper.editAllowed(pending)) {
+                    DropdownMenuItem(
+                        text = { Text("Edit mode") },
+                        trailingIcon = if (editMode) { { Icon(Icons.Filled.Check, contentDescription = "on") } } else null,
+                        onClick = { showMenu = false; switchEditMode(!editMode) },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text(if (showDetails) "Hide details panel" else "Show details panel") },
                     onClick = { showMenu = false; showDetails = !showDetails },
@@ -1073,7 +1151,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
 
     val mapArea: @Composable (Modifier) -> kotlin.Unit = { areaModifier ->
-        Box(areaModifier) {
+        Box(if (editMode) areaModifier.border(3.dp, MaterialTheme.colorScheme.error) else areaModifier) {
             MapView(
                 snapshot = shown,
                 mapData = session.mapData,
@@ -1145,6 +1223,10 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                     Modifier.align(Alignment.TopEnd).padding(top = edgeTop, end = edgeEnd),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (editMode) {
+                        EditModeChip(onClose = { switchEditMode(false) }, modifier = Modifier)
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Box(Modifier.widthIn(max = 240.dp)) { territoryChip(Modifier, false) }
                     Spacer(Modifier.width(4.dp))
                     menu()
@@ -1157,6 +1239,21 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = edgeTop + if (landscape) 52.dp else 8.dp, start = edgeStart, end = edgeEnd),
             ) {
                 banner?.let { PhaseBannerCard(it, images, playerColor) }
+            }
+            if (editTools) {
+                editTool?.let { tool ->
+                    // where the calculator's hint sits: below the turn strip
+                    OverlayChip(Modifier.align(Alignment.TopCenter).padding(top = edgeTop + if (landscape) 30.dp else 48.dp)) {
+                        Text("${tool.label}: tap a territory", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                EditToolStrip(
+                    active = editTool,
+                    showTechs = techEnabled,
+                    onSelect = ::selectEditTool,
+                    // between the top row (menu, chips) and the phase buttons at the bottom
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = edgeEnd, top = edgeTop + 48.dp, bottom = edgeBottom + 64.dp),
+                )
             }
 
             // turn progress: one symbol per step of this nation's turn, the current one lit
@@ -1282,7 +1379,14 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                         hasSelection = moveFrom != null,
                         onClearSelection = ::clearSelection,
                         onUndo = { showMoves = true },
-                        onDone = { confirm -> if (settings.confirmPhaseEnd) phaseEndConfirm = confirm else confirm.proceed() },
+                        onDone = { confirm ->
+                            when {
+                                // a lone battle is fought without the battle list, so warn before combat move ends
+                                editMode && (pending as? MoveRequest)?.nonCombat == false -> editModeEndMove = confirm.proceed
+                                settings.confirmPhaseEnd -> phaseEndConfirm = confirm
+                                else -> confirm.proceed()
+                            }
+                        },
                         onQuit = onQuit,
                         movesCount = madeMoves.size,
                         onOpenDialog = { dialogHidden = false },
@@ -1356,20 +1460,33 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
+                    colors = if (editMode) TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        titleContentColor = MaterialTheme.colorScheme.onError,
+                        actionIconContentColor = MaterialTheme.colorScheme.onError,
+                    ) else TopAppBarDefaults.topAppBarColors(),
                     title = {
-                        PlayerHeader(
-                            status = status,
-                            gameName = session.gameData.gameName,
-                            resourceLine = resourceLine,
-                            images = images,
-                            playerColor = playerColor,
-                            separator = "  ·  ",
-                            large = true,
-                            compact = true,
-                            onFlagTap = ::jumpToCapital,
-                        )
+                        Column {
+                            if (editMode) Text("EDIT MODE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            PlayerHeader(
+                                status = status,
+                                gameName = session.gameData.gameName,
+                                resourceLine = resourceLine,
+                                images = images,
+                                playerColor = playerColor,
+                                separator = "  ·  ",
+                                large = true,
+                                compact = true,
+                                onFlagTap = ::jumpToCapital,
+                            )
+                        }
                     },
-                    actions = { menu() },
+                    actions = {
+                        if (editMode) {
+                            IconButton(onClick = { switchEditMode(false) }) { Icon(Icons.Filled.Close, contentDescription = "Turn off edit mode") }
+                        }
+                        menu()
+                    },
                 )
             },
             snackbarHost = { SnackbarHost(snackbarHostState) { DismissableSnackbar(it) } },
@@ -1446,6 +1563,13 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
     }
     }
 
+    editModeEndMove?.let { endMove ->
+        EditModeBattleWarning(
+            onDismiss = { editModeEndMove = null },
+            onTurnOff = { editModeEndMove = null; switchEditMode(false) { endMove() } },
+        )
+    }
+
     // dialogs driven by engine questions
     when (val request = pending) {
         is PurchaseRequest -> {
@@ -1454,7 +1578,11 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
                 PurchaseDialog(request, images, capacity, counts = purchaseCounts, onShowMap = { dialogHidden = true })
             }
         }
-        is BattleRequest -> BattleListDialog(request)
+        is BattleRequest -> if (editMode) {
+            EditModeBattleWarning(onTurnOff = { switchEditMode(false) })
+        } else {
+            BattleListDialog(request)
+        }
         is ConfirmRequest -> if (battleQuestion == null) ConfirmDialog(request)
         is CasualtyRequest -> if (casualtyRequest == null) CasualtyDialog(request, images)
         is SelectTerritoryRequest -> TerritoryPickerDialog(request)
@@ -1494,6 +1622,16 @@ fun GameScreen(onQuit: () -> kotlin.Unit) {
         else -> {}
     }
     unitPicker?.let { UnitPickerDialog(it, images) }
+    val territoryTool = editTool
+    editTerritory?.let { territory ->
+        if (territoryTool != null) {
+            // the tool stays active after the dialog, for the next territory
+            EditTerritoryDialog(territoryTool, territory, session, images) { error -> editTerritory = null; error?.let(::toast) }
+        }
+    }
+    editPlayerTool?.let { (tool, player) ->
+        EditPlayerDialog(tool, session, player, images) { error -> editPlayerTool = null; error?.let(::toast) }
+    }
     messageDialog?.let { MessageDialog(it.title, it.text) { messageDialog = null } }
     if (showMoves) {
         MovesDialog(
@@ -1855,6 +1993,20 @@ private fun ButtonLabel(icon: androidx.compose.ui.graphics.vector.ImageVector, t
         Spacer(Modifier.width(6.dp))
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
+}
+
+/**
+ * In edit mode the engine rolls no casualties for the human: losses are chosen freely, none by
+ * default. Shown before the battles, with only the way out. [onDismiss] null: it must be answered.
+ */
+@Composable
+private fun EditModeBattleWarning(onDismiss: (() -> kotlin.Unit)? = null, onTurnOff: () -> kotlin.Unit) {
+    AppDialog(
+        title = "Edit mode is on",
+        subtitle = "Edit mode is on: battles would not kill anything. Turn off edit mode to fight normally.",
+        onDismiss = onDismiss,
+        buttons = { Button(onClick = onTurnOff) { Text("Turn off edit mode") } },
+    ) {}
 }
 
 /** A question asked before a phase is ended, because phases cannot be re-entered. */
