@@ -27,6 +27,7 @@ import games.strategy.triplea.attachments.PoliticalActionAttachment
 import games.strategy.triplea.attachments.UserActionAttachment
 import games.strategy.triplea.delegate.DiceRoll
 import games.strategy.triplea.delegate.remote.IPoliticsDelegate
+import games.strategy.triplea.delegate.remote.IEditDelegate
 import games.strategy.triplea.delegate.remote.IUserActionDelegate
 import games.strategy.triplea.delegate.Die
 import games.strategy.triplea.delegate.battle.IBattle
@@ -67,6 +68,7 @@ import org.triplea.mobile.forum.MartiDice
 import org.triplea.mobile.forum.NodeBbClient
 import org.triplea.mobile.forum.PbfPost
 import org.triplea.mobile.forum.PbfProperties
+import org.triplea.mobile.forum.PbfTurn
 import org.triplea.mobile.app.forum.ForumSaves
 import games.strategy.triplea.delegate.remote.IAbstractForumPosterDelegate
 import games.strategy.triplea.ui.history.HistoryLog
@@ -327,6 +329,23 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         }
     }
 
+    /** The load screen's sidecar for a save not written here (a forum download), read from its game data. */
+    fun writeSaveInfo(save: Path, data: GameData) {
+        runCatching {
+            val info = data.acquireReadLock().use {
+                val step = data.sequence.step
+                listOf(
+                    "round=${data.sequence.round}",
+                    "player=${step?.playerId?.name.orEmpty()}",
+                    "step=${step?.displayName ?: step?.name.orEmpty()}",
+                    "game=${data.gameName}",
+                    "map=${data.mapName}",
+                ).joinToString(System.lineSeparator())
+            }
+            java.nio.file.Files.write(infoFileFor(save), info.toByteArray(Charsets.UTF_8))
+        }
+    }
+
     /** The sidecar next to a save: "name.tsvg" -> "name.tsvg.info". */
     fun infoFileFor(save: Path): Path = save.resolveSibling(save.fileName.toString() + ".info")
 
@@ -425,12 +444,21 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
             // as desktop: no post for a step marked so, nor again for a turn already posted
             val posted = (data.sequence.step.delegate as? IAbstractForumPosterDelegate)?.hasPostedTurnSummary == true
             if (!posted && !GameStepPropertiesHelper.isSkipPosting(data)) {
+                // edit mode would travel in the save to the next player (desktop leaves it on): off
+                // before the summary, so "Turning off Edit Mode" is part of the posted turn
+                if (EditDelegate.getEditMode(data.properties)) {
+                    session?.getRemoteDelegate("edit", IEditDelegate::class.java)?.setEditMode(false)
+                }
                 // only nations played here: a loaded save starts at the opponent's posted end turn
                 forumNations += player
-                val (round, summary) = data.acquireReadLock().use {
-                    data.sequence.round to HistoryLog().apply { printFullTurn(data, false, forumNations) }.toString()
+                val (round, summary, nextAlly) = data.acquireReadLock().use {
+                    Triple(
+                        data.sequence.round,
+                        HistoryLog().apply { printFullTurn(data, false, forumNations) }.toString(),
+                        PbfTurn.nextAlly(data, player, data.sequence.stepIndex).map { it.name }.orElse(null),
+                    )
                 }
-                ask(ForumTurnRequest(player, round, summary, thread))
+                ask(ForumTurnRequest(player, round, summary, thread, forumNations.map { it.name }, nextAlly))
                 return
             }
         }
@@ -452,6 +480,8 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
             throw e
         }
         ForumSaves.record(file, request.thread)
+        // a forum game keeps only its newest save; this turn replaces the older ones
+        ForumSaves.keepOnly(file, keepUnsent = false)
         return file
     }
 
@@ -462,7 +492,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     fun unsendForumTurn(request: ForumTurnRequest) {
         markPosted(false)
         saveGame(forumTurnFile(request))
-        ForumSaves.record(forumTurnFile(request), request.thread)
+        ForumSaves.recordUnsent(forumTurnFile(request), request.thread)
     }
 
     /**
@@ -485,6 +515,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         val file = MobileEngine.getSaveGamesFolder().resolve(PbfPost.saveName(post.thread.topicId(), post.round, post.player))
         saveFresh(file)
         ForumSaves.record(file, post.thread)
+        ForumSaves.keepOnly(file, keepUnsent = false)
         return file
     }
 

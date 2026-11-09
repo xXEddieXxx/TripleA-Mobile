@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import org.triplea.mobile.app.ui.InfoNote
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,11 @@ fun ForumTurnSheet(request: ForumTurnRequest, onSent: (GameThread, heldBack: Boo
         round = request.round,
         summary = request.summary,
         thread = request.thread,
+        notices = listOfNotNull(
+            // several nations played in a row ("Keep playing"): the post covers them all
+            request.nations.takeIf { it.size > 1 }?.let { "This post covers ${it.joinToString(", ")}." },
+            request.nextAlly?.let { "${request.nextAlly} plays next and is an ally of ${request.player.name}. If you play them too, tap Keep playing: their moves join this post." },
+        ),
         poster = { poster ?: TurnPoster(signedInClient(request.thread.forum()), request.thread, GameController.saveForumTurn(request)).also { poster = it } },
         onSent = { onSent(request.thread, it) },
         // the way out while sending keeps failing: the save is kept, unsent, for later
@@ -116,6 +122,8 @@ private fun ForumPostDialog(
     round: Int,
     summary: String,
     thread: GameThread,
+    /** Notes above the summary, eg the nations it covers; the edit mode note is added from the summary itself. */
+    notices: List<String> = emptyList(),
     poster: () -> TurnPoster,
     onSent: (heldBack: Boolean) -> Unit,
     sendLater: (() -> Unit)?,
@@ -194,6 +202,11 @@ private fun ForumPostDialog(
         Card(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
+                notices.forEach { InfoNote(it) }
+                // the engine writes every event made while edit mode is on as "EDIT: ..."
+                if (summary.contains("EDIT: ")) {
+                    InfoNote("This turn contains changes made in edit mode: the EDIT lines below.")
+                }
                 Text(
                     summary.trim(),
                     Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()),

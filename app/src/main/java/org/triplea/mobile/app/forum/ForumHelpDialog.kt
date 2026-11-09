@@ -23,15 +23,21 @@ private val HELP = listOf(
     "Your games" to
         "My games lists the games you started, posted in or follow. \"Your turn\" means someone else posted last; " +
         "tap the chip to show only those, again for the games waiting for an opponent. Show inactive adds games " +
-        "without a post for 60 days. Browse lists the forum's open games to join.",
+        "without a post for 60 days. Browse lists the forum's open games to join. A game that is over, or that you " +
+        "are out of: tap the bell in its thread to stop following it; it leaves My games and sends no notifications " +
+        "(the Stopped chip lists those games, the bell follows again).",
     "Start a game" to
-        "New game opens a thread and the game setup. In a thread without a save, Start game sets up a game for " +
-        "that thread. Choose the map, and enter your and your opponent's dice email: every roll is made on " +
-        "dice.triplea-game.org and mailed to both of you. Register your email there once (the setup links to it).",
+        "New game opens a thread and the game setup; \"Use an existing thread instead\" picks a thread that is already " +
+        "there (search it; those you opened last come first). In a thread without a save, Start game sets up a game for " +
+        "that thread. Choose the map, and enter your and the other players' dice emails (Add player for more than " +
+        "two): every roll is made on dice.triplea-game.org and mailed to all of you. Emails you used before are " +
+        "offered in each field. Register your email there once (the setup links to it).",
     "Play your turn" to
-        "In the thread, Open save on the newest turn and choose Join and play (or Watch to only look). At the end of " +
+        "In the thread, tap Join: it opens the newest save to play on (Open save on a post also offers Watch, " +
+            "to only look). The app keeps only the newest save of each forum game; a turn you put off sending stays. At the end of " +
         "your turn the app shows the summary: add a comment and pictures and tap Send. The turn and the save are " +
-        "posted, and you are back in the thread. Keep playing goes on when the next nation is yours too.",
+        "posted, and you are back in the thread. Keep playing goes on when the next nation is yours too; the summary " +
+        "says when the next nation is an ally, and then one post covers all the nations you played.",
     "Ask the opponent" to
         "When the game asks something the opponent should decide (their losses, a scramble, a retreat or submerge), " +
         "tap Ask opponent. The question, a screenshot and the save are posted; stop until they answer, then open " +

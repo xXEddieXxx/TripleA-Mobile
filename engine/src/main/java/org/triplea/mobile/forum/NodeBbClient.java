@@ -252,7 +252,9 @@ public final class NodeBbClient {
 
   /**
    * Downloads the save game into the folder, named as in the forum; only a file the forum keeps,
-   * so the session never goes elsewhere. A failed download leaves no broken file.
+   * so the session never goes elsewhere. A failed download leaves no broken file. A file of that
+   * name already there is never replaced (desktop names saves as the app names its own turns, one
+   * may be a turn not sent yet): the download then gets a time in front, as the forum's uploads do.
    */
   public Path download(final SaveGame saveGame, final Path folder) throws IOException {
     if (!isOnForum(saveGame.url().normalize(), forum)) {
@@ -260,7 +262,11 @@ public final class NodeBbClient {
     }
     final Http.Response response = send(Http.Request.get(saveGame.url().toString(), cookie()));
     Files.createDirectories(folder);
-    final Path file = folder.resolve(safeFileName(saveGame.fileName()));
+    final String name = safeFileName(saveGame.fileName());
+    final Path file =
+        Files.exists(folder.resolve(name))
+            ? folder.resolve(System.currentTimeMillis() + "-" + name)
+            : folder.resolve(name);
     final Path part = Files.createTempFile(folder, "download-", ".part");
     try {
       Files.write(part, response.bytes());

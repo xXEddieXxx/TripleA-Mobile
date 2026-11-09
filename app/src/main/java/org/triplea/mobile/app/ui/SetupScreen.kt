@@ -24,6 +24,20 @@ import org.triplea.mobile.app.AppServices
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -52,6 +66,7 @@ import org.triplea.mobile.PlayerKind
 import org.triplea.mobile.app.game.GameController
 import org.triplea.mobile.app.AppSettings
 import org.triplea.mobile.app.forum.ForumAccount
+import org.triplea.mobile.app.forum.ForumThreadPicker
 import org.triplea.mobile.forum.NodeBbClient.GameThread
 import org.triplea.mobile.forum.PbfProperties
 import androidx.compose.material3.OutlinedTextField
@@ -73,11 +88,14 @@ fun SetupScreen(
     val scope = rememberCoroutineScope()
     val forumGame = forumThread != null || newForumGame
     var myEmail by remember { mutableStateOf(AppSettings.current.diceEmail) }
-    var otherEmail by remember { mutableStateOf("") }
+    // the other players' dice emails: the opponent, and with "Add player" more (desktop's "CC")
+    val otherEmails = remember { mutableStateListOf("") }
     var emailWarning by remember { mutableStateOf<String?>(null) }
     var threadTitle by remember { mutableStateOf("") }
     var firstPost by remember { mutableStateOf("") }
     var createdThread by remember { mutableStateOf<GameThread?>(null) }
+    // a new game in a thread that already exists (picked), instead of opening a new one
+    var existingThread by remember { mutableStateOf<GameThread?>(null) }
     var threadHeldBack by remember { mutableStateOf(false) }
     var games by remember { mutableStateOf<List<MobileEngine.InstalledGame>>(emptyList()) }
     var gameData by remember { mutableStateOf<GameData?>(null) }
@@ -125,24 +143,29 @@ fun SetupScreen(
         }
         if (forumGame) {
             threadTitle = data.gameName
+            // the second field (desktop's "CC") may hold several addresses, separated by spaces
             val saved = listOf(PbfProperties.DICE_EMAIL_1, PbfProperties.DICE_EMAIL_2)
-                .map { data.properties.get(it, "") }.filter { it.isNotBlank() }
+                .flatMap { data.properties.get(it, "").split(Regex("\\s+")) }.filter { it.isNotBlank() }
             if (saved.isNotEmpty()) {
+                // the people of this game join the addresses offered in every setup
+                AppSettings.update { it.copy(diceContacts = (it.diceContacts + saved).distinctBy { c -> c.lowercase() }) }
                 val mine = saved.firstOrNull { it.equals(myEmail, ignoreCase = true) }
-                if (myEmail.isBlank()) {
+                val rest = if (myEmail.isBlank()) {
                     // no email remembered yet: the player confirms which one is theirs
                     myEmail = saved[0]
-                    otherEmail = saved.getOrElse(1) { "" }
                     emailWarning = "Is ${saved[0]} your dice email? Swap or correct the fields if not; yours is remembered."
+                    saved.drop(1)
                 } else if (mine == null) {
-                    // joining a game you have not rolled in yet: your email takes over one of the two
+                    // joining a game you have not rolled in yet: your email joins the others
                     emailWarning = "You have not rolled in this game yet (its dice emails: ${saved.joinToString()}). " +
-                        "Enter your email and keep the opponent's, so every roll is mailed to both of you."
-                    otherEmail = saved[0]
+                        "Enter your email and keep the others', so every roll is mailed to all of you."
+                    saved
                 } else {
                     emailWarning = null
-                    otherEmail = saved.firstOrNull { !it.equals(mine, ignoreCase = true) } ?: ""
+                    saved.filterNot { it.equals(mine, ignoreCase = true) }
                 }
+                otherEmails.clear()
+                otherEmails += rest.ifEmpty { listOf("") }
             } else if (forumThread != null && saveFile != null) {
                 emailWarning = "This save has no dice server emails. Enter both, so every roll is mailed to both players."
             }
@@ -214,14 +237,15 @@ fun SetupScreen(
                     item(key = "forum") {
                         ForumGameFields(
                             newGame = newForumGame,
+                            existingThread = existingThread,
+                            onExistingThread = { existingThread = it },
                             threadTitle = threadTitle,
                             onThreadTitle = { threadTitle = it },
                             firstPost = firstPost,
                             onFirstPost = { firstPost = it },
                             myEmail = myEmail,
                             onMyEmail = { myEmail = it },
-                            otherEmail = otherEmail,
-                            onOtherEmail = { otherEmail = it },
+                            otherEmails = otherEmails,
                             warning = emailWarning,
                             onRegister = onRegisterDiceEmail,
                         )
@@ -271,8 +295,9 @@ fun SetupScreen(
                 TextButton(onClick = { showOptions = true }) { Text("Options & bids") }
                 Button(
                     onClick = {
-                        if (forumGame && (!myEmail.contains('@') || !otherEmail.contains('@'))) {
-                            error = "Enter both dice server emails: every roll is mailed to both players."
+                        val others = otherEmails.map { it.trim() }.filter { it.isNotEmpty() }
+                        if (forumGame && (!myEmail.contains('@') || others.isEmpty() || others.any { !it.contains('@') })) {
+                            error = "Enter your and every other player's dice server email: every roll is mailed to all of you."
                             return@Button
                         }
                         if (threadHeldBack) {
@@ -285,7 +310,7 @@ fun SetupScreen(
                                 runCatching {
                                     // a thread opened by an earlier Start is reused, never opened twice
                                     val thread = if (forumGame) {
-                                        prepareForumGame(data, forumThread ?: createdThread, threadTitle, firstPost, myEmail.trim(), otherEmail.trim())
+                                        prepareForumGame(data, forumThread ?: existingThread ?: createdThread, threadTitle, firstPost, myEmail.trim(), others)
                                             .also { createdThread = it }
                                     } else null
                                     GameController.startSession(data, kinds.toMap(), fromSave = saveFile != null, forumThread = thread)
@@ -315,12 +340,17 @@ private fun prepareForumGame(
     title: String,
     firstPost: String,
     myEmail: String,
-    otherEmail: String,
+    otherEmails: List<String>,
 ): GameThread {
     data.properties.set(PbfProperties.DICE_EMAIL_1, myEmail)
-    data.properties.set(PbfProperties.DICE_EMAIL_2, otherEmail)
-    // the field the player confirmed with Start as theirs (the setup asks when it had to guess)
-    AppSettings.update { it.copy(diceEmail = myEmail) }
+    // as desktop's "CC": every other player's address, separated by spaces
+    data.properties.set(PbfProperties.DICE_EMAIL_2, otherEmails.joinToString(" "))
+    // the field the player confirmed with Start as theirs (the setup asks when it had to guess),
+    // and every address used, offered again in the next game's setup
+    AppSettings.update { settings ->
+        val contacts = (settings.diceContacts + myEmail + otherEmails).distinctBy { it.lowercase() }
+        settings.copy(diceEmail = myEmail, diceContacts = contacts)
+    }
     if (existing != null) return existing
     // a new game starts on the forum the Play by Forum screen showed
     val forum = ForumAccount.selected.value
@@ -336,33 +366,96 @@ private class ThreadHeldBack :
 @Composable
 private fun ForumGameFields(
     newGame: Boolean,
+    existingThread: GameThread?,
+    onExistingThread: (GameThread?) -> Unit,
     threadTitle: String,
     onThreadTitle: (String) -> Unit,
     firstPost: String,
     onFirstPost: (String) -> Unit,
     myEmail: String,
     onMyEmail: (String) -> Unit,
-    otherEmail: String,
-    onOtherEmail: (String) -> Unit,
+    otherEmails: SnapshotStateList<String>,
     warning: String?,
     onRegister: () -> Unit,
 ) {
+    // the addresses of earlier games, offered in every field; those already filled in are left out
+    val contacts = AppSettings.state.collectAsState().value.diceContacts
+    fun offered(current: String) = contacts.filter { c ->
+        !c.equals(current, ignoreCase = true) && !c.equals(myEmail, ignoreCase = true) &&
+            otherEmails.none { it.equals(c, ignoreCase = true) }
+    }
     Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("Play by Forum", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         if (newGame) {
-            OutlinedTextField(threadTitle, onThreadTitle, Modifier.fillMaxWidth(), label = { Text("Thread title") }, singleLine = true)
-            OutlinedTextField(firstPost, onFirstPost, Modifier.fillMaxWidth(), label = { Text("First post (optional)") }, maxLines = 3)
+            var picking by remember { mutableStateOf(false) }
+            if (picking) ForumThreadPicker(onPick = { onExistingThread(it); picking = false }, onDismiss = { picking = false })
+            if (existingThread == null) {
+                OutlinedTextField(threadTitle, onThreadTitle, Modifier.fillMaxWidth(), label = { Text("Thread title") }, singleLine = true)
+                OutlinedTextField(firstPost, onFirstPost, Modifier.fillMaxWidth(), label = { Text("First post (optional)") }, maxLines = 3)
+                TextButton(onClick = { picking = true }) { Text("Use an existing thread instead") }
+            } else {
+                // the game posts to this thread; no new thread is opened
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Thread", style = MaterialTheme.typography.bodySmall)
+                        Text(existingThread.title(), style = MaterialTheme.typography.titleSmall)
+                    }
+                    IconButton(onClick = { onExistingThread(null) }) { Icon(Icons.Filled.Close, contentDescription = "open a new thread instead") }
+                }
+            }
         }
-        OutlinedTextField(myEmail, onMyEmail, Modifier.fillMaxWidth(), label = { Text("Your dice email") }, singleLine = true)
-        OutlinedTextField(otherEmail, onOtherEmail, Modifier.fillMaxWidth(), label = { Text("Opponent's dice email") }, singleLine = true)
+        EmailField(myEmail, onMyEmail, "Your dice email", offered(myEmail))
+        otherEmails.forEachIndexed { index, email ->
+            EmailField(
+                value = email,
+                onValue = { otherEmails[index] = it },
+                label = if (index == 0) "Opponent's dice email" else "Player ${index + 2} dice email",
+                contacts = offered(email),
+                onRemove = if (index == 0) null else { { otherEmails.removeAt(index) } },
+            )
+        }
+        // the dice server mails every roll to all of them (desktop's "CC")
+        TextButton(onClick = { otherEmails += "" }) {
+            Icon(Icons.Filled.Add, contentDescription = null)
+            Text("Add player")
+        }
         warning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Both emails must be registered with the dice server.",
+                "Every email must be registered with the dice server.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onRegister) { Text("Register") }
+        }
+    }
+}
+
+/** A dice email field; its arrow lists the addresses of earlier games, typing narrows the list. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EmailField(value: String, onValue: (String) -> Unit, label: String, contacts: List<String>, onRemove: (() -> Unit)? = null) {
+    var expanded by remember { mutableStateOf(false) }
+    val shown = contacts.filter { value.isBlank() || it.contains(value.trim(), ignoreCase = true) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        ExposedDropdownMenuBox(expanded = expanded && shown.isNotEmpty(), onExpandedChange = { expanded = it }, modifier = Modifier.weight(1f)) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { onValue(it); expanded = true },
+                label = { Text(label) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                trailingIcon = { if (contacts.isNotEmpty()) ExposedDropdownMenuDefaults.TrailingIcon(expanded && shown.isNotEmpty()) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
+            )
+            ExposedDropdownMenu(expanded = expanded && shown.isNotEmpty(), onDismissRequest = { expanded = false }) {
+                shown.forEach { contact ->
+                    DropdownMenuItem(text = { Text(contact) }, onClick = { onValue(contact); expanded = false })
+                }
+            }
+        }
+        if (onRemove != null) {
+            IconButton(onClick = onRemove) { Icon(Icons.Filled.Close, contentDescription = "remove player") }
         }
     }
 }

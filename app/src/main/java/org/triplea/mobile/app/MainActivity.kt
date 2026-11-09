@@ -81,6 +81,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // the app came to the front: look for forum turns at once instead of at the next periodic check
+        ForumTurnJob.checkNow(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         takeImport(intent)

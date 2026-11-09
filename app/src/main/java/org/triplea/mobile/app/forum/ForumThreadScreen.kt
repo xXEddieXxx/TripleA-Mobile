@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -81,6 +83,8 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
@@ -132,6 +136,7 @@ fun ForumThreadScreen(
     var deleting by remember { mutableStateOf<ThreadPost?>(null) }
     var pickSave by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf<String?>(null) }
+    var stopped by remember(thread) { mutableStateOf(ForumThreadState.isStopped(thread)) }
     var missingMap by remember { mutableStateOf<Pair<MapEntry?, String>?>(null) }
     /** The downloaded save waiting for its map, and whether it is to be watched. */
     var pendingSave by remember { mutableStateOf<Pair<Path, Boolean>?>(null) }
@@ -189,6 +194,27 @@ fun ForumThreadScreen(
         }
     }
 
+    // while the thread is open: once a minute a look for newer posts; they are offered, not loaded,
+    // so a post being read or a reply being typed stays where it is
+    LaunchedEffect(thread) {
+        var announced = Instant.EPOCH
+        while (true) {
+            delay(TimeUnit.MINUTES.toMillis(1))
+            if (loading) continue
+            val shownNewest = posts.lastOrNull()?.time() ?: continue
+            val newest = runCatching { withContext(Dispatchers.IO) { client().newestPage(thread) }.posts().lastOrNull()?.time() }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                .getOrNull() ?: continue
+            if (newest.isAfter(shownNewest) && newest.isAfter(announced)) {
+                announced = newest
+                scope.launch {
+                    val answer = snackbar.showSnackbar("New posts in this thread", actionLabel = "Show", duration = SnackbarDuration.Long)
+                    if (answer == SnackbarResult.ActionPerformed) reload++
+                }
+            }
+        }
+    }
+
     // first to the oldest unseen post, later (after a reply) to the newest; scrolling waits for the list
     LaunchedEffect(loading) {
         if (!loading && posts.isNotEmpty()) {
@@ -223,10 +249,16 @@ fun ForumThreadScreen(
     fun openSave(saveGame: SaveGame, watch: Boolean) = scope.launch {
         busy = "Downloading ${saveGame.fileName()}…"
         try {
-            val file = withContext(Dispatchers.IO) { client().download(saveGame, MobileEngine.getSaveGamesFolder()) }
-            ForumSaves.record(file, thread)
+            val file = withContext(Dispatchers.IO) {
+                client().download(saveGame, MobileEngine.getSaveGamesFolder()).also {
+                    ForumSaves.record(it, thread)
+                    // a forum game keeps only its newest save; a turn put off for later stays
+                    ForumSaves.keepOnly(it, keepUnsent = true)
+                }
+            }
             val mapName = withContext(Dispatchers.IO) {
-                MobileEngine.loadSaveGame(file).map { it.mapName }.orElse(null)
+                // round and nation for the load screen, from the save already read here
+                MobileEngine.loadSaveGame(file).map { GameController.writeSaveInfo(file, it); it.mapName }.orElse(null)
             } ?: throw IllegalStateException("The save game could not be read.")
             if (withContext(Dispatchers.IO) { isMapInstalled(mapName) }) {
                 busy = null
@@ -240,6 +272,22 @@ fun ForumThreadScreen(
         } finally {
             busy = null
         }
+    }
+
+    /** Join: the thread's newest save, to play on from it; older pages are read when the loaded ones have none. */
+    fun joinNewest() = scope.launch {
+        busy = "Looking for the newest save…"
+        val newest = runCatching {
+            posts.lastOrNull { it.saveGames().isNotEmpty() }?.saveGames()?.last()
+                ?: withContext(Dispatchers.IO) {
+                    generateSequence(firstPage - 1) { it - 1 }.takeWhile { it >= 1 }
+                        .firstNotNullOfOrNull { page -> client().page(thread, page).posts().lastOrNull { it.saveGames().isNotEmpty() }?.saveGames()?.last() }
+                }
+        }
+        busy = null
+        newest.onSuccess { save -> if (save == null) snackbar.showSnackbar("There is no save game in this thread yet.") else openSave(save, watch = false) }
+            // leaving the screen stops the lookup: no error for that
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it else report("Could not look for the save", it) }
     }
 
     chooseSave?.let { save ->
@@ -379,10 +427,26 @@ fun ForumThreadScreen(
                     // older pages are not loaded: a thread longer than one page counts as begun
                     val started = firstPage > 1 || posts.any { it.saveGames().isNotEmpty() }
                     TextButton(
-                        onClick = { if (started) reply = TextFieldValue(JOIN_TEXT, TextRange(JOIN_TEXT.length)) else onStartGame() },
+                        onClick = { if (started) joinNewest() else onStartGame() },
                         // only once the thread loaded: no posts after an error says nothing about saves
                         enabled = editing == null && !loading && error == null,
                     ) { Text(if (started) "Join" else "Start game") }
+                    // a game that is over (or the player is out): off My games and no notifications; tap again to follow
+                    IconButton(onClick = {
+                        stopped = !stopped
+                        ForumThreadState.setStopped(thread, stopped)
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                if (stopped) "Stopped following: the game leaves My games and sends no notifications."
+                                else "Following the game again.",
+                            )
+                        }
+                    }) {
+                        Icon(
+                            if (stopped) Icons.Default.NotificationsOff else Icons.Default.NotificationsActive,
+                            contentDescription = if (stopped) "follow the game again" else "stop following the game",
+                        )
+                    }
                     IconButton(onClick = { reload++ }) { Icon(Icons.Default.Refresh, contentDescription = "refresh") }
                 },
             )
@@ -462,8 +526,6 @@ fun ForumThreadScreen(
         }
     }
 }
-
-private const val JOIN_TEXT = "I'd like to join this game. I can take over: "
 
 @Composable
 private fun NewPostsDivider(count: Int) {
@@ -584,7 +646,7 @@ private fun SaveGamePicker(onPick: (Path) -> Unit, onDismiss: () -> Unit) {
                 else -> LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     items(list) { save ->
                         Column(Modifier.fillMaxWidth().clickable { onPick(save.path) }.padding(vertical = 10.dp)) {
-                            Text(save.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(save.shownName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val details = listOfNotNull(
                                 save.info["round"]?.takeIf { it.isNotBlank() && it != "0" }?.let { "Round $it" },
                                 save.info["player"]?.takeIf { it.isNotBlank() },

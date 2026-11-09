@@ -30,6 +30,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import java.net.URI
 import org.triplea.mobile.forum.NodeBbClient.ThreadPost
+import org.triplea.mobile.forum.PbfPost
 
 private val IMG = Regex("<img\\b[^>]*>", RegexOption.IGNORE_CASE)
 private val ALT = Regex("\\salt=\"([^\"]*)\"", RegexOption.IGNORE_CASE)
@@ -69,14 +70,24 @@ fun ForumHtml(html: String, pictures: List<URI>) {
 
 @Composable
 private fun TurnSummary(text: String) {
-    val lines = remember(text) { text.lines().filter { it.isNotBlank() && it.trim() != "Savegame" } }
+    // the player's message first and set apart, the game lines below it
+    val parts = remember(text) { PbfPost.parts(text) }
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     val colors = summaryColors()
-    val title = lines.firstOrNull().orEmpty()
-    val body = lines.drop(1)
+    val body = parts.game()
     val shown = if (expanded) body else body.take(FOLDED_LINES)
     Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = colors.title, fontWeight = FontWeight.Bold)
+        Text(parts.title(), style = MaterialTheme.typography.titleSmall, color = colors.title, fontWeight = FontWeight.Bold)
+        if (parts.message().isNotBlank()) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            ) {
+                Text(parts.message(), Modifier.padding(10.dp), style = MaterialTheme.typography.bodyLarge)
+            }
+        }
         Surface(
             // an inset on the post's card: the page colour, so the coloured lines keep their contrast
             color = MaterialTheme.colorScheme.surface,

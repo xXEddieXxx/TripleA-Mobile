@@ -63,6 +63,10 @@ class ForumTurnRequest(
     val round: Int,
     val summary: String,
     val thread: org.triplea.mobile.forum.NodeBbClient.GameThread,
+    /** Every nation the summary covers: those played since the game was opened ("Keep playing"). */
+    val nations: List<String> = listOf(player.name),
+    /** The nation that plays next when it is an ally of [player]: often the same person keeps playing. */
+    val nextAlly: String? = null,
 ) : UiRequest<kotlin.Unit>()
 
 class ConfirmRequest(

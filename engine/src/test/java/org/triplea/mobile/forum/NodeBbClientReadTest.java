@@ -295,6 +295,24 @@ class NodeBbClientReadTest {
   }
 
   @Test
+  void downloadNeverReplacesAFileOfTheSameName(@TempDir final Path folder) throws IOException {
+    // eg the player's own turn save, put off with "send later", named as desktop names saves
+    Files.write(folder.resolve("triplea_103_3Rus.tsvg"), new byte[] {9});
+    final Http bytes = request -> new Http.Response(200, new byte[] {1, 2, 3}, Map.of());
+    final SaveGame saveGame =
+        new SaveGame(
+            URI.create(FakeForum.URL + "assets/uploads/files/triplea_103_3Rus.tsvg"),
+            "triplea_103_3Rus.tsvg",
+            "");
+
+    final Path file = new NodeBbClient(bytes, Forum.TRIPLEA, SESSION).download(saveGame, folder);
+
+    assertThat(file.getFileName().toString()).endsWith("-triplea_103_3Rus.tsvg");
+    assertThat(Files.readAllBytes(file)).containsExactly(1, 2, 3);
+    assertThat(Files.readAllBytes(folder.resolve("triplea_103_3Rus.tsvg"))).containsExactly(9);
+  }
+
+  @Test
   void foreignSaveGameIsNotDownloaded(@TempDir final Path folder) {
     final SaveGame foreign = new SaveGame(URI.create("https://evil.example/x.tsvg"), "x.tsvg", "");
 

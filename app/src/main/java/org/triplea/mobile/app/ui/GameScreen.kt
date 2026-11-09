@@ -366,7 +366,9 @@ fun GameScreen(onQuit: () -> kotlin.Unit, onOpenForum: (GameThread) -> kotlin.Un
             GameController.dataVersion.map { },
             GameController.status.map { it.stepName to it.playerName }.distinctUntilChanged().map { },
         ).collect {
-            value = withContext(Dispatchers.Default) { runCatching { EditHelper.isEditMode(session) }.getOrDefault(false) }
+            // watching a forum save plays nobody: no edit mode there, even if the save has it on
+            value = !GameController.watching &&
+                withContext(Dispatchers.Default) { runCatching { EditHelper.isEditMode(session) }.getOrDefault(false) }
         }
     }
     var replayIndex by remember(session) { mutableStateOf<Int?>(null) }

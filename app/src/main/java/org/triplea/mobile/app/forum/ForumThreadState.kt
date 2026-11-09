@@ -3,13 +3,17 @@ package org.triplea.mobile.app.forum
 import android.content.Context
 import androidx.core.content.edit
 import java.time.Instant
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.triplea.mobile.app.AppServices
 import org.triplea.mobile.forum.Forum
 import org.triplea.mobile.forum.NodeBbClient.GameThread
 
 /**
  * What the app remembers per forum thread: the unsent reply, the newest post the player has seen
- * (for "new" marks) and the last turn a notification was shown for.
+ * (for "new" marks), the last turn a notification was shown for, and whether the player stopped
+ * following the game.
  */
 object ForumThreadState {
     private val prefs get() = AppServices.appContext.getSharedPreferences("forum_threads", Context.MODE_PRIVATE)
@@ -42,5 +46,17 @@ object ForumThreadState {
         if (prefs.getLong(key("notified", thread), 0) >= last) return false
         prefs.edit { putLong(key("notified", thread), last) }
         return true
+    }
+
+    /** Bumped when a game is stopped or followed again, so the games list filters anew. */
+    private val _stoppedChanges = MutableStateFlow(0)
+    val stoppedChanges: StateFlow<Int> = _stoppedChanges.asStateFlow()
+
+    /** A game the player no longer follows (over, or they are out): off My games, never notifies. */
+    fun isStopped(thread: GameThread): Boolean = prefs.getBoolean(key("stopped", thread), false)
+
+    fun setStopped(thread: GameThread, stopped: Boolean) {
+        prefs.edit { if (stopped) putBoolean(key("stopped", thread), true) else remove(key("stopped", thread)) }
+        _stoppedChanges.value++
     }
 }

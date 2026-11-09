@@ -27,8 +27,9 @@ import org.triplea.mobile.forum.GameSearch
 import org.triplea.mobile.forum.NodeBbClient.GameThread
 
 /**
- * Every half hour while signed in to the forum: a notification for each of the player's games
- * that waits for them since a post they have not seen, once per post.
+ * Every 15 minutes (Android's shortest period; Doze may delay it) while signed in to the forum, and
+ * once each time the app comes to the front: a notification for each of the player's games that
+ * waits for them since a post they have not seen, once per post.
  */
 class ForumTurnJob : JobService() {
     @Volatile
@@ -57,15 +58,19 @@ class ForumTurnJob : JobService() {
         const val EXTRA_SLUG = "forum.slug"
         const val EXTRA_TITLE = "forum.title"
 
+        /** Android's shortest period for a periodic job. */
+        private val PERIOD = TimeUnit.MINUTES.toMillis(15)
+
         /** Runs at app start: a refused job only costs the notifications, never the start. */
         fun schedule(context: Context) {
             try {
                 val scheduler = context.getSystemService(JobScheduler::class.java)
-                if (scheduler.getPendingJob(JOB_ID) != null) return
+                // a job of an older build (every 30 minutes) is planned anew with the current period
+                if (scheduler.getPendingJob(JOB_ID)?.intervalMillis == PERIOD) return
                 scheduler.schedule(
                     JobInfo.Builder(JOB_ID, ComponentName(context, ForumTurnJob::class.java))
                         .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                        .setPeriodic(TimeUnit.MINUTES.toMillis(30))
+                        .setPeriodic(PERIOD)
                         .setPersisted(true)
                         .build(),
                 )
@@ -75,6 +80,20 @@ class ForumTurnJob : JobService() {
         }
 
         fun cancel(context: Context) = context.getSystemService(JobScheduler::class.java).cancel(JOB_ID)
+
+        @Volatile
+        private var lastCheckNow = 0L
+
+        /** The same check at once, off the main thread: the app came to the front (a rotation within a minute does not count). */
+        fun checkNow(context: Context) {
+            val now = System.currentTimeMillis()
+            if (now - lastCheckNow < TimeUnit.MINUTES.toMillis(1)) return
+            lastCheckNow = now
+            val app = context.applicationContext
+            thread(name = "forum-turns-now", isDaemon = true) {
+                runCatching { check(app) }.onFailure { Log.w(TAG, "Forum turn check failed", it) }
+            }
+        }
 
         private fun check(context: Context) {
             if (!canNotify(context)) return
@@ -91,6 +110,8 @@ class ForumTurnJob : JobService() {
             val recent = Instant.now().minus(GameSearch.INACTIVE_AFTER)
             client.threadsOf(me)
                 .filter { it.waitsFor(me) && it.lastPost().isAfter(recent) && it.lastPost().isAfter(ForumThreadState.seen(it)) }
+                // a game the player stopped following never notifies
+                .filterNot { ForumThreadState.isStopped(it) }
                 .filter { ForumThreadState.firstNotice(it) }
                 .forEach { notify(context, it) }
         }

@@ -150,7 +150,6 @@ class HumanPlayerFlowTest {
     assertThat(loaded.getSequence().getRound()).isEqualTo(askedRound);
   }
 
-  private static class ScriptedHuman extends HumanPlayerUiAdapter {
   @Test
   void humanEditsDuringOwnMovePhase() {
     final Path xml = MobileEngine.listInstalledGames().get(0).getXmlPath();
@@ -165,7 +164,8 @@ class HumanPlayerFlowTest {
 
     session.setUpForSteps();
     int steps = 0;
-    while (human.movePhases == 0 && steps < 400 && !session.isGameOver()) {
+    // to the end of the turn: its summary is what a forum game posts
+    while (human.endTurns == 0 && steps < 400 && !session.isGameOver()) {
       session.runNextStep();
       steps++;
     }
@@ -179,6 +179,8 @@ class HumanPlayerFlowTest {
     assertThat(historyText(gameData))
         .contains("Turning on Edit Mode")
         .contains("Adding units owned by");
+    // the forum review's edit notice looks for this prefix in the summary
+    assertThat(human.turnSummary).contains("EDIT: Adding units owned by");
   }
 
   private static String historyText(final GameData gameData) {
@@ -192,7 +194,7 @@ class HumanPlayerFlowTest {
     return text.toString();
   }
 
-  private static final class ScriptedHuman extends HumanPlayerUiAdapter {
+  private static class ScriptedHuman extends HumanPlayerUiAdapter {
     int purchases;
     int movePhases;
     int endTurns;

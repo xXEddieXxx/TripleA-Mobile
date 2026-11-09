@@ -63,6 +63,8 @@ import kotlinx.coroutines.withContext
 import org.triplea.mobile.forum.NodeBbClient.GameThread
 import org.triplea.mobile.forum.GameSearch
 import java.time.Instant
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -70,6 +72,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -92,6 +95,7 @@ fun ForumGamesScreen(
     var reload by remember { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var includeInactive by rememberSaveable { mutableStateOf(false) }
+    var showStopped by rememberSaveable { mutableStateOf(false) }
     /** My games only: true shows the games waiting for the player, false those waiting for an opponent. */
     var turnFilter by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
@@ -115,8 +119,15 @@ fun ForumGamesScreen(
         try {
             val me = player ?: ForumAccount.verify(forum) ?: return@LaunchedEffect
             val client = ForumAccount.client(forum) ?: return@LaunchedEffect
-            games = withContext(Dispatchers.IO) {
+            suspend fun load() = withContext(Dispatchers.IO) {
                 if (tab == 0) client.threadsOf(me).sortedByDescending { it.waitsFor(me) } else client.browse()
+            }
+            games = load()
+            // while the list is shown: once a minute, quietly (no spinner; a failed try keeps the list)
+            while (true) {
+                delay(TimeUnit.MINUTES.toMillis(1))
+                runCatching { load() }.onSuccess { games = it }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // a tab switch or refresh restarted the load: not an error
@@ -176,9 +187,17 @@ fun ForumGamesScreen(
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Browse") })
             }
             val all = games
-            val list = remember(all, query, includeInactive) {
+            // games the player stopped following leave My games; the "Stopped" chip shows only them
+            val stoppedChanges by ForumThreadState.stoppedChanges.collectAsState()
+            val list = remember(all, query, includeInactive, tab, showStopped, stoppedChanges) {
                 all?.let { GameSearch.matching(it, query, includeInactive, Instant.now()) }
+                    ?.filter { tab != 0 || ForumThreadState.isStopped(it) == showStopped }
             }
+            val stoppedCount = remember(all, tab, stoppedChanges) {
+                if (tab == 0) all?.count { ForumThreadState.isStopped(it) } ?: 0 else 0
+            }
+            // the last stopped game followed again: back to the followed ones
+            LaunchedEffect(stoppedCount) { if (stoppedCount == 0 && all != null) showStopped = false }
             // the search over the whole width, its filter on a line of its own below
             OutlinedTextField(
                 value = query,
@@ -231,13 +250,29 @@ fun ForumGamesScreen(
                         )
                     },
                 )
+                if (stoppedCount > 0 || showStopped) {
+                    FilterChip(
+                        selected = showStopped,
+                        onClick = { showStopped = !showStopped },
+                        label = { Text("Stopped · $stoppedCount") },
+                        leadingIcon = {
+                            Icon(
+                                if (showStopped) Icons.Default.Check else Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
+                            )
+                        },
+                    )
+                }
             }
             when {
                 error != null -> Message("Could not reach the forum: $error")
                 all == null || list == null || shown == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 all.isEmpty() -> Message(if (tab == 0) "No forum games yet. Browse to join one, or start a new game." else "No games found.")
                 list.isEmpty() -> Message(
-                    if (query.isBlank()) "Only inactive games (no post for ${GameSearch.INACTIVE_AFTER.toDays()} days). Tap \"Show inactive\" to see them."
+                    if (showStopped) "No stopped game matches."
+                    else if (query.isBlank() && stoppedCount > 0) "No game you follow here. \"Stopped\" lists the games you stopped following."
+                    else if (query.isBlank()) "Only inactive games (no post for ${GameSearch.INACTIVE_AFTER.toDays()} days). Tap \"Show inactive\" to see them."
                     else "No game matches \"$query\".",
                 )
                 shown.isEmpty() -> Message(if (turnFilter == true) "No game waits for your move." else "No game waits for an opponent.")

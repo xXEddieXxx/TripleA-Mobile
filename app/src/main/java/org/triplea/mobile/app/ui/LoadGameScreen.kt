@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.game.GameController
+import org.triplea.mobile.app.forum.ForumSaves
 
 /** A save game file with what the list shows about it. */
 internal class SaveEntry(
@@ -79,9 +80,19 @@ internal class SaveEntry(
     val bytes: Long,
     /** From the sidecar written on save; empty for saves of older builds. */
     val info: Map<String, String>,
-)
+    /** The forum thread's title for a forum game's save, shown instead of the file name. */
+    val forumTitle: String? = null,
+) {
+    val shownName: String get() = forumTitle ?: name
+}
 
-internal fun readSaves(): List<SaveEntry> = MobileEngine.listSaveGames().map { path ->
+/** The saves, newest first; a forum game keeps only its newest save, older ones go here too. */
+internal fun readSaves(): List<SaveEntry> {
+    runCatching { ForumSaves.keepNewestOfEachGame() }
+    return readSaveFiles()
+}
+
+private fun readSaveFiles(): List<SaveEntry> = MobileEngine.listSaveGames().map { path ->
     val info = runCatching {
         val file = GameController.infoFileFor(path)
         if (Files.exists(file)) {
@@ -96,6 +107,7 @@ internal fun readSaves(): List<SaveEntry> = MobileEngine.listSaveGames().map { p
         modified = runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(0L),
         bytes = runCatching { Files.size(path) }.getOrDefault(0L),
         info = info,
+        forumTitle = ForumSaves.threadFor(path)?.title()?.takeIf { it.isNotBlank() },
     )
 }.sortedByDescending { it.modified }
 
@@ -152,7 +164,7 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
     }
 
     val filtered = remember(saves, query) {
-        if (query.isBlank()) saves else saves.filter { it.name.contains(query, ignoreCase = true) }
+        if (query.isBlank()) saves else saves.filter { it.shownName.contains(query, ignoreCase = true) || it.name.contains(query, ignoreCase = true) }
     }
     val dateFormat = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm") }
 
@@ -236,8 +248,11 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 val target = save.path.resolveSibling("$clean.tsvg")
-                                runCatching { Files.move(save.path, target) }
-                                withSidecar(save.path) { Files.move(it, GameController.infoFileFor(target)) }
+                                runCatching { Files.move(save.path, target) }.onSuccess {
+                                    withSidecar(save.path) { Files.move(it, GameController.infoFileFor(target)) }
+                                    // the save keeps its forum thread
+                                    ForumSaves.move(save.path, target)
+                                }
                             }
                             refresh()
                         }
@@ -250,7 +265,7 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
     deleting?.let { victims ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text(if (victims.size == 1) "Delete ${victims[0].name}?" else "Delete ${victims.size} saves?") },
+            title = { Text(if (victims.size == 1) "Delete ${victims[0].shownName}?" else "Delete ${victims.size} saves?") },
             text = { Text(if (victims.size == 1) "The save game is removed from this device." else "The selected save games are removed from this device.") },
             confirmButton = {
                 Button(onClick = {
@@ -261,6 +276,7 @@ fun LoadGameScreen(onBack: () -> Unit, onLoad: (Path) -> Unit) {
                             victims.forEach { save ->
                                 runCatching { Files.deleteIfExists(save.path) }
                                 withSidecar(save.path) { Files.deleteIfExists(it) }
+                                ForumSaves.forget(save.path)
                             }
                         }
                         refresh()
@@ -305,7 +321,7 @@ private fun SaveRow(
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(save.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(save.shownName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val round = save.info["round"]?.takeIf { it.isNotBlank() && it != "0" }
                 val player = save.info["player"].orEmpty()
                 val game = save.info["game"].orEmpty()

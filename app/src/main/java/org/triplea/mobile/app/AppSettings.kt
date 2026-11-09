@@ -68,6 +68,8 @@ data class Settings(
     // play by forum
     /** The player's own dice server email, filled into every new forum game. */
     val diceEmail: String = "",
+    /** Every dice email entered in a forum game's setup, offered again for the next game. */
+    val diceContacts: List<String> = emptyList(),
 )
 
 /** Holds the current [Settings], persists them and pushes the engine relevant ones into [ClientSetting]. */
@@ -115,6 +117,7 @@ object AppSettings {
             soundOther = prefs.getBoolean("soundOther", defaults.soundOther),
             soundTheme = prefs.getString("soundTheme", defaults.soundTheme) ?: defaults.soundTheme,
             diceEmail = prefs.getString("diceEmail", defaults.diceEmail) ?: defaults.diceEmail,
+            diceContacts = prefs.getString("diceContacts", "").orEmpty().split('\n').filter { it.isNotBlank() },
         )
         // builds before the map followed AI moves stored 0 for everyone: switch those to the new
         // default once; a 0 set on purpose afterwards is kept
@@ -165,6 +168,7 @@ object AppSettings {
             putBoolean("soundOther", next.soundOther)
             putString("soundTheme", next.soundTheme)
             putString("diceEmail", next.diceEmail)
+            putString("diceContacts", next.diceContacts.joinToString("\n"))
         }
         applyToEngine(next)
     }

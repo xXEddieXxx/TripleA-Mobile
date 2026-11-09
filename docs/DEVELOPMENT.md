@@ -94,13 +94,29 @@ and round-trips a save game.
   while the engine waits for the answer and resumes at that question, see
   `HumanPlayerFlowTest.saveWhileAskedResumesAtTheQuestion`), `ForumEditor` (the shared Markdown
   editor: toolbar, preview, @mention of the thread's players), `ForumTurnJob` (a JobScheduler
-  job every 30 minutes while signed in: one "your turn" notification per unseen last post of a
-  game active in the last 60 days; the tap opens the thread), `ForumThreadState` (drafts, last
-  post seen, last notified) and
-  `ForumSaves` (which thread a downloaded save belongs to). A forum game's setup writes both dice
-  emails; `GameController` sets `FORUM_POSTER_NAME`/`FORUM_POSTER_TOPIC_ID` and the dice source.
+  job every 15 minutes, Android's shortest period, while signed in, and once when the app comes to
+  the front: one "your turn" notification per unseen last post of a game active in the last 60
+  days; the tap opens the thread; the forum has no web push plugin, so there is no push. While
+  open, My games refreshes quietly every minute and a thread offers newer posts every minute),
+  `ForumThreadState` (drafts, last
+  post seen, last notified, and games the player stopped following: off My games, no
+  notifications, a "Stopped" chip lists them; the bell in the thread's top bar switches it),
+  `ForumThreadPicker` (a new game in an existing thread: the player's and the forum's open threads,
+  searchable, those opened in the app most recently first) and
+  `ForumSaves` (which thread a downloaded save belongs to, and the rule that a forum game keeps
+  only its newest save: a download, a sent turn or a manual post deletes the thread's older saves;
+  a turn put off with "send later" survives downloads; the load screen applies the rule to saves
+  already on the device and shows the thread title). A forum game's setup writes the dice
+  emails: the player's as `DICE_SERVER_EMAIL_1`, every other player's in `DICE_SERVER_EMAIL_2`
+  separated by spaces (desktop's "CC"; "Add player" adds one); every address used or read from a
+  save is remembered (`AppSettings.diceContacts`) and offered in each field. `GameController` sets
+  `FORUM_POSTER_NAME`/`FORUM_POSTER_TOPIC_ID` and the dice source.
   At Send it marks the turn posted, saves as `triplea_<topic>_<round><abc>.tsvg`, uploads and
-  replies, as desktop does.
+  replies, as desktop does. Unlike desktop, the player's message stands right under the title, set
+  apart by a rule from the game line and summary (`PbfPost.content`); the title stays first, as
+  desktop reads the turn from the post's teaser. The thread view shows the message highlighted
+  above the summary for both layouts (`PbfPost.parts`). The turn review lists the nations the
+  post covers ("Keep playing") and says when the next nation is an ally (`PbfTurn.nextAlly`).
 
 ## Building
 
@@ -268,7 +284,11 @@ political relationships. It also lets the player move own units freely, without 
   chooser), so ending combat move and the battle list first ask to turn edit mode off (a lone
   battle is fought without the list, `fightBattleIfOnlyOne`). Casualty questions still asked in
   edit mode (AA fire, a hotseat defender) accept any losses from none up to every listed unit.
-- Only single-device games have it; Play by Forum games get it later, on `develop`.
+- Play by Forum: as on desktop, edits are written to the history as "EDIT: ..." and so to the
+  posted turn summary; the turn review shows a note when the summary has such lines. Unlike
+  desktop, `GameController.waitForEndTurn` turns edit mode off before the turn summary, so the
+  next player does not open the posted save in edit mode. A watched save (`watching`) never shows
+  edit mode.
 - Relationship changes in the politics dialog are not checked against the map's rules (as on
   the desktop).
 
