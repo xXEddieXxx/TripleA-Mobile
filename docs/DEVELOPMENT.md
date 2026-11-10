@@ -309,6 +309,9 @@ political relationships. It also lets the player move own units freely, without 
   engine may still fail to load on the other side.
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.
+- Unit texts from a map's `tooltips.properties` (`Dialogs.kt`, `mapUnitText`) are shown as plain
+  text without HTML or images. Unlike desktop, a replacing `tooltip.unit.<type>` text does not
+  hide the abilities read from the rules: both are shown, each under a heading naming its source.
 - Play by Forum covers forums.triplea-game.org and www.axisandallies.org/forums (no other NodeBB
   forum). www.axisandallies.org's Cloudflare bot protection challenges every request without the
   `nbb_human=1` cookie of its nodebb-plugin-proof-of-life (403, `Cf-Mitigated: challenge`), so

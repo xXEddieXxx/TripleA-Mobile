@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import games.strategy.engine.data.GamePlayer
 import games.strategy.engine.data.ProductionRule
@@ -86,6 +87,7 @@ import games.strategy.triplea.delegate.battle.IBattle
 import games.strategy.triplea.delegate.data.CasualtyDetails
 import games.strategy.triplea.delegate.data.FightBattleDetails
 import java.util.Optional
+import java.util.Properties
 import org.triplea.java.collections.IntegerMap
 import org.triplea.mobile.UnitImageNames
 import org.triplea.mobile.app.game.BattleRequest
@@ -272,6 +274,7 @@ fun PurchaseDialog(
     var warnings by remember(request) { mutableStateOf<List<String>?>(null) }
     var showHint by rememberSaveable { mutableStateOf(false) }
     var tab by rememberSaveable(request) { mutableIntStateOf(0) }
+    val tooltips = remember { GameController.session?.let(::mapTooltips) ?: Properties() }
     val expanded = remember(request) { mutableStateMapOf<ProductionRule, Boolean>() }
 
     fun unitTypeOf(rule: ProductionRule): UnitType? {
@@ -416,6 +419,7 @@ fun PurchaseDialog(
                                 rule = rule,
                                 unitType = unitType,
                                 player = player,
+                                tooltips = tooltips,
                                 images = images,
                                 count = current,
                                 max = current + extra.coerceAtLeast(0),
@@ -456,6 +460,7 @@ private fun PurchaseRow(
     rule: ProductionRule,
     unitType: UnitType?,
     player: GamePlayer,
+    tooltips: Properties,
     images: ImageCache?,
     count: Int,
     max: Int,
@@ -466,6 +471,11 @@ private fun PurchaseRow(
     val name = rule.results.keySet().firstOrNull()?.name ?: rule.name
     val ua = unitType?.unitAttachment
     val produced = rule.results.keySet().filterIsInstance<UnitType>().sumOf { rule.results.getInt(it) }
+    val info = remember(unitType, player) {
+        if (ua == null) emptyList()
+        else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
+    }
+    val mapText = remember(unitType, player) { unitType?.let { mapUnitText(tooltips, it, player) } }
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         colors = CardDefaults.cardColors(
@@ -494,19 +504,11 @@ private fun PurchaseRow(
                         }
                     }
                 }
-                val info = remember(unitType, player) {
-                    if (ua == null) emptyList()
-                    else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
-                }
-                if (info.isNotEmpty()) HelpToggle(expanded, onToggle)
+                if (info.isNotEmpty() || mapText != null) HelpToggle(expanded, onToggle)
                 Stepper(count, max, onCount)
             }
             if (expanded) {
-                val info = remember(unitType, player) {
-                    if (ua == null) emptyList()
-                    else runCatching { parseUnitInfo(ua.toStringShortAndOnlyImportantDifferences(player)) }.getOrDefault(emptyList())
-                }
-                DetailsBox(onClose = onToggle, modifier = Modifier.padding(top = 8.dp)) { UnitInfoView(info) }
+                DetailsBox(onClose = onToggle, modifier = Modifier.padding(top = 8.dp)) { UnitDetails(info, mapText) }
             }
         }
     }
@@ -592,7 +594,37 @@ internal fun unitKind(type: UnitType?): String {
 }
 
 /** A unit type in the unit overview, with its cost per unit ("3 PUs") when the map gives one. */
-class UnitStatsEntry(val type: UnitType, val cost: String?)
+class UnitStatsEntry(val type: UnitType, val cost: String?, val mapText: MapUnitText?)
+
+/** A unit's own text from the map's tooltips.properties, HTML stripped: [replace] stands in for the rules text on desktop, [append] follows it. */
+class MapUnitText(val replace: String?, val append: String?)
+
+internal fun mapTooltips(session: LocalGameSession): Properties =
+    runCatching { session.resourceLoader.loadPropertyFile("tooltips.properties") }.getOrDefault(Properties())
+
+/** The keys desktop TooltipProperties reads: "tooltip.unit.<type>.<nation>" before "tooltip.unit.<type>", each also with ".append". */
+internal fun mapUnitText(tooltips: Properties, type: UnitType, player: GamePlayer): MapUnitText? {
+    fun lookup(suffix: String) = listOf("tooltip.unit.${type.name}.${player.name}$suffix", "tooltip.unit.${type.name}$suffix")
+        .firstNotNullOfOrNull { key -> tooltips.getProperty(key)?.let(::mapHtmlToText)?.takeIf { it.isNotEmpty() } }
+    val replace = lookup("")
+    val append = lookup(".append")
+    return if (replace == null && append == null) null else MapUnitText(replace, append)
+}
+
+/**
+ * Map tooltips are Swing HTML: list items become bullet lines with a blank line after the list,
+ * a bare "&nbsp" (Swing accepts it without the semicolon) a space, and the tab runs some maps align with collapse.
+ */
+private fun mapHtmlToText(html: String): String =
+    GameController.stripHtml(
+        html.replace(Regex("(?i)&nbsp;?"), " ")
+            .replace(Regex("(?i)<li[^>]*>"), "<br>• ")
+            .replace(Regex("(?i)</(ul|ol)>"), "<br><br>")
+            .replace(Regex("(?i)<(ul|ol)[^>]*>"), "")
+            .replace(Regex("(?i)</?(div|tr)[^>]*>"), "<br>"),
+    )
+        .lines().joinToString("\n") { it.replace(Regex("""[ \t]+"""), " ").trim() }
+        .replace(Regex("\n{3,}"), "\n\n").trim()
 
 /**
  * The unit types of every nation like the desktop "Unit Help": what it can build plus what it owns
@@ -600,6 +632,7 @@ class UnitStatsEntry(val type: UnitType, val cost: String?)
  */
 fun unitStatsByPlayer(session: LocalGameSession): Map<GamePlayer, List<UnitStatsEntry>> {
     val data = session.gameData
+    val tooltips = mapTooltips(session)
     data.acquireReadLock().use {
         val costs = runCatching { TuvUtils.getResourceCostsForTuv(data, true) }.getOrDefault(emptyMap())
         return (data.playerList.players + data.playerList.nullPlayer).associateWith { player ->
@@ -608,7 +641,9 @@ fun unitStatsByPlayer(session: LocalGameSession): Map<GamePlayer, List<UnitStats
             data.map.territories.forEach { t -> t.unitCollection.filter { it.owner == player }.mapTo(types) { it.type } }
             types.filter { session.mapData.shouldDrawUnit(it.name) }
                 .sortedBy { it.name }
-                .map { type -> UnitStatsEntry(type, costs[player]?.get(type)?.let { runCatching { it.toString() }.getOrNull() }) }
+                .map { type ->
+                    UnitStatsEntry(type, costs[player]?.get(type)?.let { runCatching { it.toString() }.getOrNull() }, mapUnitText(tooltips, type, player))
+                }
         }.filterValues { it.isNotEmpty() }
     }
 }
@@ -655,7 +690,7 @@ fun UnitStatsList(units: Map<GamePlayer, List<UnitStatsEntry>>, images: ImageCac
                                 val info = remember(entry.type, player) {
                                     ua?.let { runCatching { parseUnitInfo(it.toStringShortAndOnlyImportantDifferences(player)) }.getOrNull() }.orEmpty()
                                 }
-                                DetailsBox(onClose = { expanded[entry.type] = false }, modifier = Modifier.padding(top = 8.dp)) { UnitInfoView(info) }
+                                DetailsBox(onClose = { expanded[entry.type] = false }, modifier = Modifier.padding(top = 8.dp)) { UnitDetails(info, entry.mapText) }
                             }
                         }
                     }
@@ -787,6 +822,37 @@ private fun friendlyEntry(label: String, value: String?): UnitInfoEntry {
         else -> label.trimEnd(',').trim() to value
     }
     return UnitInfoEntry(renamed.first, renamed.second)
+}
+
+/**
+ * A unit's details, each part headed by where it comes from: the map maker's own text, which the app
+ * shows as written, and the abilities the app reads from the game rules. Both are shown so a player
+ * can tell them apart when they disagree.
+ */
+@Composable
+private fun UnitDetails(info: List<UnitInfoEntry>, mapText: MapUnitText?) {
+    Column {
+        mapText?.replace?.let { MapMakerText("Description by the map maker", it) }
+        SourceLabel("From the game rules", top = if (mapText?.replace != null) 12.dp else 0.dp)
+        UnitInfoView(info)
+        mapText?.append?.let { MapMakerText("Note by the map maker", it, top = 12.dp) }
+    }
+}
+
+@Composable
+private fun MapMakerText(label: String, text: String, top: Dp = 0.dp) {
+    SourceLabel(label, top)
+    Text(text, style = MaterialTheme.typography.bodyMedium)
+}
+
+@Composable
+private fun SourceLabel(text: String, top: Dp) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = top, bottom = 4.dp),
+    )
 }
 
 /** Abilities: plain ones as chips, everything with a number as a two column list. */
