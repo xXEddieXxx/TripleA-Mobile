@@ -914,12 +914,10 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         val values = (0 until dice.size()).map { dice.getDie(it).value + 1 }
         val hitFlags = (0 until dice.size()).map { dice.getDie(it).type == Die.DieType.HIT }
         val hits = dice.hits
-        // the engine keeps the dice per strength ("rolled at"), which places them at the units on screen
-        val byStrength = HashMap<Int, List<Pair<Int, Boolean>>>()
-        for (strength in 0..12) {
-            val rolls = runCatching { dice.getRolls(strength) }.getOrNull().orEmpty()
-            if (rolls.isNotEmpty()) byStrength[strength] = rolls.map { (it.value + 1) to (it.type == Die.DieType.HIT) }
-        }
+        // the engine keeps the dice per strength ("rolled at"), which places them at the units on screen;
+        // any strength, as maps with more than 12 dice sides roll at higher ones
+        val byStrength = (0 until dice.size()).map { dice.getDie(it) }.filter { it.rolledAt >= 0 }
+            .groupBy({ it.rolledAt }, { (it.value + 1) to (it.type == Die.DieType.HIT) })
         val side = when {
             stepName.startsWith(current.attacker) -> current.attacker
             stepName.startsWith(current.defender) -> current.defender

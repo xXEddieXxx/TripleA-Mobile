@@ -7,6 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -648,20 +651,32 @@ private fun StrengthRow(
     }
 }
 
-/** Dice stacked in a narrow block next to the units they hit; hits first. */
+/**
+ * Dice stacked in a narrow block next to the units they hit; hits first. Beyond [MAX_STACK] dice the
+ * last row (two slots wide) says how many more there are, so the count stays right without a taller column.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DiceStack(dice: List<Pair<Int, Boolean>>, size: Int = 15) {
     if (dice.isEmpty()) return
+    val shown = if (dice.size > MAX_STACK) MAX_STACK - 2 else dice.size
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         maxItemsInEachRow = 2,
         modifier = Modifier.widthIn(max = 34.dp),
     ) {
-        dice.sortedByDescending { it.second }.take(12).forEach { (value, hit) -> Die(value, hit, size = size) }
+        dice.sortedByDescending { it.second }.take(shown).forEach { (value, hit) -> Die(value, hit, size = size) }
+        if (shown < dice.size) {
+            val rest = dice.size - shown
+            Box(Modifier.width((2 * size + 2).dp).height(size.dp).semantics { contentDescription = "$rest more dice" }, contentAlignment = Alignment.Center) {
+                Text("+$rest", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false, modifier = Modifier.clearAndSetSemantics {})
+            }
+        }
     }
 }
+
+private const val MAX_STACK = 12
 
 /** The losses of one side, round by round: "R1" and the lost units as faded icons. */
 @OptIn(ExperimentalLayoutApi::class)
