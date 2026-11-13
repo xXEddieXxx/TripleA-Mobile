@@ -35,8 +35,8 @@ the world. The desktop version has been around for many years and has a huge lib
 community made maps, from World War II to Napoleon, the Roman Empire or fantasy worlds.
 
 TripleA Mobile brings that game to Android with a touch interface: pinch to zoom, tap a
-territory to move, and let the phone do the dice rolling. No account, no ads, no in-app
-purchases.
+territory to move, and let the phone do the dice rolling. No account needed to play, no ads, no
+in-app purchases.
 
 ## Features
 
@@ -48,12 +48,25 @@ purchases.
   what the others did since your last turn, move by move. The same save file opens in the
   desktop TripleA client and vice versa, as long as both run the same engine version. To see
   which TripleA engine version the app runs, open *About* and tap the version seven times.
+- **Play by Forum**: play your games on
+  [forums.triplea-game.org](https://forums.triplea-game.org) or
+  [axisandallies.org](https://www.axisandallies.org/forums) right from the app, compatible with
+  the desktop client's forum games. Sign in with your forum account, see your games and whose turn
+  it is, read and write posts, start or join a game, and send your turn with save and summary in
+  one tap. Dice are rolled by the TripleA dice server and mailed to every player, and a
+  notification tells you when it is your turn. Stuck on a question during your turn? "Ask
+  opponent" posts it with a screenshot.
+- **Edit mode** for games on one device: add or remove units, change owners, damage, PUs,
+  technologies and relationships, like the desktop "Edit Mode".
 - **Almost 300 maps**: two maps come with the app, every other map from the TripleA map library
   can be downloaded inside the app. You can also import map zip files from your phone.
 - **Battle calculator**: before you attack, check your odds. The calculator simulates the fight
   with the real game rules and shows win chances and expected losses.
-- **Game notes and rules** for each map, territory effects, and a "How to play" guide built in.
-- **Save and load** as many games as you like.
+- **Game notes and rules** for each map, territory effects, a unit overview with the map maker's
+  unit descriptions, player statistics, and a "How to play" guide built in.
+- **Save and load** as many games as you like, and clean up old saves several at a time.
+- **Make it yours**: light or dark theme, sound themes (WW2, Classical, Preindustrial, Future),
+  map quality and screen orientation in the settings.
 
 ## Getting started
 
@@ -68,6 +81,8 @@ purchases.
    rules of that scenario.
 4. **More maps.** Open the *Map browser*, search or filter, and tap *Download*. Maps are
    downloaded straight from the TripleA map library on GitHub.
+5. **Play online.** Tap *Play by Forum* and sign in with your forum account. Before your first
+   forum game, register your email at the dice server (the app links to its page).
 
 There are two downloads. The **release** is the version to play: tested, signed, and updated
 every few weeks with a changelog on the
@@ -79,7 +94,8 @@ played, which version (see *About*) and what happened.
 
 ## What is not in the app (yet)
 
-- No online multiplayer, no lobby, no play-by-email. Everything happens on your phone.
+- No live online multiplayer and no lobby; play together on one phone, by save file or by forum.
+  Play by email is not supported either.
 - The optional rules (technology, repairs, scramble, kamikaze, random start) got their screens
   only recently and have seen less play testing than the rest. See the
   [development notes](docs/DEVELOPMENT.md#known-gaps) for what is still missing.
