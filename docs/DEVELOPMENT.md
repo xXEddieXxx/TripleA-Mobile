@@ -32,6 +32,9 @@ Notable changes compared to the desktop engine:
 - `MapData.getTerritoryAt` takes a filter for the current game's territory names: a map folder
   shared by several games (world_at_war) has polygons of other games on top of this game's ones,
   which otherwise swallow the tap ("Lower Burma" over "Burma").
+- `AbstractAi.movePause` / `combatStepPause` skip the pause while a hidden nation (map
+  `isHidden`) plays its own step; desktop pauses for them too, which held 11_rings' helper
+  nation `none` for about two minutes before the first human turn.
 - Small fixes for SonarQube findings, each marked with a `// mobile:` comment: `Integer.compare`
   in comparators, a mutable copy in `FinishedBattle.unitsLostInPrecedingBattle` and
   `ProBattleUtils`, `BigDecimal.compareTo` in `MovableUnitsFilter`, linear regexes in

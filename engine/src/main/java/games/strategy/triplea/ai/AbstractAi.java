@@ -492,8 +492,21 @@ public abstract class AbstractAi extends AbstractBasePlayer {
     return dice;
   }
 
+  /** Mobile: true while a hidden nation (map isHidden) plays its step; nobody watches it, so no pauses. */
+  private static final ThreadLocal<Boolean> hiddenStep = ThreadLocal.withInitial(() -> false);
+
   @Override
   public final void start(final String name) {
+    // mobile: wrapped so the move and combat pauses are skipped for hidden nations
+    hiddenStep.set(getGamePlayer().isHidden());
+    try {
+      startStep(name);
+    } finally {
+      hiddenStep.remove();
+    }
+  }
+
+  private void startStep(final String name) {
     super.start(name);
     final GamePlayer gamePlayer = this.getGamePlayer();
     if (GameStep.isBidStepName(name)) {
@@ -702,12 +715,16 @@ public abstract class AbstractAi extends AbstractBasePlayer {
 
   /** Pause the game to allow the human player to see what is going on. */
   public static void movePause() {
-    Interruptibles.sleep(ClientSetting.aiMovePauseDuration.getValueOrThrow());
+    if (!hiddenStep.get()) { // mobile: not for hidden nations
+      Interruptibles.sleep(ClientSetting.aiMovePauseDuration.getValueOrThrow());
+    }
   }
 
   /** Pause the combat to allow the human player to see what is going on. */
   public static void combatStepPause() {
-    Interruptibles.sleep(ClientSetting.aiCombatStepPauseDuration.getValueOrThrow());
+    if (!hiddenStep.get()) { // mobile: not for hidden nations
+      Interruptibles.sleep(ClientSetting.aiCombatStepPauseDuration.getValueOrThrow());
+    }
   }
 
   @Override
