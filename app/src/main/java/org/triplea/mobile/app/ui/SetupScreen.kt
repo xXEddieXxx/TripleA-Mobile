@@ -138,9 +138,27 @@ fun SetupScreen(
             emptyMap()
         }
         val anyRemembered = remembered.values.any { it != null }
-        data.playerList.players.forEachIndexed { index, player ->
-            kinds[player.name] = remembered[player.name]
-                ?: if (forumGame || (index == 0 && !anyRemembered)) PlayerKind.HUMAN else defaultAi
+        // like desktop PlayerSelectorRow: a map's defaultType presets the seats
+        val shown = data.playerList.players.filterNot { it.isHidden }
+        val mapSetsTypes = shown.any { it.isDefaultTypeAi || it.isDefaultTypeDoesNothing }
+        data.playerList.players.forEach { player ->
+            val mapDefault = when {
+                player.isDefaultTypeAi -> defaultAi
+                player.isDefaultTypeDoesNothing -> PlayerKind.AI_NONE
+                else -> PlayerKind.HUMAN
+            }
+            val saved = remembered[player.name]
+            // a hidden nation has no row to change it: one the map makes AI stays AI, even if an older save made it Human
+            kinds[player.name] = when {
+                player.isHidden && mapDefault != PlayerKind.HUMAN -> saved?.takeIf { it != PlayerKind.HUMAN } ?: mapDefault
+                player.isHidden -> saved ?: defaultAi
+                else -> saved ?: when {
+                    forumGame -> PlayerKind.HUMAN
+                    mapSetsTypes -> mapDefault
+                    player == shown.firstOrNull() && !anyRemembered -> PlayerKind.HUMAN
+                    else -> defaultAi
+                }
+            }
         }
         if (forumGame) {
             threadTitle = data.gameName
@@ -207,9 +225,13 @@ fun SetupScreen(
             }
         } else {
             val data = gameData!!
+            // hidden helper nations (map isHidden) are not offered, as on desktop
+            val shown = remember(data) { data.playerList.players.filterNot { it.isHidden } }
             val alliances = remember(data) {
                 runCatching {
-                    data.allianceTracker.alliances.sorted().map { name -> name to data.allianceTracker.getPlayersInAlliance(name).map { it.name } }
+                    data.allianceTracker.alliances.sorted()
+                        .map { name -> name to data.allianceTracker.getPlayersInAlliance(name).filterNot { it.isHidden }.map { it.name } }
+                        .filter { it.second.isNotEmpty() }
                 }.getOrDefault(emptyList())
             }
             // one line of chips: everyone or an alliance at once
@@ -218,7 +240,7 @@ fun SetupScreen(
                 verticalArrangement = Arrangement.spacedBy(0.dp),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
             ) {
-                QuickPick("All") { kind -> data.playerList.players.forEach { kinds[it.name] = kind } }
+                QuickPick("All") { kind -> shown.forEach { kinds[it.name] = kind } }
                 alliances.forEach { (name, members) -> QuickPick(name) { kind -> members.forEach { kinds[it] = kind } } }
             }
             // the nations grouped by their alliance, so it is clear who fights with whom
@@ -226,10 +248,10 @@ fun SetupScreen(
                 val placed = HashSet<String>()
                 val result = ArrayList<Pair<String, List<games.strategy.engine.data.GamePlayer>>>()
                 alliances.forEach { (name, members) ->
-                    val players = data.playerList.players.filter { it.name in members && placed.add(it.name) }
+                    val players = shown.filter { it.name in members && placed.add(it.name) }
                     if (players.isNotEmpty()) result += name to players
                 }
-                val rest = data.playerList.players.filter { it.name !in placed }
+                val rest = shown.filter { it.name !in placed }
                 if (rest.isNotEmpty()) result += (if (result.isEmpty()) "" else "No alliance") to rest
                 result
             }

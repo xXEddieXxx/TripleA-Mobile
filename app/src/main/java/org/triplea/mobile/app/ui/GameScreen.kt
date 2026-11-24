@@ -1693,7 +1693,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit, onOpenForum: (GameThread) -> kotlin.Un
     editPlayerTool?.let { (tool, player) ->
         EditPlayerDialog(tool, session, player, images) { error -> editPlayerTool = null; error?.let(::toast) }
     }
-    messageDialog?.let { MessageDialog(it.title, it.text) { messageDialog = null } }
+    messageDialog?.let { MessageDialog(it.title, it.text, it.images) { messageDialog = null } }
     if (showMoves) {
         MovesDialog(
             title = if (pending is PlaceRequest) "Placements this phase" else "Moves this phase",

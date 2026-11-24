@@ -42,7 +42,7 @@ public class MobileDisplay implements IDisplay {
       final Collection<GamePlayer> butNotThesePlayers,
       final String message,
       final String title) {
-    listener.message(title, message);
+    listener.messageToPlayers(playersToSendTo, butNotThesePlayers, title, message);
   }
 
   @Override

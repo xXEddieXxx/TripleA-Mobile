@@ -20,6 +20,19 @@ public interface GameEventListener {
 
   default void message(final String title, final String message) {}
 
+  /**
+   * A message for some nations only (map notifications, battle and politics reports); desktop shows
+   * it only to the people playing one of {@code playersToSendTo} and none of {@code
+   * butNotThesePlayers}.
+   */
+  default void messageToPlayers(
+      final Collection<GamePlayer> playersToSendTo,
+      final Collection<GamePlayer> butNotThesePlayers,
+      final String title,
+      final String message) {
+    message(title, message);
+  }
+
   default void gameEnded(final String message) {}
 
   default void gameStepChanged(

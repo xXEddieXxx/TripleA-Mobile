@@ -61,6 +61,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.produceState
+import android.graphics.BitmapFactory
+import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -1270,14 +1279,36 @@ fun SaveGameDialog(defaultName: String, onSave: (String) -> kotlin.Unit, onCance
 }
 
 @Composable
-fun MessageDialog(title: String, text: String, onDismiss: () -> kotlin.Unit) {
+fun MessageDialog(title: String, text: String, images: List<Path> = emptyList(), onDismiss: () -> kotlin.Unit) {
     AppDialog(
         title = title,
         onDismiss = onDismiss,
         buttons = {},
     ) {
-        Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.verticalScroll(rememberScrollState()))
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            images.forEach { MessagePicture(it) }
+            if (text.isNotBlank()) Text(text, style = MaterialTheme.typography.bodyLarge)
+        }
     }
+}
+
+/** A picture of a map notification, as wide as the dialog; nothing while it loads or when it cannot be decoded. */
+@Composable
+private fun MessagePicture(path: Path) {
+    val picture by produceState<ImageBitmap?>(null, path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(path.toString(), bounds)
+                var sample = 1
+                // halve until the longer side fits, so a very tall picture cannot run out of memory
+                while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2048) sample *= 2
+                BitmapFactory.decodeFile(path.toString(), BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    // a small inline icon stays small, a large picture fills the dialog
+    picture?.let { Image(it, contentDescription = null, modifier = Modifier.widthIn(max = it.width.dp).fillMaxWidth().aspectRatio(it.width.toFloat() / it.height), contentScale = ContentScale.Fit) }
 }
 
 fun IBattle.BattleType.label(): String = toDisplayText()

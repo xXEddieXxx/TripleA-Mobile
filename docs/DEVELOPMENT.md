@@ -312,6 +312,10 @@ political relationships. It also lets the player move own units freely, without 
 - Unit texts from a map's `tooltips.properties` (`Dialogs.kt`, `mapUnitText`) are shown as plain
   text without HTML or images. Unlike desktop, a replacing `tooltip.unit.<type>` text does not
   hide the abilities read from the rules: both are shown, each under a heading naming its source.
+- Map notifications and other engine messages (`GameController.message`, `MessageDialog`) show as
+  plain text with the map's `doc/images` pictures of their `<img>` tags above it, not in line;
+  web images are left out. As on desktop, a message for certain nations only shows when a person
+  on this device plays one of them.
 - Play by Forum covers forums.triplea-game.org and www.axisandallies.org/forums (no other NodeBB
   forum). www.axisandallies.org's Cloudflare bot protection challenges every request without the
   `nbb_human=1` cookie of its nodebb-plugin-proof-of-life (403, `Cf-Mitigated: challenge`), so

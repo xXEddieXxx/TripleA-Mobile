@@ -155,7 +155,7 @@ data class ManualForumPost(
 }
 
 /** Non-blocking notifications for the user (errors, messages from the engine). */
-data class UiMessage(val title: String, val text: String, val isError: Boolean = false)
+data class UiMessage(val title: String, val text: String, val isError: Boolean = false, val images: List<Path> = emptyList())
 
 /**
  * Owns the running game and bridges the engine's blocking questions to the Compose UI. The engine
@@ -541,9 +541,7 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
         _messages.tryEmit(UiMessage("Error", error, isError = true))
     }
 
-    override fun notifyMessage(message: String, title: String) {
-        _messages.tryEmit(UiMessage(stripHtml(title), stripHtml(message)))
-    }
+    override fun notifyMessage(message: String, title: String) = message(title, message)
 
     override fun confirm(title: String, question: String): Boolean =
         ask(ConfirmRequest(title, question))
@@ -800,7 +798,35 @@ object GameController : HumanPlayerUiAdapter(), GameEventListener {
     // ---- GameEventListener ---------------------------------------------------------------------
 
     override fun message(title: String, message: String) {
-        _messages.tryEmit(UiMessage(stripHtml(title), stripHtml(message)))
+        val text = stripHtml(message)
+        val images = mapImages(message)
+        // a message of only web or missing pictures would open an empty dialog
+        if (text.isBlank() && images.isEmpty() && imgSrc.containsMatchIn(message)) return
+        _messages.tryEmit(UiMessage(stripHtml(title), text, images = images))
+    }
+
+    /** Like desktop TripleADisplay: only for a nation a person plays on this device, and for none of [butNotThesePlayers]. */
+    override fun messageToPlayers(
+        playersToSendTo: Collection<GamePlayer>?,
+        butNotThesePlayers: Collection<GamePlayer>?,
+        title: String,
+        message: String,
+    ) {
+        if (butNotThesePlayers.orEmpty().any(::isHuman) || playersToSendTo.orEmpty().none(::isHuman)) return
+        message(title, message)
+    }
+
+    private val imgSrc = Regex("""<img[^>]*src\s*=\s*(?:"([^"]+)"|'([^']+)')""", RegexOption.IGNORE_CASE)
+
+    /** The map pictures of a message's `<img>` tags, found in the map's doc/images like desktop LocalizeHtml; web links are left out. */
+    private fun mapImages(html: String): List<Path> {
+        val loader = session?.resourceLoader ?: return emptyList()
+        return imgSrc.findAll(html)
+            .map { it.groupValues[1].ifEmpty { it.groupValues[2] } }
+            // web/data links (any scheme) and nothing outside the map folder
+            .filterNot { ':' in it || it.startsWith("/") || it.split('/', '\\').contains("..") }
+            .mapNotNull { loader.optionalResource("doc/images/$it").orElse(null) }
+            .toList()
     }
 
     override fun gameEnded(message: String) {
