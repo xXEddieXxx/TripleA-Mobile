@@ -126,9 +126,20 @@ class HistoryBlock(val round: Int, val title: String, val player: String, val ev
 /** The relationship between two nations, e.g. Germans - Russians: War. */
 class RelationshipLine(val player1: String, val player2: String, val type: String, val war: Boolean, val allied: Boolean)
 
+/**
+ * The nation's stock of every resource the map shows it, as desktop's resource bar does
+ * ("30 PUs  ·  12 Fuel"): victory points and resources meant for other nations are left out.
+ * Call under the game data read lock.
+ */
+fun resourceSummary(player: GamePlayer, data: GameData): String =
+    data.resourceList.resources
+        .filter { it.name != Constants.VPS && it.isDisplayedFor(player) }
+        .joinToString("  ·  ") { "${player.resources.getQuantity(it)} ${it.name}" }
+
 /** One row of the statistics table: the desktop client's "Stats" tab. */
 class PlayerStats(
     val name: String,
+    /** [resourceSummary] on maps with more than PUs (oil, fuel, ...), else empty: the PUs column says it all. */
     val resources: String,
     val pus: Int,
     val production: Int,
@@ -651,7 +662,14 @@ class MapSnapshot(
                 val units = unitsByOwner[player.name] ?: emptyList<Unit>()
                 PlayerStats(
                     name = player.name,
-                    resources = player.resources.toString(),
+                    // only where this nation sees more than PUs: the PUs column says the rest
+                    resources = runCatching {
+                        if (gameData.resourceList.resources.count { it.name != Constants.VPS && it.isDisplayedFor(player) } > 1) {
+                            resourceSummary(player, gameData)
+                        } else {
+                            ""
+                        }
+                    }.getOrDefault(""),
                     pus = runCatching { player.resources.getQuantity("PUs") }.getOrDefault(0),
                     production = production[player.name] ?: 0,
                     territories = territoryCount[player.name] ?: 0,

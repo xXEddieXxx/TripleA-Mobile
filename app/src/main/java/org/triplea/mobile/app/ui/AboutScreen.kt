@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import org.triplea.config.product.ProductVersionReader
 import org.triplea.mobile.app.R
+import org.triplea.mobile.app.update.UpdateSection
 
 const val SOURCE_URL = "https://github.com/xXEddieXxx/TripleA-Mobile"
 private const val UPSTREAM_URL = "https://github.com/triplea-game/triplea"
@@ -118,6 +119,10 @@ fun AboutScreen(onBack: () -> Unit) {
                         val engine = remember { runCatching { ProductVersionReader.getCurrentVersion() }.getOrNull() ?: "?" }
                         Pill("Engine $engine", Modifier.padding(top = 8.dp))
                     }
+                }
+
+                Group("Updates") {
+                    UpdateSection()
                 }
 
                 Group("Links") {

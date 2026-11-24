@@ -90,6 +90,8 @@ android {
             )
         }
     }
+    // plain JVM tests of app logic that needs no Android (./gradlew :app:testDebugUnitTest)
+    testOptions.unitTests.all { it.useJUnitPlatform() }
 }
 
 dependencies {
@@ -118,4 +120,8 @@ dependencies {
     implementation(libs.slf4j.simple)
 
     debugImplementation(libs.compose.ui.tooling)
+
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.org.json)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

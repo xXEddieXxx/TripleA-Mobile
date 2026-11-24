@@ -18,6 +18,9 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -226,7 +229,10 @@ fun MapView(
     largeTouchTargets: Boolean = false,
 ) {
     val imageVersion by images.version.collectAsState()
-    val hasRelief = remember(mapData) { mapData.hasRelief }
+    // a relief layer that only repeats the base map would hide the owner colours (argomidweight)
+    val hasRelief by produceState(false, mapData, images) {
+        value = mapData.hasRelief && withContext(Dispatchers.IO) { !images.reliefCopiesBase }
+    }
     val mapDimensions = remember(mapData) { mapData.mapDimensions }
     val unitWidth = remember(mapData, unitScale) {
         (mapData.defaultUnitWidth * mapData.defaultUnitScale).toFloat().coerceAtLeast(8f) * unitScale

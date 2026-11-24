@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- What the FileProvider may hand to other apps: only the save games. -->
+<!-- What the FileProvider may hand to other apps: the save games and a downloaded app update (to the system installer). -->
 <paths>
     <files-path name="saves" path="triplea/savedGames/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

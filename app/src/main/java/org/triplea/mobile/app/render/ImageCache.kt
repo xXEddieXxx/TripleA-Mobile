@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import games.strategy.triplea.ResourceLoader
+import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -49,6 +50,23 @@ class ImageCache(private val loader: ResourceLoader) {
 
     /** True once a decode attempt found no file for [key]; such tiles are simply not drawn. */
     fun isMissing(key: String): Boolean = missing.contains(key)
+
+    /**
+     * True when the relief tiles are byte-identical copies of the base tiles (argomidweight ships
+     * them so): drawn over the owner colours, an opaque copy turns every territory white and adds
+     * nothing. Compares a few tiles along the diagonal, once per map; reads files, so ask off the UI thread.
+     */
+    val reliefCopiesBase: Boolean by lazy {
+        val pairs = (0 until 8).mapNotNull { i ->
+            val base = loader.optionalResource("baseTiles/${i}_$i.png").orElse(null) ?: return@mapNotNull null
+            val relief = loader.optionalResource("reliefTiles/${i}_$i.png").orElse(null) ?: return@mapNotNull null
+            base to relief
+        }
+        pairs.isNotEmpty() && pairs.all { (base, relief) ->
+            runCatching { Files.size(base) == Files.size(relief) && Files.readAllBytes(base).contentEquals(Files.readAllBytes(relief)) }
+                .getOrDefault(false)
+        }
+    }
 
     /**
      * Returns the image if it is already decoded, otherwise starts decoding and returns null.

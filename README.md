@@ -74,6 +74,9 @@ in-app purchases.
    will ask you to allow installs from this source, since the app is not in the Play Store yet.
    Android 10 or newer is required. New releases install over the old one; a **release** and a
    **dev build** cannot replace each other, so uninstall one before switching to the other.
+   The app looks for a newer version of its own kind once a day and offers it on the start
+   screen; *Update* fetches it and opens the Android installer, *What's new* lists the changes
+   (switch the check off in *Settings*).
 2. **Start a game.** Tap *New game*, pick a map and decide for every nation whether a human or
    the computer plays it.
 3. **Learn the ropes.** The *How to play* screen in the app explains the phases of a turn:

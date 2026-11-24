@@ -36,6 +36,7 @@ import org.triplea.mobile.app.AppSettings
 import org.triplea.mobile.app.ThemeMode
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.MapQuality
+import org.triplea.mobile.app.update.AppUpdater
 
 /** The settings screen, reachable from the main menu and (as a dialog) from a running game. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -286,6 +287,16 @@ private fun SettingsContent(modifier: Modifier = Modifier) {
             "Prevents the display from sleeping while the game screen is open.",
             settings.keepScreenOn,
         ) { v -> AppSettings.update { it.copy(keepScreenOn = v) } }
+        Section("App")
+        SwitchRow(
+            "Check for updates",
+            "Once a day, ask GitHub whether a newer version of the app is out and offer it on the start screen. About can always check by hand.",
+            settings.checkForUpdates,
+        ) { v ->
+            AppSettings.update { it.copy(checkForUpdates = v) }
+            // switched on: look now (at most once a day, as on the start screen)
+            if (v) AppUpdater.check()
+        }
     }
 }
 

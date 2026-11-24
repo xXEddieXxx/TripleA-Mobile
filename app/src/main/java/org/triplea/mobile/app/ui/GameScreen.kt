@@ -179,6 +179,7 @@ import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppSettings
 import org.triplea.mobile.app.OrientationMode
 import org.triplea.mobile.app.game.BattleRequest
+import org.triplea.mobile.app.game.resourceSummary
 import org.triplea.mobile.app.game.DiceFailedRequest
 import androidx.compose.ui.platform.LocalContext
 import org.triplea.mobile.app.game.ForumTurnRequest
@@ -977,7 +978,7 @@ fun GameScreen(onQuit: () -> kotlin.Unit, onOpenForum: (GameThread) -> kotlin.Un
     val resourceLine = remember(status.playerName, snapshot) {
         runCatching {
             session.gameData.acquireReadLock().use {
-                session.gameData.playerList.getPlayerId(status.playerName)?.resources?.toString()
+                session.gameData.playerList.getPlayerId(status.playerName)?.let { resourceSummary(it, session.gameData) }
             }
         }.getOrNull().orEmpty()
     }

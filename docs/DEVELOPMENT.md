@@ -139,6 +139,7 @@ is building: both write to the same `build/` folders and the outputs end up inco
 ```powershell
 $env:JAVA_HOME = "C:\dev\tools\jdk-17"
 .\gradlew :engine:test            # engine unit/smoke tests (JVM)
+.\gradlew :app:testDebugUnitTest  # app logic without Android (app/src/test, e.g. AppUpdaterTest; CI runs it too)
 .\gradlew :app:assembleDebug      # APK in app\build\outputs\apk\debug\
 .\gradlew :app:installDebug       # install on a connected device / emulator
 ```
@@ -250,8 +251,25 @@ own debug builds install over the GitHub dev builds too.
 - The app asks for no permissions beyond INTERNET, VIBRATE, POST_NOTIFICATIONS,
   RECEIVE_BOOT_COMPLETED (the forum's "your turn" check survives a restart) and
   ACCESS_NETWORK_STATE (JobScheduler refuses a job that waits for a network without it; on
-  Android 16 a missing one crashed the app at start once signed in) and stores
-  everything in its private app folder.
+  Android 16 a missing one crashed the app at start once signed in) and
+  REQUEST_INSTALL_PACKAGES (in-app updates, below), and stores everything in its private app
+  folder.
+- In-app updates (`update/AppUpdater`): at most once a day (switch in Settings, button on About)
+  the app asks the GitHub API (`api.github.com/repos/xXEddieXxx/TripleA-Mobile/releases`,
+  unauthenticated, nothing about the user is sent) for the newest build of its own channel:
+  `releases/latest` (`triplea-mobile.apk`, version from the tag) for release builds,
+  `releases/tags/dev` (the dated asset with the same checksum as `triplea-mobile-dev.apk`: its
+  name is the version, and a later push does not replace it, so `android.yml` uses one date for
+  the version and the file name) for `dev-…` builds, a dev build of a later day only (all dev builds share one
+  versionCode); `0.0.0-local` builds never check. An asset without a SHA-256 `digest` is not
+  offered. The APK is downloaded over HTTPS with the map download code, must match the asset's
+  size and digest, and is handed to the system installer through the FileProvider
+  (`cache/updates/`, one file per version, written as `.part` until checked, removed when the
+  app is up to date). *What's new* lists the commit titles between the installed and the offered
+  version from the compare API (`compare/v0.4.0...v0.4.2`, or the two dev commits), without
+  merges and `ci`/`docs`/`chore`/... housekeeping; `feat:` shows as New, `fix:` as Fixed. Commit
+  titles are therefore what players read. A failed check retries after an hour.
+  Android installs it only when it is signed with the installed app's key.
 - Post pictures load over https only; the session cookie goes with forum-hosted pictures only.
   The Markdown preview escapes the player's text before it adds its own tags.
 - Play by Forum: each forum's session cookie is stored encrypted (Android Keystore AES-GCM),
@@ -312,6 +330,9 @@ political relationships. It also lets the player move own units freely, without 
   engine may still fail to load on the other side.
 - Maps that switch territory effect markers off in `map.properties` show their effects only in
   the zone panel, as the desktop client does.
+- A relief layer whose tiles are byte-identical copies of the base tiles (argomidweight) is not
+  drawn (`ImageCache.reliefCopiesBase`, a few diagonal tiles compared): drawn above the owner
+  colours as desktop does, the opaque copy would paint every territory white.
 - Unit texts from a map's `tooltips.properties` (`Dialogs.kt`, `mapUnitText`) are shown as plain
   text without HTML or images. Unlike desktop, a replacing `tooltip.unit.<type>` text does not
   hide the abilities read from the rules: both are shown, each under a heading naming its source.

@@ -63,15 +63,17 @@ jobs:
             echo "fixed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Engine tests
+      - name: Engine and app tests
         run: |
           chmod +x gradlew
-          ./gradlew :engine:test --no-daemon
+          ./gradlew :engine:test :app:testDebugUnitTest --no-daemon
 
       - name: Build debug APK
         run: |
           SHORT=$(git rev-parse --short HEAD)
           DATE=$(date -u +%Y%m%d)
+          # one date for the version and the file name: the in-app updater compares the two
+          echo "BUILD_DATE=$DATE" >> "$GITHUB_ENV"
           # the version shown under "About": dev builds carry their date and commit
           ./gradlew :app:assembleDebug --no-daemon -PAPP_VERSION="dev-${DATE}-${SHORT}"
 
@@ -79,8 +81,7 @@ jobs:
         id: name
         run: |
           SHORT=$(git rev-parse --short HEAD)
-          DATE=$(date -u +%Y%m%d)
-          FILE="triplea-mobile-dev-${DATE}-${SHORT}.apk"
+          FILE="triplea-mobile-dev-${BUILD_DATE}-${SHORT}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$FILE"
           # a second copy with a fixed name, so the README can link the newest build directly
           cp app/build/outputs/apk/debug/app-debug.apk triplea-mobile-dev.apk

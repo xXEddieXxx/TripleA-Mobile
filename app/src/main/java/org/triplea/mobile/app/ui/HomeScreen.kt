@@ -39,6 +39,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.triplea.mobile.MobileEngine
 import org.triplea.mobile.app.AppServices
+import org.triplea.mobile.app.update.AppUpdater
+import org.triplea.mobile.app.update.UpdateCard
 
 @Composable
 fun HomeScreen(
@@ -57,6 +59,7 @@ fun HomeScreen(
         AppServices.installBundledContent()
         saves = withContext(Dispatchers.IO) { MobileEngine.listSaveGames() }
         ready = true
+        AppUpdater.check()
     }
 
     // centred while it fits, scrollable when it does not (landscape)
@@ -81,6 +84,7 @@ fun HomeScreen(
                 Text("Preparing maps...", modifier = Modifier.padding(top = 12.dp))
                 return@Column
             }
+            UpdateCard(Modifier.padding(bottom = 16.dp))
             Button(onClick = onNewGame, modifier = Modifier.fillMaxWidth()) { Text("New game") }
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onLoadGames, modifier = Modifier.fillMaxWidth()) {

@@ -506,6 +506,24 @@ internal fun StatsTable(stats: List<PlayerStats>, showVictoryCities: Boolean, cu
             if (showVictoryCities) Cell(row.victoryCities.toString(), bold)
         }
     }
+    // every nation's stock on maps with more than PUs (oil, fuel, ...): too many for columns
+    val stocks = stats.filter { !it.alliance && it.resources.isNotBlank() }
+    if (stocks.isNotEmpty()) {
+        Text(
+            "Resources",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+        )
+        HorizontalDivider()
+        stocks.forEach { row ->
+            val bold = row.name == currentPlayer
+            Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(row.name, style = cell, fontWeight = if (bold) FontWeight.Bold else null)
+                Text(row.resources, style = MaterialTheme.typography.bodySmall, fontWeight = if (bold) FontWeight.Bold else null)
+            }
+        }
+    }
     // the technologies each nation has researched, as the desktop's tech panel shows them
     val researched = stats.filter { it.technologies.isNotEmpty() }
     if (researched.isNotEmpty()) {
@@ -787,7 +805,7 @@ internal fun PlayerHeader(
     playerColor: androidx.compose.ui.graphics.Color?,
     separator: String,
     large: Boolean = false,
-    /** Only flag, nation and round; step and resources live elsewhere on the phone layout. */
+    /** Flag and nation, then round and resources sharing one line; the step lives elsewhere on the phone layout. */
     compact: Boolean = false,
     onFlagTap: (() -> kotlin.Unit)? = null,
 ) {
@@ -821,7 +839,14 @@ internal fun PlayerHeader(
             )
             if (compact) {
                 if (status.round > 0) {
-                    Text("Round ${status.round}", style = MaterialTheme.typography.labelMedium, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f))
+                    // the resources ride along, as on desktop's resource bar; the Turn tab has them in full
+                    Text(
+                        listOf("Round ${status.round}", resourceLine).filter { it.isNotBlank() }.joinToString(separator),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically) {
                 if (status.stepName.isNotBlank()) {
@@ -829,11 +854,15 @@ internal fun PlayerHeader(
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
-                    listOf(status.stepDisplayName, resourceLine).filter { it.isNotBlank() }.joinToString(separator),
+                    status.stepDisplayName,
                     style = if (large) MaterialTheme.typography.bodySmall else MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            // a line of its own that may wrap: maps with oil, fuel, ... list several resources
+            if (!compact && resourceLine.isNotBlank()) {
+                Text(resourceLine, style = if (large) MaterialTheme.typography.bodySmall else MaterialTheme.typography.labelMedium)
             }
         }
     }

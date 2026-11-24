@@ -369,7 +369,8 @@ object MapDownloadManager {
         }
     }
 
-    private suspend fun downloadFile(url: String, target: Path, expectedSize: Long?, onProgress: (Long, Long?) -> Unit) {
+    /** Also used by [org.triplea.mobile.app.update.AppUpdater] for the APK download. */
+    internal suspend fun downloadFile(url: String, target: Path, expectedSize: Long?, onProgress: (Long, Long?) -> Unit) {
         val connection = openConnection(url)
         try {
             // GitHub archives are streamed without a length; the listing knows the size
@@ -429,7 +430,7 @@ object MapDownloadManager {
         throw IOException("Too many redirects for $url")
     }
 
-    private fun fetchText(url: String): String {
+    internal fun fetchText(url: String): String {
         val connection = openConnection(url)
         try {
             return connection.inputStream.use { String(it.readBytes(), Charsets.UTF_8) }
